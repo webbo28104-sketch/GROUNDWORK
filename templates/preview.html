@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Groundwork — Your Preview</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@300;400;600&family=Barlow+Condensed:wght@600;700&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --navy: #0d1b2a;
+      --navy-mid: #162436;
+      --amber: #D4820A;
+      --amber-hover: #b8700a;
+      --text: #e8e8e8;
+      --muted: #8a9bb0;
+      --bar-height: 56px;
+    }
+
+    body {
+      background: var(--navy);
+      color: var(--text);
+      font-family: 'Barlow', sans-serif;
+      font-weight: 300;
+      min-height: 100vh;
+    }
+
+    /* ── Sticky claim bar ── */
+    #claim-bar {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      height: var(--bar-height);
+      background: var(--navy-mid);
+      border-bottom: 1px solid rgba(212, 130, 10, 0.25);
+      z-index: 1000;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 24px;
+      gap: 16px;
+    }
+
+    #claim-bar.visible { display: flex; }
+
+    .claim-bar-text {
+      font-size: 0.82rem;
+      color: var(--muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .claim-bar-text strong { color: var(--text); }
+
+    .claim-bar-actions {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-shrink: 0;
+    }
+
+    .btn-claim {
+      background: var(--amber);
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      padding: 8px 18px;
+      font-family: 'Barlow Condensed', sans-serif;
+      font-weight: 600;
+      font-size: 0.9rem;
+      letter-spacing: 0.04em;
+      cursor: pointer;
+      text-decoration: none;
+      white-space: nowrap;
+      transition: background 0.15s;
+    }
+
+    .btn-claim:hover { background: var(--amber-hover); }
+
+    .claim-refine {
+      font-size: 0.78rem;
+      color: var(--muted);
+      text-decoration: none;
+      white-space: nowrap;
+    }
+
+    .claim-refine:hover { color: var(--text); }
+
+    /* ── Loading screen ── */
+    #loading-screen {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 40px 24px;
+      text-align: center;
+    }
+
+    .gw-wordmark {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-weight: 700;
+      font-size: 2rem;
+      letter-spacing: 0.12em;
+      color: var(--amber);
+      margin-bottom: 48px;
+      text-transform: uppercase;
+    }
+
+    .gw-wordmark span {
+      color: var(--text);
+      opacity: 0.6;
+    }
+
+    .progress-track {
+      width: 320px;
+      max-width: 90vw;
+      height: 3px;
+      background: rgba(255,255,255,0.08);
+      border-radius: 2px;
+      overflow: hidden;
+      margin-bottom: 20px;
+    }
+
+    #progress-bar {
+      height: 100%;
+      width: 0%;
+      background: var(--amber);
+      border-radius: 2px;
+      transition: width 0.4s ease;
+    }
+
+    #phase-label {
+      font-size: 0.78rem;
+      color: var(--muted);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      min-height: 1.2em;
+    }
+
+    /* ── Error state ── */
+    #error-screen {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 40px 24px;
+      text-align: center;
+      gap: 16px;
+    }
+
+    #error-screen p {
+      color: var(--muted);
+      font-size: 0.9rem;
+      max-width: 360px;
+    }
+
+    .btn-retry {
+      background: var(--amber);
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      padding: 10px 24px;
+      font-family: 'Barlow Condensed', sans-serif;
+      font-weight: 600;
+      font-size: 0.95rem;
+      letter-spacing: 0.04em;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    .btn-retry:hover { background: var(--amber-hover); }
+
+    /* ── Preview iframe ── */
+    #preview-wrap {
+      display: none;
+      padding-top: var(--bar-height);
+    }
+
+    #preview-wrap.visible { display: block; }
+
+    #preview-frame {
+      width: 100%;
+      height: calc(100vh - var(--bar-height));
+      border: none;
+      display: block;
+      background: #fff;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Claim bar (shown after preview loads) -->
+  <div id="claim-bar">
+    <p class="claim-bar-text">
+      <strong>This is your free preview</strong> — claim your site and go live this week.
+    </p>
+    <div class="claim-bar-actions">
+      <a href="/signup/plan" class="btn-claim">Claim your site →</a>
+      <a href="#" class="claim-refine">Not quite right? We'll refine it once you're set up.</a>
+    </div>
+  </div>
+
+  <!-- Loading screen -->
+  <div id="loading-screen">
+    <div class="gw-wordmark">Ground<span>work</span></div>
+    <div class="progress-track">
+      <div id="progress-bar"></div>
+    </div>
+    <div id="phase-label">Starting up…</div>
+  </div>
+
+  <!-- Error screen -->
+  <div id="error-screen">
+    <div class="gw-wordmark">Ground<span>work</span></div>
+    <p>Something went wrong generating your preview. It happens occasionally — give it another go.</p>
+    <button class="btn-retry" id="retry-btn">Try again</button>
+  </div>
+
+  <!-- Preview iframe (hidden until done) -->
+  <div id="preview-wrap">
+    <iframe id="preview-frame" title="Your Groundwork preview"></iframe>
+  </div>
+
+  <script>
+    const USER_ID  = {{ user_id }};
+    const HAS_LOGO = {{ has_logo | tojson }};
+
+    const loadingScreen = document.getElementById('loading-screen');
+    const errorScreen   = document.getElementById('error-screen');
+    const previewWrap   = document.getElementById('preview-wrap');
+    const claimBar      = document.getElementById('claim-bar');
+    const bar           = document.getElementById('progress-bar');
+    const label         = document.getElementById('phase-label');
+    const frame         = document.getElementById('preview-frame');
+    const retryBtn      = document.getElementById('retry-btn');
+
+    let pollInterval = null;
+    let progressInterval = null;
+    let startTime = null;
+
+    function startProgressAnimation() {
+      startTime = Date.now();
+      const divisor = HAS_LOGO ? 130 : 90;
+
+      progressInterval = setInterval(() => {
+        const elapsed = (Date.now() - startTime) / 1000;
+        const progress = 95 * (1 - Math.exp(-elapsed / divisor));
+        bar.style.width = progress + '%';
+
+        if (elapsed < 10) {
+          label.textContent = 'Searching for your business…';
+        } else if (elapsed < 30) {
+          label.textContent = 'Building your website…';
+        } else {
+          label.textContent = 'Putting the finishing touches on…';
+        }
+      }, 100);
+    }
+
+    function stopProgress() {
+      clearInterval(progressInterval);
+      clearInterval(pollInterval);
+    }
+
+    function showError() {
+      stopProgress();
+      loadingScreen.style.display = 'none';
+      errorScreen.style.display   = 'flex';
+    }
+
+    function showPreview(previewUrl) {
+      stopProgress();
+      bar.style.transition = 'width 0.2s ease';
+      bar.style.width = '100%';
+
+      setTimeout(() => {
+        fetch(previewUrl)
+          .then(r => r.text())
+          .then(html => {
+            frame.srcdoc = html;
+            loadingScreen.style.display = 'none';
+            previewWrap.classList.add('visible');
+            claimBar.classList.add('visible');
+          })
+          .catch(() => showError());
+      }, 600);
+    }
+
+    function poll() {
+      fetch(`/preview-status/${USER_ID}`)
+        .then(r => r.json())
+        .then(data => {
+          if (data.status === 'done') {
+            showPreview(data.preview_url);
+          } else if (data.status === 'error') {
+            showError();
+          }
+          // else still pending — keep polling
+        })
+        .catch(() => {
+          // network hiccup — keep trying
+        });
+    }
+
+    function startGeneration() {
+      loadingScreen.style.display = 'flex';
+      errorScreen.style.display   = 'none';
+      previewWrap.classList.remove('visible');
+      claimBar.classList.remove('visible');
+      bar.style.width = '0%';
+
+      startProgressAnimation();
+
+      fetch(`/generate-preview/${USER_ID}`, { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+          if (data.status === 'done') {
+            showPreview(`/static/previews/${USER_ID}.html`);
+          } else if (data.status === 'error') {
+            showError();
+          } else {
+            pollInterval = setInterval(poll, 2000);
+          }
+        })
+        .catch(() => showError());
+    }
+
+    retryBtn.addEventListener('click', startGeneration);
+
+    // Auto-trigger on load
+    startGeneration();
+  </script>
+</body>
+</html>

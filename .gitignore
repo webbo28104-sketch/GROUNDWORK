@@ -1,0 +1,11 @@
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.env
+uploads/
+reports/
+static/previews/
+*.pdf
+*.sqlite3
+.DS_Store
