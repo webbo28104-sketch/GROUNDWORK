@@ -1,6 +1,7 @@
 import os
 import base64
 import threading
+import secrets
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from io import BytesIO
 
@@ -37,10 +38,14 @@ def init_db():
             location TEXT,
             trade_type TEXT,
             logo_filename TEXT,
+            photo_filenames TEXT,
             created_at TIMESTAMP DEFAULT NOW(),
             plan TEXT DEFAULT NULL,
             verified BOOLEAN DEFAULT FALSE
         )
+    """)
+    cur.execute("""
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS photo_filenames TEXT
     """)
     cur.execute("""
         CREATE TABLE IF NOT EXISTS preview_requests (
@@ -64,7 +69,7 @@ with app.app_context():
         print(f"[DB] Init error: {e}")
 
 # ---------- Image compression ----------
-def compress_image(filepath, max_size=(800, 400), quality=60):
+def compress_image(filepath, max_size=(800, 600), quality=70):
     img = Image.open(filepath)
     img.thumbnail(max_size, Image.LANCZOS)
     buffer = BytesIO()
@@ -75,37 +80,15 @@ def compress_image(filepath, max_size=(800, 400), quality=60):
     buffer.seek(0)
     return buffer.read(), 'image/jpeg'
 
-# ---------- Logo colour extraction ----------
-def extract_logo_colours(ai_client, logo_bytes, media_type):
-    try:
-        import json
-        response = ai_client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=150,
-            messages=[{
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": media_type,
-                            "data": base64.b64encode(logo_bytes).decode()
-                        }
-                    },
-                    {
-                        "type": "text",
-                        "text": 'Analyse this logo. Reply with JSON only, no other text, no markdown: {"bg": "#hex", "accent": "#hex", "text": "#hex", "theme": "dark" or "light", "font_style": "refined" or "editorial" or "clean" or "industrial"}'
-                    }
-                ]
-            }]
-        )
-        raw = response.content[0].text.strip()
-        raw = raw.replace('```json', '').replace('```', '').strip()
-        return json.loads(raw)
-    except Exception as e:
-        print(f"[COLOURS] Failed: {e}")
-        return {"bg": "#ffffff", "accent": "#D4820A", "text": "#1a1a1a", "theme": "light", "font_style": "clean"}
+def compress_image_bytes(img_bytes, max_size=(800, 600), quality=70):
+    img = Image.open(BytesIO(img_bytes))
+    img.thumbnail(max_size, Image.LANCZOS)
+    buffer = BytesIO()
+    if img.mode == 'RGBA':
+        img = img.convert('RGB')
+    img.save(buffer, format='JPEG', quality=quality)
+    buffer.seek(0)
+    return buffer.read(), 'image/jpeg'
 
 # ---------- Web search ----------
 def run_single_search(ai_client, query):
@@ -139,22 +122,29 @@ def search_business(ai_client, business_name, location):
     return ' '.join(results)
 
 # ---------- System prompt ----------
-SYSTEM_PROMPT = """
-CRITICAL: Default to a LIGHT theme (#ffffff or off-white background, #1a1a1a dark text) unless the logo analysis clearly indicates a dark theme. For dark themes, ALWAYS set explicit color values on body, p, h1-h6, li and nav elements — never rely solely on CSS variables for text colour. Dark theme text must be #e8e8e8 or lighter. Failure to do this makes the site completely invisible.
+SYSTEM_PROMPT = """You are a professional web designer generating a bespoke preview website for a
+trade business. You will be given form data, web search results about the business,
+and optionally their logo and portfolio photos as base64 images.
 
-CRITICAL CONTRAST RULE: Text colour must always contrast with background. Never dark text on dark background. Never light text on light background. Always set color explicitly on body and all text elements.
-
-You are a professional web designer generating a bespoke preview website for a trade business. You will be given form data, web search results about the business, and brand colour information extracted from their logo.
-
-Your output is a single, complete, self-contained HTML file. Nothing else. No explanation. No preamble. No markdown. No code fences. The file must work when opened directly in a browser with no external dependencies except Google Fonts.
+Your output is a single, complete, self-contained HTML file. Nothing else.
+No explanation. No preamble. No markdown. No code fences.
+The file must work when opened directly in a browser with no external dependencies
+except Google Fonts.
 
 ---
 
-STEP 1 — COLOUR SCHEME
+STEP 1 — ANALYSE THE LOGO
 
-You will be given brand colours extracted from the logo as JSON. Use these to build the entire site palette. Every colour decision — nav background, hero, buttons, borders, accents — must feel like it was designed around this specific logo.
-
-If no logo colours are provided, default to: light cream/off-white background, dark navy text, amber (#D4820A) accent.
+If a logo is provided:
+- Identify the dominant colour and secondary colour from the logo.
+- If the logo is light or white on a dark background → use a DARK theme.
+- If the logo has strong colours on a light/white background → use a LIGHT theme
+  with those colours as accents.
+- If no logo is provided → default to a light cream/off-white background with
+  dark navy text and amber (#D4820A) as the accent colour.
+- Build the entire site palette from the logo. Every colour decision — nav
+  background, hero, buttons, borders, accents — must feel like it was designed
+  around this specific logo.
 
 ---
 
@@ -168,37 +158,73 @@ From the search results provided, extract every useful fact:
 - Director/owner name (use only if helpful for about section)
 - Full service list
 - Coverage areas
-- Trade body memberships and accreditation grades (e.g. LCA grade, Gas Safe, NICEIC, FMB, TrustMark, Checkatrade, Which? Trusted Trader)
-- Any notable project types or sectors
-- Any customer review quotes (max 1)
+- Trade body memberships and accreditation grades
+  (e.g. LCA grade, Gas Safe registration, NICEIC, FMB, TrustMark,
+  Checkatrade, Which? Trusted Trader, Houzz listing)
+- Any notable project types or sectors mentioned
+- Any customer review quotes (use sparingly, max 1)
 
-STRICT RULES:
+STRICT RULES on search data:
 - NEVER include a street address or postcode. Town/county only.
-- NEVER invent facts. Only include what is in the search results or form data.
-- NEVER include accreditations unless found in search results.
-- Company registration number is fine to include if found.
+- NEVER mention contract value limits, capacity caps, or anything that makes
+  the business look smaller than it is.
+- NEVER invent facts. Only include what is verifiably found in the search results
+  or explicitly provided in the form.
+- NEVER include accreditations or trade body memberships unless specifically
+  found in the search results. Do not assume any trade body for any trade.
+- Company registration number is fine to include if found — it adds credibility.
 
 ---
 
 STEP 3 — WRITE THE CONTENT
 
-Hero headline: 4-8 words. Punchy, confident, specific to their trade. Never generic.
+Hero headline:
+- 4–8 words. Punchy, confident, specific to their trade.
+- Never generic. Never "Quality work at competitive prices."
+- Think about what makes their trade distinctive and lead with that.
+- Examples by trade:
+  - Roofer: "Roofing done properly. First time."
+  - Carpenter: "Crafted to last. Built to impress."
+  - Electrician: "Safe, certified, and done on time."
+  - Plasterer: "A perfect finish, every room, every time."
+  - Plumber: "Expert plumbing and heating. No messing about."
+  - Builder: "Built right. On budget. On time."
 
-Body copy: Professional, third-person. No clichés. Short paragraphs.
+Body copy:
+- Professional, third-person voice throughout.
+- No clichés ("competitive prices", "no job too small", "fully insured and reliable").
+- Write as if describing a business you respect.
+- Keep paragraphs short — these sites are read on phones.
 
-Services: 4-6 service cells numbered 01-06. Each has a name (short, uppercase) and 2-sentence description.
+Services:
+- Write 4–6 service cells based on what the search results and trade type suggest.
+- Number them 01 through 06.
+- Each service has a name (short, uppercase) and a 2-sentence description.
+- Descriptions should be specific and professional — not generic filler.
 
-About section: Lead with a strong fact. Personal approach. Bullet list of 4-5 verified facts.
+About section:
+- Lead with a strong fact (years trading, family business, region).
+- Mention the personal approach — clients deal directly with the business owner.
+- Include a bullet list of 4–5 verified facts (accreditations, coverage, company
+  registration if found, years trading).
+
+Enquiry form dropdown:
+- Options must be specific to their actual services.
+- Never generic options like "Other work" as the only option.
+- Always include "Other" as a final option.
 
 ---
 
 STEP 4 — PORTFOLIO SECTION
 
-Always include a portfolio section. Use this exact placeholder — do not vary it:
-- Section heading: "Your work, front and centre"
-- 3-column grid of placeholder boxes (background: #e0e0e0 for light themes, #2a2a2a for dark themes), each 280px tall, with a subtle camera icon or "📷" centred inside
-- Below the grid, centred muted text: "Your portfolio will showcase your best projects here — add photos when you activate your account."
-- No fake captions. No invented project names.
+If 1–3 portfolio images are provided:
+- Include a portfolio section between the about section and contact section.
+- For each image, use Claude Vision to write a short, professional caption
+  (project type, location if inferable, materials/technique if visible).
+- Display as a 3-column grid (or 2-column if only 2 images, 1-column if 1).
+- Each image has a project title and a single-line description below it.
+- Section heading: "Recent work" or "Selected projects".
+- If no images are provided, omit this section entirely.
 
 ---
 
@@ -206,106 +232,214 @@ STEP 5 — BUILD THE HTML
 
 FIXED STRUCTURE — always use this exact section order:
 
-1. NAV — Logo img tag with src="LOGO_SRC", business name, trade tagline, links: Services · Accreditations (if found) · About · Portfolio · Contact, CTA button "Request a Quote" → #contact
+1. NAV
+   - Logo (prominent — height 56–64px minimum)
+   - Business name and trade tagline next to logo
+   - Links: Services · About · [Portfolio if images provided] · Contact
+   - CTA button: "Request a Quote" — links to #contact
 
-2. HERO — Left: eyebrow + H1 + body + two CTAs. Right: accreditation panel or service list panel. Stats bar below: 2-3 stats that elevate (years trading, regions, accreditation grade). NEVER team size if small, never contract limits.
+2. HERO
+   - Left column: eyebrow rule + text, H1, body paragraph, two CTAs
+     (primary: "Request a quote" → #contact, ghost: "View services" → #services)
+   - Right column: either an accreditation panel (if accreditations found)
+     OR a service list panel (if no accreditations found)
+   - Stats bar below left column: 2–3 stats that ELEVATE
+     (years trading, regions covered, accreditation grade, domestic & commercial)
+     NEVER: contract limits, team size if small, anything that caps the business
 
-3. SERVICES (id="services") — numbered grid
+3. SERVICES (id="services")
+   - Eyebrow + H2 + intro paragraph (right column)
+   - 2-column or 3-column numbered grid of service cells
+   - Each cell: number, name (uppercase), 2-sentence description
 
 4. ACCREDITATIONS (id="accreditations") — ONLY if accreditations found in search
+   - Left: list of accreditation rows with name, detail, and status pill
+   - Right: explanatory copy about the most significant body found
+   - If NO accreditations found → replace with ABOUT section (see below)
 
 5. ABOUT (id="about") — always present
+   - If accreditations section exists: left column body copy + bullet list,
+     right column aside box with contact details
+   - If no accreditations section: this becomes the combined about + contact
+     details section
 
-6. PORTFOLIO (id="portfolio") — always present, use placeholder as described in Step 4
+6. PORTFOLIO (id="portfolio") — ONLY if photos provided
+   - Image grid with captions
+   - Sits between about and contact
 
-7. CONTACT (id="contact") — Left: H2 + contact details (NO address). Right: enquiry form. Fields: Name, Email, Telephone, Nature of enquiry (dropdown matching their services), Project details. Button: "Submit Enquiry"
+7. CONTACT (id="contact")
+   - Left: H2 + body + contact details table (phone, email, coverage — NO address)
+   - Right: enquiry form panel
+     Fields: Name, Email, Telephone, Nature of enquiry (dropdown), Project details
+   - Form submit button text: "Submit Enquiry"
 
-8. FOOTER — Logo img with src="LOGO_SRC" (smaller, muted opacity), nav links, company reg if found, copyright year
+8. FOOTER
+   - Logo (smaller, muted opacity)
+   - Nav links
+   - Company registration number if found
+   - "© [year] [Business Name]"
 
-9. GROUNDWORK BADGE (fixed bottom right) — <a class="gw-badge" href="https://groundwork.co.uk">⚡ Built by Groundwork</a> — small, unobtrusive
+9. GROUNDWORK BADGE (fixed, bottom right)
+   - "⚡ Built by Groundwork"
+   - Links to https://groundwork.co.uk
+   - Small, unobtrusive, always present
 
 ---
 
-TYPOGRAPHY
+TYPOGRAPHY RULES
 
-Choose ONE pairing:
-- REFINED/HERITAGE (leadwork, restoration, joinery): Cinzel + Barlow Condensed
-- EDITORIAL/PREMIUM (bespoke carpentry, luxury fit-out): Cormorant Garamond + Barlow
-- CLEAN/PROFESSIONAL (roofing, building, electrical, plumbing): Barlow Condensed 700 + Barlow 300/400
-- BOLD/INDUSTRIAL (groundwork, demolition, scaffolding): Bebas Neue + Barlow
+Always load from Google Fonts. Choose ONE of these pairings based on the
+business type and aesthetic direction:
 
-Body: 0.85-0.92rem, line-height 1.8-1.92, weight 300.
+- REFINED / HERITAGE (leadwork, restoration, joinery, period property):
+  Cinzel (headings) + Barlow / Barlow Condensed (body)
+
+- EDITORIAL / PREMIUM (bespoke carpentry, luxury fit-out, architects):
+  Cormorant Garamond (headings) + Barlow / Barlow Condensed (body)
+
+- CLEAN / PROFESSIONAL (roofing, building, electrical, plumbing, general trade):
+  Barlow Condensed 700 (headings, uppercase) + Barlow 300/400 (body)
+
+- BOLD / INDUSTRIAL (groundwork, demolition, plant hire, scaffolding):
+  Bebas Neue (headings) + Barlow (body)
+
+Body font size: 0.85–0.92rem. Line height: 1.8–1.92. Font weight: 300.
+All heading sizes should scale with clamp() for responsiveness.
 
 ---
 
 CSS RULES
 
-- CSS custom properties for all colours in :root
-- CSS Grid or Flexbox only
-- Nav: fixed, 80px min height, backdrop-filter blur
-- Hero: min-height 100vh
-- Sections: padding 6-7rem top and bottom
-- Responsive at 960px breakpoint
-- Scroll animations: IntersectionObserver, fade-up
-- ALWAYS set explicit color on: body, h1, h2, h3, h4, h5, h6, p, li, nav a, footer a — do not rely only on CSS variables
+- Use CSS custom properties (variables) for all colours — defined in :root.
+- All layout uses CSS Grid or Flexbox — no floats, no tables.
+- Nav is fixed, height 80px minimum, background matches theme with backdrop-filter blur.
+- Hero is min-height: 100vh, grid layout, padding-top equals nav height.
+- All sections have padding: 6–7rem top and bottom on desktop.
+- Responsive breakpoint at max-width: 960px — single column, hidden nav links.
+- Scroll animations: IntersectionObserver, fade-up class, threshold 0.1.
+- All interactive elements (buttons, links, nav items) have transition: 0.2s.
+- NEVER use inline styles except for one-off overrides.
+- NEVER use !important except on nav CTA hover states.
+- No external CSS frameworks. No Tailwind. No Bootstrap.
 
 ---
 
-QUALITY CHECKLIST
+LOGO RULES
 
-☐ No street address or postcode
-☐ No invented facts
-☐ No accreditations unless found in search
-☐ Hero headline specific to trade
-☐ Enquiry form dropdown matches actual services
-☐ LOGO_SRC used as src on nav and footer logo img tags
-☐ Groundwork badge present
-☐ Fully self-contained — no external images
-☐ Google Fonts in head
-☐ All section IDs correct
-☐ Mobile responsive at 960px
-☐ Scroll animations with IntersectionObserver
-☐ Copyright year correct
-☐ Text colour explicitly set on all text elements — not just via CSS variables
-☐ Dark theme: body color #e8e8e8, headings #ffffff, paragraphs #d0d0d0
+- If a logo image is provided in this message: embed it as a data URI in the HTML.
+  Height in nav: 56–64px. In footer: 32–40px with reduced opacity.
+- If no logo: generate a text-based logo mark using the business initials
+  in a coloured square/circle, paired with the business name in the nav font.
+- NEVER display a broken image. If no logo provided, use the text mark.
+
+---
+
+GROUNDWORK BADGE
+
+Always include this fixed badge in the bottom right corner:
+
+<a class="gw-badge" href="https://groundwork.co.uk">⚡ Built by Groundwork</a>
+
+Style: small, unobtrusive, matches the site theme. Dark sites get a light badge,
+light sites get a dark badge. Always present — this is Groundwork's marketing.
+
+---
+
+QUALITY CHECKLIST (verify before outputting)
+
+Before returning the HTML, check:
+☐ No street address or postcode anywhere in the output
+☐ No contract value limits or capacity caps
+☐ No invented facts — everything is from search results or form data
+☐ No trade body accreditations unless found in search
+☐ Hero headline is specific to this trade — not generic
+☐ Enquiry form dropdown options match their actual services
+☐ Logo renders correctly (embedded data URI, height correct)
+☐ Groundwork badge present and links to https://groundwork.co.uk
+☐ File is fully self-contained — no external images, no external CSS
+☐ Google Fonts link is in <head>
+☐ All sections have correct IDs for nav anchor links
+☐ Nav links match sections that actually exist in the page
+☐ Mobile responsive — single column at 960px breakpoint
+☐ Scroll animations use IntersectionObserver
+☐ Company registration number included if found in search
+☐ Copyright year is current
 
 ---
 
 OUTPUT FORMAT
 
 Return the complete HTML file and nothing else.
-Start with <!DOCTYPE html>
-End with </html>
-No explanation. No commentary. No markdown.
-"""
+Start with <!DOCTYPE html> on the first line.
+End with </html> on the last line.
+No explanation. No commentary. No markdown formatting."""
 
 # ---------- User message builder ----------
-def build_user_message(form_data, search_results, colour_hint=None):
-    if colour_hint:
-        logo_info = (
-            f"\nLOGO: Provided. Use LOGO_SRC as the src attribute on BOTH the nav logo img tag AND the footer logo img tag. "
-            f"Brand colours extracted from logo: bg={colour_hint.get('bg')}, accent={colour_hint.get('accent')}, "
-            f"text={colour_hint.get('text')}, theme={colour_hint.get('theme')}, font_style={colour_hint.get('font_style')}"
-        )
-    else:
-        logo_info = "\nLOGO: Not provided. Generate a text-based logo mark using the business initials in a coloured square."
+def build_user_message(form_data, search_results, logo_bytes=None, logo_media_type=None, photos=None):
+    text = (
+        f"FORM DATA:\n"
+        f"Business name: {form_data['business_name']}\n"
+        f"Location: {form_data['location']}\n\n"
+        f"SEARCH RESULTS:\n{search_results}\n\n"
+        f"CURRENT YEAR: 2026\n"
+    )
 
-    content = [{
+    content = [{"type": "text", "text": text}]
+
+    # Logo image
+    if logo_bytes and logo_media_type:
+        content.append({
+            "type": "text",
+            "text": "LOGO IMAGE (analyse colours, embed as data URI in the final HTML):"
+        })
+        content.append({
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": logo_media_type,
+                "data": base64.b64encode(logo_bytes).decode()
+            }
+        })
+    else:
+        content.append({
+            "type": "text",
+            "text": "LOGO: Not provided. Generate a text-based logo mark using the business initials."
+        })
+
+    # Portfolio photos
+    if photos:
+        content.append({
+            "type": "text",
+            "text": f"PORTFOLIO PHOTOS ({len(photos)} provided — include a portfolio section with these images embedded as data URIs):"
+        })
+        for i, (photo_bytes, photo_media_type) in enumerate(photos):
+            content.append({
+                "type": "text",
+                "text": f"Photo {i + 1} of {len(photos)}:"
+            })
+            content.append({
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": photo_media_type,
+                    "data": base64.b64encode(photo_bytes).decode()
+                }
+            })
+    else:
+        content.append({
+            "type": "text",
+            "text": "PORTFOLIO PHOTOS: None provided. Omit the portfolio section."
+        })
+
+    content.append({
         "type": "text",
-        "text": (
-            f"FORM DATA:\n"
-            f"Business name: {form_data['business_name']}\n"
-            f"Location: {form_data['location']}\n"
-            f"{logo_info}\n\n"
-            f"SEARCH RESULTS:\n{search_results}\n\n"
-            f"CURRENT YEAR: 2026\n\n"
-            f"Now generate the complete HTML file for this business. Return HTML only — no explanation, no markdown, start with <!DOCTYPE html>."
-        )
-    }]
+        "text": "Now generate the complete HTML file for this business. Return HTML only — no explanation, no markdown, start with <!DOCTYPE html>."
+    })
+
     return content
 
 # ---------- Background generation ----------
-def run_generation(user_id, business_name, location, logo_path):
+def run_generation(user_id, business_name, location, logo_path, photo_paths):
     import time
     start = time.time()
     print(f"[PREVIEW] Starting generation for user {user_id}")
@@ -325,20 +459,29 @@ def run_generation(user_id, business_name, location, logo_path):
         search_results = search_business(ai_client, business_name, location)
         print(f"[PREVIEW] All searches complete ({time.time() - start:.1f}s)")
 
-        colour_hint = None
         logo_bytes = None
         logo_media_type = None
 
         if logo_path and os.path.exists(logo_path):
-            print(f"[PREVIEW] Logo found, extracting colours... ({time.time() - start:.1f}s)")
+            print(f"[PREVIEW] Logo found, compressing... ({time.time() - start:.1f}s)")
             logo_bytes, logo_media_type = compress_image(logo_path)
-            colour_hint = extract_logo_colours(ai_client, logo_bytes, logo_media_type)
-            print(f"[PREVIEW] Colours extracted: {colour_hint} ({time.time() - start:.1f}s)")
+            print(f"[PREVIEW] Logo ready ({time.time() - start:.1f}s)")
         else:
             print(f"[PREVIEW] No logo provided")
 
+        # Load and compress portfolio photos
+        photos = []
+        for path in (photo_paths or []):
+            if path and os.path.exists(path):
+                try:
+                    photo_bytes, photo_media_type = compress_image(path, max_size=(1200, 900), quality=75)
+                    photos.append((photo_bytes, photo_media_type))
+                    print(f"[PREVIEW] Photo loaded: {path}")
+                except Exception as e:
+                    print(f"[PREVIEW] Photo load failed {path}: {e}")
+
         form_data = {'business_name': business_name, 'location': location}
-        messages = build_user_message(form_data, search_results, colour_hint)
+        messages = build_user_message(form_data, search_results, logo_bytes, logo_media_type, photos or None)
 
         print(f"[PREVIEW] Calling Claude API... ({time.time() - start:.1f}s)")
         response = ai_client.messages.create(
@@ -355,48 +498,11 @@ def run_generation(user_id, business_name, location, logo_path):
 
         print(f"[PREVIEW] Claude response received, length: {len(html)} ({time.time() - start:.1f}s)")
 
-        # Inject logo via post-processing
-        if logo_bytes:
-            data_uri = f"data:{logo_media_type};base64,{base64.b64encode(logo_bytes).decode()}"
-            html = html.replace('LOGO_SRC', data_uri)
-            print(f"[PREVIEW] Logo injected")
-
-        # Contrast safety net
-        dark_indicators = [
-            '#0a0', '#0b0', '#0c0', '#0d0', '#0e0', '#0f0',
-            '#1a1', '#1b1', '#1c1', '#0a0a0a', '#0d0d0d', '#111',
-            '#0d1b', '#12', '#13', '#14', '#15', '#16'
-        ]
-        is_dark = (
-            any(d in html.lower() for d in dark_indicators)
-            or (colour_hint and colour_hint.get('theme') == 'dark')
-        )
-
-        if is_dark:
-            contrast_fix = """<style>
-:root {
-    --text: #e8e8e8 !important;
-    --color-text: #e8e8e8 !important;
-    --body-color: #e8e8e8 !important;
-    --foreground: #e8e8e8 !important;
-}
-body { color: #e8e8e8 !important; }
-h1, h2, h3, h4, h5, h6 { color: #ffffff !important; }
-p, li, td, th { color: #d0d0d0 !important; }
-nav a { color: #c0c0c0 !important; }
-footer { color: #a0a0a0 !important; }
-</style>"""
-        else:
-            contrast_fix = "<style>body { color: inherit; }</style>"
-
-        html = html.replace('</body>', contrast_fix + '</body>')
-
         os.makedirs('static/previews', exist_ok=True)
         preview_path = f'static/previews/{user_id}.html'
         with open(preview_path, 'w', encoding='utf-8') as f:
             f.write(html)
 
-        print(f"[PREVIEW] Saving file... ({time.time() - start:.1f}s)")
         generation_status[user_id] = 'done'
         print(f"[PREVIEW] Done - user {user_id} ({time.time() - start:.1f}s total)")
 
@@ -417,12 +523,12 @@ def submit_preview():
     business_name = request.form.get('business_name', '').strip()
     location = request.form.get('location', '').strip()
     email = request.form.get('email', '').strip()
-    password = request.form.get('password', '').strip()
 
-    if not all([business_name, location, email, password]):
+    if not all([business_name, location, email]):
         return render_template('index.html', form_error="Please fill in all required fields.")
 
-    password_hash = generate_password_hash(password)
+    # Auto-generate a password — user sets their own on claim
+    password_hash = generate_password_hash(secrets.token_hex(16))
 
     logo_filename = None
     logo_file = request.files.get('logo')
@@ -432,13 +538,26 @@ def submit_preview():
         logo_filename = f"logo_{email.replace('@', '_').replace('.', '_')}{ext}"
         logo_file.save(os.path.join('uploads', logo_filename))
 
+    # Accept up to 3 portfolio photos
+    photo_filenames = []
+    photos_files = request.files.getlist('photos')
+    for i, photo_file in enumerate(photos_files[:3]):
+        if photo_file and photo_file.filename:
+            os.makedirs('uploads', exist_ok=True)
+            ext = os.path.splitext(photo_file.filename)[1].lower()
+            photo_filename = f"photo_{email.replace('@', '_').replace('.', '_')}_{i}{ext}"
+            photo_file.save(os.path.join('uploads', photo_filename))
+            photo_filenames.append(photo_filename)
+
+    photo_filenames_str = ','.join(photo_filenames) if photo_filenames else None
+
     try:
         conn = get_db()
         cur = conn.cursor()
         cur.execute("""
-            INSERT INTO users (email, password_hash, business_name, location, logo_filename)
-            VALUES (%s, %s, %s, %s, %s) RETURNING id
-        """, (email, password_hash, business_name, location, logo_filename))
+            INSERT INTO users (email, password_hash, business_name, location, logo_filename, photo_filenames)
+            VALUES (%s, %s, %s, %s, %s, %s) RETURNING id
+        """, (email, password_hash, business_name, location, logo_filename, photo_filenames_str))
         user_id = cur.fetchone()[0]
         cur.execute("""
             INSERT INTO preview_requests (user_id, business_name, location, email)
@@ -458,18 +577,20 @@ def submit_preview():
 @app.route('/preview/<int:user_id>')
 def preview(user_id):
     has_logo = False
+    has_photos = False
     try:
         conn = get_db()
         cur = conn.cursor()
-        cur.execute("SELECT logo_filename FROM users WHERE id = %s", (user_id,))
+        cur.execute("SELECT logo_filename, photo_filenames FROM users WHERE id = %s", (user_id,))
         row = cur.fetchone()
         cur.close()
         conn.close()
-        if row and row[0]:
-            has_logo = True
+        if row:
+            has_logo = bool(row[0])
+            has_photos = bool(row[1])
     except Exception:
         pass
-    return render_template('preview.html', user_id=user_id, has_logo=has_logo)
+    return render_template('preview.html', user_id=user_id, has_logo=has_logo, has_photos=has_photos)
 
 @app.route('/generate-preview/<int:user_id>', methods=['POST'])
 def generate_preview(user_id):
@@ -479,7 +600,7 @@ def generate_preview(user_id):
     try:
         conn = get_db()
         cur = conn.cursor()
-        cur.execute("SELECT business_name, location, logo_filename FROM users WHERE id = %s", (user_id,))
+        cur.execute("SELECT business_name, location, logo_filename, photo_filenames FROM users WHERE id = %s", (user_id,))
         row = cur.fetchone()
         cur.close()
         conn.close()
@@ -489,13 +610,20 @@ def generate_preview(user_id):
     if not row:
         return jsonify({'status': 'error', 'message': 'User not found'})
 
-    business_name, location, logo_filename = row
+    business_name, location, logo_filename, photo_filenames_str = row
     logo_path = os.path.join('uploads', logo_filename) if logo_filename else None
+
+    photo_paths = []
+    if photo_filenames_str:
+        for fname in photo_filenames_str.split(','):
+            fname = fname.strip()
+            if fname:
+                photo_paths.append(os.path.join('uploads', fname))
 
     generation_status[user_id] = 'pending'
     thread = threading.Thread(
         target=run_generation,
-        args=(user_id, business_name, location, logo_path)
+        args=(user_id, business_name, location, logo_path, photo_paths)
     )
     thread.daemon = True
     thread.start()
