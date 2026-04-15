@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Building your preview — Groundwork</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@300;400;500&family=Barlow+Condensed:wght@600;700&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Barlow', sans-serif; background: #1a1208; color: #f7f0e6; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 2rem; }
+  .container { max-width: 540px; width: 100%; text-align: center; }
+  .logo { font-family: 'Bebas Neue', sans-serif; font-size: 1.6rem; letter-spacing: 0.06em; color: #F5A623; margin-bottom: 3rem; }
+  .logo span { color: #f7f0e6; }
+  .spinner { width: 56px; height: 56px; border: 2px solid rgba(212,130,10,0.15); border-top-color: #D4820A; border-radius: 50%; animation: spin 0.9s linear infinite; margin: 0 auto 2.5rem; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  h1 { font-family: 'Bebas Neue', sans-serif; font-size: clamp(1.8rem, 4vw, 2.8rem); color: #f7f0e6; letter-spacing: 0.03em; line-height: 1.1; margin-bottom: 1rem; }
+  .business-name { color: #F5A623; }
+  .body { font-size: 0.9rem; color: rgba(247,240,230,0.5); line-height: 1.75; font-weight: 300; margin-bottom: 2.5rem; }
+  .steps { display: flex; flex-direction: column; gap: 0; border: 1px solid rgba(212,130,10,0.15); border-radius: 8px; overflow: hidden; margin-bottom: 2rem; text-align: left; }
+  .step { display: flex; align-items: center; gap: 1rem; padding: 0.9rem 1.2rem; border-bottom: 1px solid rgba(212,130,10,0.1); font-size: 0.82rem; color: rgba(247,240,230,0.4); transition: color 0.4s, background 0.4s; }
+  .step:last-child { border-bottom: none; }
+  .step.active { color: #f7f0e6; background: rgba(212,130,10,0.06); }
+  .step.done { color: rgba(247,240,230,0.6); }
+  .step-dot { width: 8px; height: 8px; border-radius: 50%; background: rgba(212,130,10,0.2); flex-shrink: 0; transition: background 0.4s; }
+  .step.active .step-dot { background: #D4820A; animation: pulse 1.2s ease-in-out infinite; }
+  .step.done .step-dot { background: #5cb87a; }
+  @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(0.7); } }
+  .note { font-size: 0.75rem; color: rgba(247,240,230,0.25); line-height: 1.6; }
+  .success { display: none; }
+  .success-icon { font-size: 3rem; margin-bottom: 1.2rem; display: block; }
+  .btn-view { display: inline-block; background: #D4820A; color: #1a1208; font-family: 'Barlow Condensed', sans-serif; font-size: 1rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; padding: 0.9rem 2.2rem; border-radius: 5px; text-decoration: none; transition: background 0.2s; margin-top: 1.5rem; }
+  .btn-view:hover { background: #F5A623; }
+  .error-state { display: none; }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="logo">Ground<span>work</span></div>
+  <div class="generating-state" id="generatingState">
+    <div class="spinner"></div>
+    <h1>Building your preview,<br><span class="business-name">{{ business_name }}</span></h1>
+    <p class="body">We're searching for your business, reading your details, and building your website. This takes about 30–60 seconds.</p>
+    <div class="steps">
+      <div class="step active" id="step1"><div class="step-dot"></div><span>Searching for your business online</span></div>
+      <div class="step" id="step2"><div class="step-dot"></div><span>Finding your services and accreditations</span></div>
+      <div class="step" id="step3"><div class="step-dot"></div><span>Designing your website</span></div>
+      <div class="step" id="step4"><div class="step-dot"></div><span>Putting the finishing touches on</span></div>
+    </div>
+    <p class="note">Don't close this tab — your preview will appear here automatically.</p>
+  </div>
+  <div class="success" id="successState">
+    <span class="success-icon">✓</span>
+    <h1>Your preview<br>is ready.</h1>
+    <p class="body">Your website has been built. Take a look and see what Groundwork can do for <span class="business-name">{{ business_name }}</span>.</p>
+    <a href="/preview/{{ request_id }}/view" class="btn-view" target="_blank">View your website →</a>
+  </div>
+  <div class="error-state" id="errorState">
+    <h1>Something went wrong</h1>
+    <p class="body">We couldn't generate your preview this time. Please <a href="/" style="color:#F5A623">try again</a> or email us at hello@groundwork.co.uk</p>
+  </div>
+</div>
+<script>
+  const requestId = {{ request_id }};
+  const steps = [document.getElementById('step1'), document.getElementById('step2'), document.getElementById('step3'), document.getElementById('step4')];
+  let currentStep = 0;
+  let pollCount = 0;
+  const MAX_POLLS = 60;
+  const stepTimer = setInterval(() => {
+    if (currentStep < steps.length - 1) {
+      steps[currentStep].classList.remove('active');
+      steps[currentStep].classList.add('done');
+      currentStep++;
+      steps[currentStep].classList.add('active');
+    }
+  }, 12000);
+  const pollTimer = setInterval(async () => {
+    pollCount++;
+    if (pollCount > MAX_POLLS) {
+      clearInterval(pollTimer); clearInterval(stepTimer);
+      document.getElementById('generatingState').style.display = 'none';
+      document.getElementById('errorState').style.display = 'block';
+      return;
+    }
+    try {
+      const res = await fetch(`/preview/${requestId}`);
+      const data = await res.json();
+      if (data.status === 'complete') {
+        clearInterval(pollTimer); clearInterval(stepTimer);
+        steps.forEach(s => { s.classList.remove('active'); s.classList.add('done'); });
+        document.getElementById('generatingState').style.display = 'none';
+        document.getElementById('successState').style.display = 'block';
+      } else if (data.status === 'error') {
+        clearInterval(pollTimer); clearInterval(stepTimer);
+        document.getElementById('generatingState').style.display = 'none';
+        document.getElementById('errorState').style.display = 'block';
+      }
+    } catch (e) { console.log('Poll error:', e); }
+  }, 3000);
+</script>
+</body>
+</html>
