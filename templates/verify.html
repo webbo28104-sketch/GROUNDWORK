@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Verify your email — Groundwork</title>
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@300;400;500&family=Barlow+Condensed:wght@600;700&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Barlow', sans-serif; background: #1a1208; color: #f7f0e6; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 2rem; }
+  .container { max-width: 480px; width: 100%; }
+  .logo { font-family: 'Bebas Neue', sans-serif; font-size: 1.6rem; letter-spacing: 0.06em; color: #F5A623; margin-bottom: 3rem; text-align: center; }
+  .logo span { color: #f7f0e6; }
+  h1 { font-family: 'Bebas Neue', sans-serif; font-size: clamp(1.8rem, 4vw, 2.6rem); color: #f7f0e6; letter-spacing: 0.03em; line-height: 1.1; margin-bottom: 0.75rem; }
+  .sub { font-size: 0.88rem; color: rgba(247,240,230,0.5); line-height: 1.7; font-weight: 300; margin-bottom: 2rem; }
+  .email-highlight { color: #F5A623; font-weight: 500; }
+
+  .code-row { display: flex; gap: 0.6rem; justify-content: center; margin-bottom: 1.75rem; }
+  .code-input {
+    width: 52px; height: 64px;
+    background: rgba(44,31,14,0.6);
+    border: 1px solid rgba(212,130,10,0.25);
+    border-radius: 6px;
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 1.8rem; font-weight: 700;
+    color: #F5A623;
+    text-align: center;
+    outline: none;
+    transition: border-color 0.2s;
+    caret-color: #D4820A;
+  }
+  .code-input:focus { border-color: rgba(212,130,10,0.7); background: rgba(44,31,14,0.9); }
+  .code-input.filled { border-color: rgba(212,130,10,0.5); }
+
+  .btn-verify {
+    width: 100%;
+    background: #D4820A;
+    color: #1a1208;
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 1.05rem; font-weight: 700;
+    letter-spacing: 0.1em; text-transform: uppercase;
+    padding: 0.9rem;
+    border-radius: 5px; border: none;
+    cursor: pointer;
+    transition: background 0.2s;
+    margin-bottom: 1.25rem;
+  }
+  .btn-verify:hover { background: #F5A623; }
+  .btn-verify:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .error-box {
+    background: rgba(224,82,82,0.1);
+    border: 1px solid rgba(224,82,82,0.3);
+    border-radius: 5px;
+    padding: 0.75rem 1rem;
+    font-size: 0.82rem;
+    color: #e07070;
+    margin-bottom: 1.25rem;
+    line-height: 1.5;
+  }
+
+  .footer-links { display: flex; flex-direction: column; gap: 0.5rem; align-items: center; }
+  .resend-form { display: inline; }
+  .link-btn {
+    background: none; border: none; padding: 0;
+    font-family: 'Barlow', sans-serif;
+    font-size: 0.82rem; color: #D4820A;
+    cursor: pointer; text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .link-btn:hover { color: #F5A623; }
+  .note { font-size: 0.75rem; color: rgba(247,240,230,0.25); line-height: 1.6; }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="logo">Ground<span>work</span></div>
+
+  <h1>Check your<br>inbox</h1>
+  <p class="sub">
+    We've sent a 6-digit code to<br>
+    <span class="email-highlight">{{ email }}</span>
+  </p>
+
+  {% if error %}
+  <div class="error-box">{{ error }}</div>
+  {% endif %}
+
+  <form method="POST" action="/verify" id="verifyForm">
+    <input type="hidden" name="email" value="{{ email }}">
+    <input type="hidden" name="code" id="codeHidden">
+
+    <div class="code-row" id="codeRow">
+      <input class="code-input" type="text" inputmode="numeric" pattern="[0-9]" maxlength="1" autocomplete="off" data-idx="0">
+      <input class="code-input" type="text" inputmode="numeric" pattern="[0-9]" maxlength="1" autocomplete="off" data-idx="1">
+      <input class="code-input" type="text" inputmode="numeric" pattern="[0-9]" maxlength="1" autocomplete="off" data-idx="2">
+      <input class="code-input" type="text" inputmode="numeric" pattern="[0-9]" maxlength="1" autocomplete="off" data-idx="3">
+      <input class="code-input" type="text" inputmode="numeric" pattern="[0-9]" maxlength="1" autocomplete="off" data-idx="4">
+      <input class="code-input" type="text" inputmode="numeric" pattern="[0-9]" maxlength="1" autocomplete="off" data-idx="5">
+    </div>
+
+    <button type="submit" class="btn-verify" id="submitBtn" disabled>Verify my account →</button>
+  </form>
+
+  <div class="footer-links">
+    <form class="resend-form" method="POST" action="/resend-code">
+      <input type="hidden" name="email" value="{{ email }}">
+      <button type="submit" class="link-btn">Resend code</button>
+    </form>
+    <span class="note">Check your spam folder if you can't find it.</span>
+  </div>
+</div>
+
+<script>
+  const inputs = Array.from(document.querySelectorAll('.code-input'));
+  const hidden = document.getElementById('codeHidden');
+  const submitBtn = document.getElementById('submitBtn');
+  const form = document.getElementById('verifyForm');
+
+  function updateHidden() {
+    const val = inputs.map(i => i.value).join('');
+    hidden.value = val;
+    submitBtn.disabled = val.length < 6;
+    inputs.forEach(i => i.classList.toggle('filled', i.value.length > 0));
+  }
+
+  inputs.forEach((input, idx) => {
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Backspace' && !input.value && idx > 0) {
+        inputs[idx - 1].focus();
+        inputs[idx - 1].value = '';
+        updateHidden();
+      }
+    });
+
+    input.addEventListener('input', e => {
+      // Handle paste of full code
+      if (input.value.length > 1) {
+        const pasted = input.value.replace(/\D/g, '').slice(0, 6);
+        pasted.split('').forEach((ch, i) => { if (inputs[i]) inputs[i].value = ch; });
+        const last = Math.min(pasted.length, 5);
+        inputs[last].focus();
+        updateHidden();
+        return;
+      }
+      input.value = input.value.replace(/\D/g, '');
+      if (input.value && idx < 5) inputs[idx + 1].focus();
+      updateHidden();
+    });
+  });
+
+  // Auto-submit when all 6 filled
+  form.addEventListener('submit', e => {
+    updateHidden();
+  });
+
+  // Focus first input on load
+  inputs[0].focus();
+</script>
+</body>
+</html>

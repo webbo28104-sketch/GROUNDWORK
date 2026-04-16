@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ business_name }} — Your Groundwork Preview</title>
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@300;400;500;600&family=Barlow+Condensed:wght@600;700&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root { --bar: 52px; }
+
+  body { font-family: 'Barlow', sans-serif; background: #1a1208; height: 100vh; overflow: hidden; display: flex; flex-direction: column; }
+
+  /* ── Top bar ── */
+  .preview-bar {
+    height: var(--bar);
+    background: #1a1208;
+    border-bottom: 1px solid rgba(212,130,10,0.2);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 1.25rem;
+    flex-shrink: 0;
+    gap: 1rem;
+  }
+
+  .bar-logo {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 1.15rem;
+    letter-spacing: 0.06em;
+    color: #F5A623;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .bar-logo span { color: rgba(247,240,230,0.7); }
+
+  .bar-centre {
+    font-size: 0.78rem;
+    color: rgba(247,240,230,0.45);
+    text-align: center;
+    line-height: 1.4;
+    flex: 1;
+    min-width: 0;
+  }
+  .bar-centre strong { color: rgba(247,240,230,0.8); font-weight: 500; }
+
+  .bar-cta {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    background: #D4820A;
+    color: #1a1208;
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 0.82rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 0.45rem 1rem;
+    border-radius: 4px;
+    text-decoration: none;
+    white-space: nowrap;
+    flex-shrink: 0;
+    transition: background 0.2s;
+  }
+  .bar-cta:hover { background: #F5A623; }
+
+  /* ── iframe ── */
+  .preview-iframe {
+    flex: 1;
+    width: 100%;
+    border: none;
+    display: block;
+    background: #fff;
+  }
+
+  @media (max-width: 600px) {
+    .bar-centre { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="preview-bar">
+  <div class="bar-logo">Ground<span>work</span></div>
+  <div class="bar-centre">
+    <strong>This is your free preview</strong> — activate your account to go live with a real domain.
+  </div>
+  <a href="/pricing" class="bar-cta">Activate your account →</a>
+</div>
+
+<iframe
+  class="preview-iframe"
+  src="/preview/{{ request_id }}/raw"
+  title="{{ business_name }} — Groundwork Preview"
+  sandbox="allow-same-origin allow-forms allow-scripts"
+></iframe>
+
+</body>
+</html>

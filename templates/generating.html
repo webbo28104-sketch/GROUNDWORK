@@ -88,8 +88,7 @@
       if (data.status === 'complete') {
         clearInterval(pollTimer); clearInterval(stepTimer);
         steps.forEach(s => { s.classList.remove('active'); s.classList.add('done'); });
-        document.getElementById('generatingState').style.display = 'none';
-        document.getElementById('successState').style.display = 'block';
+        window.location.href = `/preview/${requestId}/view`;
       } else if (data.status === 'error') {
         clearInterval(pollTimer); clearInterval(stepTimer);
         document.getElementById('generatingState').style.display = 'none';
