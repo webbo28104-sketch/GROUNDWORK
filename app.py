@@ -258,25 +258,25 @@ def run_generation(request_id, business_name, location, logo_b64, photos_b64):
             # Cheap test generation — real search, simplified HTML, minimal tokens
             test_response = client.messages.create(
                 model="claude-haiku-4-5-20251001",
-                max_tokens=2000,
+                max_tokens=4000,
                 messages=[{
                     "role": "user",
-                    "content": f"""Generate a simple but complete HTML page for this trade business.
-It must be a real working website preview — not a placeholder.
+                    "content": f"""Generate a complete single-file HTML website for this trade business.
 
 Business: {business_name}
 Location: {location}
-Search data: {search_results[:500]}
+Data: {search_results[:300]}
 
-Rules:
-- Single self-contained HTML file
-- Dark navy and amber colour scheme (#1a1208 background, #D4820A accent)
-- Include: nav with business name, hero with a real headline specific to their trade, a services section with 4 services, a contact section with any phone/email found in the search data
-- Load Barlow Condensed from Google Fonts
-- Mobile responsive
-- Fixed bottom right badge: "⚡ Built by Groundwork"
-- No external images
-- Return HTML only, start with <!DOCTYPE html>, end with </html>"""
+Requirements:
+- Full working HTML page with nav, hero, services grid, contact section
+- Dark theme: #1a1208 background, #D4820A amber accent
+- Barlow Condensed from Google Fonts
+- Real headline specific to their trade
+- Use any phone/email found in the data
+- Mobile responsive with one media query at 768px
+- Fixed bottom right: small badge "⚡ Built by Groundwork"
+- Keep CSS minimal — inline critical styles only, no CSS variables
+- Return complete HTML only from <!DOCTYPE html> to </html>"""
                 }]
             )
             html = test_response.content[0].text if test_response.content else ""
@@ -284,7 +284,7 @@ Rules:
             # Full production generation
             response = client.messages.create(
                 model="claude-sonnet-4-6",
-                max_tokens=8000,
+                max_tokens=16000,
                 system=SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": build_user_message(business_name, location, search_results, logo_b64, photos_b64)}]
             )
@@ -301,8 +301,12 @@ Rules:
         if '</html>' not in html.lower():
             html += '\n</html>'
 
-        if len(html) < 500:
-            raise Exception(f"Generated HTML too short (len={len(html)})")
+        # Validate the HTML is complete
+        if '<body' not in html.lower():
+            raise Exception(f"HTML truncated — no body tag found (len={len(html)}). Increase max_tokens.")
+
+        if '</body>' not in html.lower():
+            raise Exception(f"HTML truncated — no closing body tag (len={len(html)}). Increase max_tokens.")
 
         print(f"[Generation] Request {request_id} HTML length: {len(html)}")
         print(f"[Generation] First 200 chars: {html[:200]}")
