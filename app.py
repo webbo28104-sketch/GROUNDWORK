@@ -162,9 +162,10 @@ Return a structured summary of everything found. If you find a Companies House l
         )
         result = ""
         for block in response.content:
-            if hasattr(block, 'text'):
-                result += block.text + "\n"
-        return result if result.strip() else f"Business: {business_name}, Location: {location}"
+            text = getattr(block, 'text', None)
+            if text:
+                result += text + "\n"
+        return result.strip() if result.strip() else f"Business: {business_name}, Location: {location}"
     except Exception as e:
         print(f"Search failed for {business_name}: {e}")
         return f"Business: {business_name}, Location: {location}"
@@ -213,12 +214,24 @@ def run_generation(request_id, business_name, location, logo_b64, photos_b64):
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": build_user_message(business_name, location, search_results, logo_b64, photos_b64)}]
         )
-        html = response.content[0].text
+        html = response.content[0].text if response.content else ""
+        if not html:
+            raise Exception("Claude returned empty response")
+
+        # Strip markdown fences if present
         html = html.replace('```html', '').replace('```', '').strip()
-        if '<!DOCTYPE' in html:
-            html = html[html.index('<!DOCTYPE'):]
-        if not html or '</html>' not in html.lower():
-            raise ValueError(f"Generated HTML is empty or malformed (len={len(html)})")
+
+        # Trim anything before <!DOCTYPE
+        if '<!DOCTYPE' in html.upper():
+            idx = html.upper().index('<!DOCTYPE')
+            html = html[idx:]
+
+        # Ensure it ends with </html>
+        if '</html>' not in html.lower():
+            html += '\n</html>'
+
+        if len(html) < 500:
+            raise Exception(f"Generated HTML too short to be valid (len={len(html)})")
         conn = get_db()
         try:
             cur = conn.cursor()
