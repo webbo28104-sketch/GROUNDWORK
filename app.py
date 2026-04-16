@@ -39,29 +39,30 @@ def init_db():
     conn = get_db()
     cur = conn.cursor()
 
-    cur.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            id SERIAL PRIMARY KEY,
-            email TEXT UNIQUE NOT NULL,
-            password_hash TEXT NOT NULL,
-            email_verified BOOLEAN DEFAULT FALSE,
-            created_at TIMESTAMP DEFAULT NOW()
-        )
-    ''')
-    conn.commit()
+    if os.environ.get('TEST_MODE', 'false').lower() != 'true':
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS users (
+                id SERIAL PRIMARY KEY,
+                email TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                email_verified BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+        ''')
+        conn.commit()
 
-    cur.execute('''
-        CREATE TABLE IF NOT EXISTS email_verifications (
-            id SERIAL PRIMARY KEY,
-            user_id INTEGER REFERENCES users(id),
-            code TEXT NOT NULL,
-            token TEXT UNIQUE NOT NULL,
-            expires_at TIMESTAMP NOT NULL,
-            used BOOLEAN DEFAULT FALSE,
-            created_at TIMESTAMP DEFAULT NOW()
-        )
-    ''')
-    conn.commit()
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS email_verifications (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER REFERENCES users(id),
+                code TEXT NOT NULL,
+                token TEXT UNIQUE NOT NULL,
+                expires_at TIMESTAMP NOT NULL,
+                used BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+        ''')
+        conn.commit()
 
     cur.execute('''
         CREATE TABLE IF NOT EXISTS preview_requests (
@@ -470,6 +471,51 @@ def submit_preview():
                 except Exception:
                     pass
 
+    if os.environ.get('TEST_MODE', 'false').lower() == 'true':
+        # Skip account creation, email verification and session entirely
+        logo_b64 = None
+        logo_file = request.files.get('logo')
+        if logo_file and logo_file.filename:
+            try:
+                logo_data = logo_file.read()
+                mt = logo_file.content_type or 'image/png'
+                logo_b64 = f"data:{mt};base64,{base64.b64encode(logo_data).decode()}"
+            except Exception:
+                pass
+
+        photos_b64 = []
+        for f in request.files.getlist('photos'):
+            if f and f.filename and len(photos_b64) < 3:
+                try:
+                    data = f.read()
+                    mt = f.content_type or 'image/jpeg'
+                    photos_b64.append(f"data:{mt};base64,{base64.b64encode(data).decode()}")
+                except Exception:
+                    pass
+
+        try:
+            conn = get_db()
+            cur = conn.cursor()
+            cur.execute(
+                'INSERT INTO preview_requests (business_name, location, email, logo_b64, photo_count, status) VALUES (%s, %s, %s, %s, %s, %s) RETURNING id',
+                (business_name, location, email or 'test@test.com', logo_b64, len(photos_b64), 'generating')
+            )
+            request_id = cur.fetchone()[0]
+            conn.commit()
+            cur.close()
+            conn.close()
+        except Exception as e:
+            print(f"TEST_MODE DB insert error: {e}")
+            return "Database error. Please try again.", 500
+
+        thread = threading.Thread(
+            target=run_generation,
+            args=(request_id, business_name, location, logo_b64, photos_b64 or None),
+            daemon=True
+        )
+        thread.start()
+        return render_template('generating.html', business_name=business_name, request_id=request_id)
+
     # Store form data in session for use after verification
     session['pending_business_name'] = business_name
     session['pending_location'] = location
@@ -759,6 +805,8 @@ with app.app_context():
             init_db()
         except Exception as e:
             print(f"[DB] Init failed: {e}")
+    mode = "TEST" if os.environ.get('TEST_MODE', 'false').lower() == 'true' else "PRODUCTION"
+    print(f"[Groundwork] Starting in {mode} mode")
 
 if __name__ == '__main__':
     app.run(debug=False, host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
