@@ -304,6 +304,9 @@ Rules:
         if len(html) < 500:
             raise Exception(f"Generated HTML too short (len={len(html)})")
 
+        print(f"[Generation] Request {request_id} HTML length: {len(html)}")
+        print(f"[Generation] First 200 chars: {html[:200]}")
+
         conn = get_db()
         try:
             cur = conn.cursor()
@@ -433,7 +436,14 @@ def complete_verification(user_id):
 # ---------- Routes ----------
 @app.route('/')
 def index():
-    return render_template('index.html')
+    test_mode = os.environ.get('TEST_MODE', 'false').lower() == 'true'
+    return render_template('index.html', test_mode=test_mode)
+
+@app.route('/mode')
+def mode():
+    test_mode = os.environ.get('TEST_MODE', 'false').lower() == 'true'
+    model = 'claude-haiku-4-5-20251001' if test_mode else 'claude-sonnet-4-6'
+    return f"TEST_MODE={'true' if test_mode else 'false'}\nMODEL={model}\n", 200, {'Content-Type': 'text/plain'}
 
 @app.route('/submit-preview', methods=['POST'])
 def submit_preview():
@@ -716,24 +726,28 @@ def preview_status(request_id):
         return jsonify({'status': 'generating'})
     except Exception as e:
         print(f"Poll error for request {request_id}: {e}")
-        return jsonify({'status': 'generating'})
+        return jsonify({'status': 'error', 'detail': str(e)}), 500
 
 @app.route('/preview/<int:request_id>/view')
 def preview_view(request_id):
     try:
         conn = get_db()
         cur = conn.cursor()
-        cur.execute("SELECT business_name FROM preview_requests WHERE id = %s AND status = 'complete'", (request_id,))
+        cur.execute("SELECT preview_html FROM preview_requests WHERE id = %s AND status = 'complete'", (request_id,))
         row = cur.fetchone()
         cur.close()
         conn.close()
-        if not row:
+        if not row or not row[0]:
             return "Preview not ready yet.", 404
-        business_name = row[0]
-        return render_template('preview_wrapper.html', request_id=request_id, business_name=business_name)
+        html = row[0]
+        print(f"[View] Request {request_id} serving HTML length: {len(html)}")
+        response = app.make_response(html)
+        response.headers['Content-Type'] = 'text/html; charset=utf-8'
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        return response
     except Exception as e:
         print(f"View error for request {request_id}: {e}")
-        return "Something went wrong loading your preview.", 500
+        return f"Something went wrong loading your preview: {e}", 500
 
 @app.route('/preview/<int:request_id>/raw')
 def preview_raw(request_id):

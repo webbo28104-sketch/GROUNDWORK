@@ -2773,7 +2773,12 @@
 </style>
 </head>
 <body>
- 
+{% if test_mode %}
+<div style="background:#e06c6c;color:white;text-align:center;padding:0.5rem;font-family:monospace;font-size:0.8rem;font-weight:700;letter-spacing:0.1em;position:fixed;top:0;left:0;right:0;z-index:9999">
+  ⚠ TEST MODE — Haiku model active. No accounts created.
+</div>
+{% endif %}
+
 <!-- NAV -->
 <nav>
   <div class="nav-logo">Ground<span>work</span></div>
