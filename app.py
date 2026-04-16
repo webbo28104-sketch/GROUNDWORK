@@ -140,25 +140,29 @@ Quality checklist before returning:
 Return HTML only. Start with <!DOCTYPE html>. End with </html>."""
 
 def search_business(business_name, location):
-    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-    response = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=2000,
-        tools=[{"type": "web_search_20250305", "name": "web_search"}],
-        messages=[{
-            "role": "user",
-            "content": f"""Search for information about this trade business and return everything useful you find:
+    try:
+        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        response = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=2000,
+            tools=[{"type": "web_search_20250305", "name": "web_search"}],
+            messages=[{
+                "role": "user",
+                "content": f"""Search for information about this trade business and return everything useful you find:
 Business: {business_name}
 Location: {location}
 Search for: contact details, services, accreditations, years trading, company registration, trade body memberships, reviews.
 Return a structured summary of everything found. If you find a Companies House listing include the company number."""
-        }]
-    )
-    result = ""
-    for block in response.content:
-        if hasattr(block, 'text'):
-            result += block.text + "\n"
-    return result if result else f"Business: {business_name}, Location: {location}"
+            }]
+        )
+        result = ""
+        for block in response.content:
+            if hasattr(block, 'text'):
+                result += block.text + "\n"
+        return result if result.strip() else f"Business: {business_name}, Location: {location}"
+    except Exception as e:
+        print(f"Search failed for {business_name}: {e}")
+        return f"Business: {business_name}, Location: {location}"
 
 def build_user_message(business_name, location, search_results, logo_b64=None, photos_b64=None):
     content = []
@@ -195,12 +199,11 @@ GROUNDWORK URL: https://groundwork.co.uk
     return content
 
 def run_generation(request_id, business_name, location, logo_b64, photos_b64):
-    conn = None
     try:
         search_results = search_business(business_name, location)
         client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
         response = client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model="claude-sonnet-4-6",
             max_tokens=8000,
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": build_user_message(business_name, location, search_results, logo_b64, photos_b64)}]
@@ -209,24 +212,30 @@ def run_generation(request_id, business_name, location, logo_b64, photos_b64):
         html = html.replace('```html', '').replace('```', '').strip()
         if '<!DOCTYPE' in html:
             html = html[html.index('<!DOCTYPE'):]
+        if not html or '</html>' not in html.lower():
+            raise ValueError(f"Generated HTML is empty or malformed (len={len(html)})")
         conn = get_db()
-        cur = conn.cursor()
-        cur.execute('UPDATE preview_requests SET status = %s, preview_html = %s, completed_at = NOW() WHERE id = %s', ('complete', html, request_id))
-        conn.commit()
-        cur.close()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                'UPDATE preview_requests SET status = %s, preview_html = %s, completed_at = NOW() WHERE id = %s',
+                ('complete', html, request_id)
+            )
+            conn.commit()
+            cur.close()
+        finally:
+            conn.close()
     except Exception as e:
         print(f"Generation error for request {request_id}: {e}")
-        if conn:
-            try:
-                cur = conn.cursor()
-                cur.execute("UPDATE preview_requests SET status = 'error' WHERE id = %s", (request_id,))
-                conn.commit()
-                cur.close()
-            except Exception:
-                pass
-    finally:
-        if conn:
+        try:
+            conn = get_db()
+            cur = conn.cursor()
+            cur.execute("UPDATE preview_requests SET status = 'error' WHERE id = %s", (request_id,))
+            conn.commit()
+            cur.close()
             conn.close()
+        except Exception as e2:
+            print(f"Failed to set error status for request {request_id}: {e2}")
 
 @app.route('/')
 def index():
@@ -259,46 +268,62 @@ def submit_preview():
                     photos_b64.append(f"data:{mt};base64,{base64.b64encode(data).decode()}")
                 except Exception:
                     pass
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute('INSERT INTO preview_requests (business_name, location, email, logo_b64, photo_count, status) VALUES (%s, %s, %s, %s, %s, %s) RETURNING id', (business_name, location, email, logo_b64, len(photos_b64), 'generating'))
-    request_id = cur.fetchone()[0]
-    conn.commit()
-    cur.close()
-    conn.close()
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute(
+            'INSERT INTO preview_requests (business_name, location, email, logo_b64, photo_count, status) VALUES (%s, %s, %s, %s, %s, %s) RETURNING id',
+            (business_name, location, email, logo_b64, len(photos_b64), 'generating')
+        )
+        request_id = cur.fetchone()[0]
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        print(f"DB insert error: {e}")
+        return "Database error. Please try again.", 500
+
     thread = threading.Thread(target=run_generation, args=(request_id, business_name, location, logo_b64, photos_b64 or None), daemon=True)
     thread.start()
     return render_template('generating.html', business_name=business_name, request_id=request_id)
 
 @app.route('/preview/<int:request_id>')
 def preview_status(request_id):
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("SELECT status, preview_html FROM preview_requests WHERE id = %s", (request_id,))
-    row = cur.fetchone()
-    cur.close()
-    conn.close()
-    if not row:
-        return jsonify({'status': 'not_found'}), 404
-    status, html = row
-    if status == 'complete' and html:
-        return jsonify({'status': 'complete'})
-    elif status == 'error':
-        return jsonify({'status': 'error'})
-    return jsonify({'status': 'generating'})
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("SELECT status, preview_html FROM preview_requests WHERE id = %s", (request_id,))
+        row = cur.fetchone()
+        cur.close()
+        conn.close()
+        if not row:
+            return jsonify({'status': 'not_found'}), 404
+        status, html = row
+        if status == 'complete' and html:
+            return jsonify({'status': 'complete'})
+        elif status == 'error':
+            return jsonify({'status': 'error'})
+        return jsonify({'status': 'generating'})
+    except Exception as e:
+        print(f"Poll error for request {request_id}: {e}")
+        return jsonify({'status': 'generating'})
 
 @app.route('/preview/<int:request_id>/view')
 def preview_view(request_id):
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("SELECT preview_html, business_name FROM preview_requests WHERE id = %s AND status = 'complete'", (request_id,))
-    row = cur.fetchone()
-    cur.close()
-    conn.close()
-    if not row:
-        return "Preview not ready yet.", 404
-    html, business_name = row
-    return html, 200, {'Content-Type': 'text/html'}
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("SELECT preview_html, business_name FROM preview_requests WHERE id = %s AND status = 'complete'", (request_id,))
+        row = cur.fetchone()
+        cur.close()
+        conn.close()
+        if not row:
+            return "Preview not ready yet.", 404
+        html, business_name = row
+        return html, 200, {'Content-Type': 'text/html'}
+    except Exception as e:
+        print(f"View error for request {request_id}: {e}")
+        return "Something went wrong loading your preview.", 500
 
 @app.route('/favicon.ico')
 def favicon():
