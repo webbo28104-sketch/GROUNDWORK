@@ -40,6 +40,7 @@ def init_db():
     migrations = [
         "ALTER TABLE preview_requests ADD COLUMN IF NOT EXISTS logo_b64 TEXT",
         "ALTER TABLE preview_requests ADD COLUMN IF NOT EXISTS photo_count INTEGER DEFAULT 0",
+        "ALTER TABLE preview_requests ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'pending'",
         "ALTER TABLE preview_requests ADD COLUMN IF NOT EXISTS preview_html TEXT",
         "ALTER TABLE preview_requests ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP",
     ]
