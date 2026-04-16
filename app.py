@@ -22,6 +22,7 @@ def get_db():
 def init_db():
     conn = get_db()
     cur = conn.cursor()
+    # Create table (no-op if already exists)
     cur.execute('''
         CREATE TABLE IF NOT EXISTS preview_requests (
             id SERIAL PRIMARY KEY,
@@ -36,7 +37,8 @@ def init_db():
             completed_at TIMESTAMP
         )
     ''')
-    # Add missing columns to existing tables
+    conn.commit()
+    # Add any columns missing from older table versions
     migrations = [
         "ALTER TABLE preview_requests ADD COLUMN IF NOT EXISTS logo_b64 TEXT",
         "ALTER TABLE preview_requests ADD COLUMN IF NOT EXISTS photo_count INTEGER DEFAULT 0",
@@ -47,11 +49,13 @@ def init_db():
     for sql in migrations:
         try:
             cur.execute(sql)
-        except Exception:
-            pass
-    conn.commit()
+            conn.commit()
+        except Exception as e:
+            print(f"[DB] Migration skipped ({e}): {sql[:60]}")
+            conn.rollback()
     cur.close()
     conn.close()
+    print("[DB] Tables initialised")
 
 SYSTEM_PROMPT = """You are a professional web designer generating a bespoke preview website for a trade business. You will be given form data, web search results about the business, and optionally their logo and portfolio photos as base64 images.
 
@@ -332,7 +336,10 @@ def favicon():
 
 with app.app_context():
     if DATABASE_URL:
-        init_db()
+        try:
+            init_db()
+        except Exception as e:
+            print(f"[DB] Init failed: {e}")
 
 if __name__ == '__main__':
     app.run(debug=False, host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
