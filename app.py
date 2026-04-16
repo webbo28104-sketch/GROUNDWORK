@@ -36,6 +36,18 @@ def init_db():
             completed_at TIMESTAMP
         )
     ''')
+    # Add missing columns to existing tables
+    migrations = [
+        "ALTER TABLE preview_requests ADD COLUMN IF NOT EXISTS logo_b64 TEXT",
+        "ALTER TABLE preview_requests ADD COLUMN IF NOT EXISTS photo_count INTEGER DEFAULT 0",
+        "ALTER TABLE preview_requests ADD COLUMN IF NOT EXISTS preview_html TEXT",
+        "ALTER TABLE preview_requests ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP",
+    ]
+    for sql in migrations:
+        try:
+            cur.execute(sql)
+        except Exception:
+            pass
     conn.commit()
     cur.close()
     conn.close()
