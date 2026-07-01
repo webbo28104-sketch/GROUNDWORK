@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Building your website — Groundwork</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@700;800&display=swap" rel="stylesheet">
+<script src="./config.js"></script>
+<style>
+*{box-sizing:border-box;}
+h1,h2,h3,h4{font-family:'Plus Jakarta Sans','Inter',sans-serif;}
+html,body{margin:0;height:100%;background:#1C1C1C;}
+@keyframes gw-fade{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:translateY(0);}}
+@keyframes gw-pulse{0%,100%{opacity:1;}50%{opacity:.55;}}
+</style>
+</head>
+<body style="font-family:Inter,sans-serif;background:#1C1C1C;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px 24px;position:relative;">
+
+<div style="width:100%;max-width:480px;display:flex;flex-direction:column;align-items:center;text-align:center;">
+  <svg viewBox="0 0 48 48" width="48" height="48" fill="none" style="animation:gw-pulse 2s ease-in-out infinite;margin-bottom:30px;">
+    <path d="M 37 13.1 A 17 17 0 1 0 41 24 L 27 24" stroke="#3B82F6" stroke-width="4.6" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M 30.9 18.2 A 9 9 0 1 0 30.9 29.8" stroke="#3B82F6" stroke-width="4.6" stroke-linecap="round"/>
+  </svg>
+
+  <h2 style="margin:0 0 30px;font-weight:400;font-size:clamp(22px,4vw,30px);color:#FAFAF8;letter-spacing:-.01em;">Building your website<span style="color:#3B82F6;">…</span></h2>
+
+  <div role="progressbar" aria-label="Building your website" aria-valuemin="0" aria-valuemax="100" id="progress-wrap" style="width:100%;height:10px;background:#2C2C2C;border-radius:999px;overflow:hidden;">
+    <div id="progress-bar" style="height:100%;width:0%;background:#3B82F6;border-radius:999px;transition:width .25s linear;"></div>
+  </div>
+
+  <div style="margin-top:22px;min-height:24px;">
+    <p id="status-msg" style="margin:0;font-size:15px;color:#9A9893;animation:gw-fade .5s ease both;">Looking up your business online…</p>
+  </div>
+
+  <div id="error-box" style="display:none;margin-top:20px;background:#2C1010;border:1px solid #7B2020;border-radius:12px;padding:16px 20px;text-align:left;color:#F87171;font-size:14px;line-height:1.5;"></div>
+</div>
+
+<div style="position:absolute;bottom:26px;left:0;right:0;text-align:center;">
+  <span style="font-size:12.5px;color:#4A4A48;letter-spacing:.02em;">Powered by Groundwork</span>
+</div>
+
+<script>
+const STEPS = [
+  {at:0,  msg:'Looking up your business online…'},
+  {at:10, msg:'Checking your accreditations…'},
+  {at:20, msg:'Choosing fonts and colours for your trade…'},
+  {at:35, msg:'Writing your headline and services…'},
+  {at:50, msg:'Building your site…'},
+  {at:75, msg:'Final checks — almost there…'},
+  {at:90, msg:'Nearly done…'},
+];
+
+const params = new URLSearchParams(location.search);
+const jobId = params.get('id');
+const apiBase = window.GROUNDWORK_API || '';
+
+if (!jobId) {
+  document.getElementById('error-box').style.display='';
+  document.getElementById('error-box').textContent='No job ID found. Please go back and try again.';
+}
+
+let fakeProgress = 0;
+let done = false;
+const bar = document.getElementById('progress-bar');
+const msg = document.getElementById('status-msg');
+
+// Animate fake progress until done (capped at 95%)
+const fakeTimer = setInterval(() => {
+  if(done) return;
+  fakeProgress = Math.min(fakeProgress + (fakeProgress < 50 ? 0.8 : fakeProgress < 80 ? 0.4 : 0.1), 95);
+  bar.style.width = fakeProgress + '%';
+  bar.parentElement.setAttribute('aria-valuenow', Math.round(fakeProgress));
+  const step = [...STEPS].reverse().find(s => fakeProgress >= s.at);
+  if(step && msg.textContent !== step.msg) {
+    msg.style.animation = 'none'; msg.offsetHeight; msg.style.animation = '';
+    msg.textContent = step.msg;
+  }
+}, 200);
+
+async function poll() {
+  if(done || !jobId) return;
+  try {
+    const r = await fetch(`${apiBase}/api/generate/${jobId}/status`);
+    const data = await r.json();
+    if(data.status === 'done') {
+      done = true;
+      clearInterval(fakeTimer);
+      bar.style.width = '100%';
+      msg.textContent = 'Your website is ready!';
+      setTimeout(() => { window.location.href = `preview.html?id=${jobId}`; }, 600);
+    } else if(data.status === 'error') {
+      done = true;
+      clearInterval(fakeTimer);
+      document.getElementById('error-box').style.display = '';
+      document.getElementById('error-box').textContent = 'Something went wrong generating your site: ' + (data.error||'Unknown error') + '\n\nPlease go back and try again.';
+    }
+    // else pending — keep polling
+  } catch(e) {
+    // Network error, retry
+  }
+}
+
+if(jobId) {
+  poll();
+  setInterval(poll, 2000);
+}
+</script>
+</body>
+</html>

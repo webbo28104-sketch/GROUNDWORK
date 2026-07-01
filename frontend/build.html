@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Build your website — Groundwork</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@700;800&display=swap" rel="stylesheet">
+<script src="./config.js"></script>
+<style>
+*{box-sizing:border-box;}
+h1,h2,h3,h4{font-family:'Plus Jakarta Sans','Inter',sans-serif;}
+body{margin:0;background:#F5F3EE;font-family:Inter,sans-serif;color:#1C1C1C;}
+a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid #3B82F6;outline-offset:2px;}
+input,select,textarea,button{font-family:Inter,sans-serif;}
+input[type=range]{accent-color:#3B82F6;width:100%;height:8px;cursor:pointer;}
+@keyframes gwfade{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);}}
+.step-content{animation:gwfade .28s ease;}
+.field{display:flex;flex-direction:column;gap:7px;}
+.field label{font-size:14px;font-weight:600;color:#3A3A38;}
+.field input,.field textarea,.field select{padding:13px 15px;border-radius:10px;font-size:15.5px;color:#1C1C1C;background:#fff;width:100%;border:1px solid #D9D7D0;}
+.field input:focus,.field textarea:focus{outline:none;border-color:#3B82F6;}
+.field input[aria-invalid=true]{border-color:#9B2B1A;}
+.field .err{font-size:13px;color:#9B2B1A;display:none;}
+.field.has-error .err{display:block;}
+.field.has-error input,.field.has-error textarea{border-color:#9B2B1A;}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:18px;}
+.option-card{display:flex;align-items:flex-start;gap:14px;width:100%;text-align:left;cursor:pointer;padding:17px 18px;border-radius:13px;transition:all .12s;border:1.5px solid #E0DDD5;background:#fff;}
+.option-card.sel{border:2px solid #3B82F6;background:#F2F6FF;box-shadow:0 6px 18px -10px rgba(59,130,246,.5);}
+.option-dot{flex-shrink:0;width:24px;height:24px;border-radius:50%;margin-top:1px;display:flex;align-items:center;justify-content:center;border:2px solid #CFCCC4;background:transparent;}
+.option-card.sel .option-dot{border:0;background:#3B82F6;}
+.option-dot svg{opacity:0;}
+.option-card.sel .option-dot svg{opacity:1;}
+.option-label{font-weight:700;font-size:16.5px;color:#1C1C1C;display:block;}
+.option-desc{font-size:13.5px;color:#5C5A56;margin-top:2px;display:block;}
+.toggle-btn{flex:1;cursor:pointer;padding:14px 18px;border-radius:11px;font-size:15.5px;font-weight:700;transition:all .12s;border:1.5px solid #E0DDD5;background:#fff;color:#5C5A56;}
+.toggle-btn.sel{border:2px solid #3B82F6;background:#F2F6FF;color:#1D4FB5;}
+.upload-zone{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;border:2px dashed #D9D7D0;border-radius:12px;padding:26px;cursor:pointer;text-align:center;background:#FAF9F6;transition:border-color .15s,background .15s;}
+.upload-zone:hover{border-color:#3B82F6;background:#F2F6FF;}
+.btn-back{background:#fff;color:#3A3A38;font-weight:700;font-size:15.5px;border:1px solid #D9D7D0;padding:14px 22px;border-radius:11px;cursor:pointer;display:inline-flex;align-items:center;gap:8px;}
+.btn-back:hover{border-color:#1C1C1C;}
+.btn-next{flex:1;background:#3B82F6;color:#fff;font-weight:700;font-size:16.5px;border:0;padding:15px 22px;border-radius:11px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:8px;}
+.btn-next:hover{background:#2563EB;}
+.btn-skip{background:none;border:0;color:#807E79;font-size:14px;font-weight:600;cursor:pointer;padding:6px;}
+.btn-skip:hover{color:#3B82F6;}
+.review-block{border:1px solid #E6E3DC;border-radius:13px;padding:16px 18px;background:#FAF9F6;margin-bottom:14px;}
+.review-block dl{margin:0;display:flex;flex-direction:column;gap:8px;}
+.review-block .row{display:grid;grid-template-columns:148px 1fr;gap:12px;align-items:baseline;}
+.review-block dt{font-size:13.5px;color:#807E79;}
+.review-block dd{margin:0;font-size:14.5px;font-weight:600;color:#1C1C1C;word-break:break-word;}
+.review-block .hdr{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px;}
+.review-block .hdr-title{font-size:12px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#807E79;}
+.review-block .edit-btn{background:none;border:0;color:#2563EB;font-size:13.5px;font-weight:700;cursor:pointer;padding:2px 4px;display:inline-flex;align-items:center;gap:5px;}
+.photo-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:10px;margin-top:14px;}
+.photo-thumb{position:relative;aspect-ratio:1;border-radius:10px;overflow:hidden;border:1px solid #E6E3DC;}
+.photo-thumb img{width:100%;height:100%;object-fit:cover;display:block;}
+.photo-remove{position:absolute;top:5px;right:5px;width:24px;height:24px;border-radius:50%;border:0;background:rgba(28,28,28,.78);color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:15px;line-height:1;}
+</style>
+</head>
+<body>
+
+<!-- Top bar -->
+<div style="background:#1C1C1C;border-bottom:1px solid #2C2C2C;">
+  <div style="max-width:760px;margin:0 auto;padding:0 24px;height:64px;display:flex;align-items:center;justify-content:space-between;">
+    <a href="index.html" style="display:flex;align-items:center;gap:11px;text-decoration:none;">
+      <svg viewBox="0 0 48 48" width="30" height="30" fill="none"><path d="M 37 13.1 A 17 17 0 1 0 41 24 L 27 24" stroke="#3B82F6" stroke-width="4.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M 30.9 18.2 A 9 9 0 1 0 30.9 29.8" stroke="#3B82F6" stroke-width="4.6" stroke-linecap="round"/></svg>
+      <span style="color:#fff;font-weight:800;font-size:19px;letter-spacing:-.03em;">Groundwork</span>
+    </a>
+    <a href="index.html" style="color:#9A9893;text-decoration:none;font-size:14px;font-weight:500;display:inline-flex;align-items:center;gap:7px;">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M15 6l-6 6 6 6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Back to site
+    </a>
+  </div>
+</div>
+
+<div style="max-width:680px;margin:0 auto;padding:clamp(28px,4vw,48px) 24px clamp(40px,6vw,72px);">
+
+  <!-- Progress -->
+  <div style="margin-bottom:26px;">
+    <div id="progress-bars" style="display:flex;gap:5px;margin-bottom:13px;"></div>
+    <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;">
+      <div id="step-label" style="color:#2257CC;font-size:12.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;"></div>
+      <div id="pct-label" style="font-size:12.5px;color:#807E79;font-weight:600;"></div>
+    </div>
+  </div>
+
+  <!-- Card -->
+  <div style="background:#fff;border:1px solid #E6E3DC;border-radius:18px;padding:clamp(24px,3.5vw,38px);box-shadow:0 24px 48px -32px rgba(28,28,28,.28);">
+    <div id="step-body"></div>
+
+    <!-- Nav buttons -->
+    <div style="display:flex;align-items:center;gap:12px;margin-top:32px;">
+      <button class="btn-back" id="btn-back" onclick="goBack()" style="display:none;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>
+        Back
+      </button>
+      <button class="btn-next" id="btn-next" onclick="advance()">Next
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <div id="skip-wrap" style="text-align:center;margin-top:16px;display:none;">
+    <button class="btn-skip" onclick="skipStep()">Skip this step →</button>
+  </div>
+</div>
+
+<script>
+const STEP_LABELS = ['Business basics','Logo & photos','Work split','Type of work','Your team','Reaching you','Extras','Review'];
+const WORK_TYPES = [
+  {key:'standard',label:'Mostly standard / routine jobs',desc:'Repairs, installs and everyday work — the bread and butter.'},
+  {key:'mix',label:'A mix of routine and specialist',desc:'Routine work plus the occasional bigger or one-off project.'},
+  {key:'bespoke',label:'Mostly bespoke, listed or specialist work',desc:'Heritage, conservation, high-end or one-of-a-kind jobs.'},
+];
+const TEAM_SIZES = [
+  {key:'sole',label:'Just me',desc:'A sole trader, out on the tools day to day.'},
+  {key:'small',label:'Small team',desc:'A handful of us, hands-on day to day.'},
+  {key:'company',label:'Established company',desc:'A settled team with office and field staff.'},
+];
+const BOOKINGS = [
+  {key:'ahead',label:'Customers usually book ahead',desc:'Planned jobs, quotes and scheduled work.'},
+  {key:'emergency',label:'Often same-day or emergency',desc:'Callouts, urgent repairs, fast response matters.'},
+];
+
+const st = {
+  step: 1,
+  business:'', trade:'', town:'', coverage:'', phone:'', email:'',
+  logoName:'', logoB64:'', logoMime:'',
+  photos:[],  // [{name, b64, mime}]
+  commercial: 50,
+  workType:'', teamSize:'', largeContracts:'no', booking:'',
+  founded:'', accreditations:'', pastClients:'', notes:'',
+  errors:{},
+};
+
+// Try restore from sessionStorage
+try {
+  const raw = sessionStorage.getItem('groundwork_build');
+  if (raw) {
+    const d = JSON.parse(raw);
+    Object.keys(d).forEach(k => { if (k in st) st[k] = d[k]; });
+  }
+} catch(e){}
+
+function save() {
+  try { sessionStorage.setItem('groundwork_build', JSON.stringify(st)); } catch(e){}
+}
+
+function h(s){ return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+function renderProgress() {
+  const bars = document.getElementById('progress-bars');
+  bars.innerHTML = STEP_LABELS.map((_,i) =>
+    `<span style="flex:1;height:6px;border-radius:3px;background:${i<st.step?'#3B82F6':'#E2E0DA'};transition:background .2s;"></span>`
+  ).join('');
+  document.getElementById('step-label').textContent = `Step ${st.step} of 8 · ${STEP_LABELS[st.step-1]}`;
+  document.getElementById('pct-label').textContent = `${Math.round(((st.step-1)/7)*100)}% done`;
+
+  const btnBack = document.getElementById('btn-back');
+  const skipWrap = document.getElementById('skip-wrap');
+  btnBack.style.display = st.step > 1 ? '' : 'none';
+  skipWrap.style.display = (st.step === 2 || st.step === 7) ? '' : 'none';
+
+  const btnNext = document.getElementById('btn-next');
+  if (st.step === 8) {
+    btnNext.innerHTML = 'Generate my website';
+  } else {
+    const label = st.step === 7 ? 'Review' : 'Next';
+    btnNext.innerHTML = `${label}<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>`;
+  }
+}
+
+function fieldStyle(invalid){ return `padding:13px 15px;border-radius:10px;font-size:15.5px;color:#1C1C1C;background:#fff;width:100%;border:1px solid ${invalid?'#9B2B1A':'#D9D7D0'};`; }
+const plainStyle = fieldStyle(false);
+
+function renderStep1() {
+  const e = st.errors;
+  return `<div class="step-content">
+    <h1 style="margin:0 0 8px;font-weight:800;font-size:clamp(25px,3.4vw,33px);line-height:1.12;letter-spacing:-.03em;">Let's start with the basics</h1>
+    <p style="margin:0 0 28px;font-size:16px;line-height:1.55;color:#5C5A56;">The essentials we need to put your business on the page.</p>
+    <div style="display:flex;flex-direction:column;gap:18px;">
+      <div class="field${e.business?' has-error':''}">
+        <label for="f-business">Business name *</label>
+        <input id="f-business" type="text" value="${h(st.business)}" placeholder="Smith's Plumbing Ltd" oninput="st.business=this.value;clearErr('business')">
+        <span class="err">Please add your business name.</span>
+      </div>
+      <div class="field${e.trade?' has-error':''}">
+        <label for="f-trade">Trade or discipline *</label>
+        <input id="f-trade" type="text" value="${h(st.trade)}" placeholder="e.g. Plumber, Electrician, Roofer" oninput="st.trade=this.value;clearErr('trade')">
+        <span class="err">Please add your trade.</span>
+      </div>
+      <div class="grid2">
+        <div class="field${e.town?' has-error':''}">
+          <label for="f-town">Town or base *</label>
+          <input id="f-town" type="text" value="${h(st.town)}" placeholder="Guildford" oninput="st.town=this.value;clearErr('town')">
+          <span class="err">Add your town.</span>
+        </div>
+        <div class="field${e.coverage?' has-error':''}">
+          <label for="f-coverage">Area you cover *</label>
+          <input id="f-coverage" type="text" value="${h(st.coverage)}" placeholder="Surrey &amp; SW London" oninput="st.coverage=this.value;clearErr('coverage')">
+          <span class="err">Add the area you cover.</span>
+        </div>
+      </div>
+      <div class="grid2">
+        <div class="field${e.phone?' has-error':''}">
+          <label for="f-phone">Phone number *</label>
+          <input id="f-phone" type="tel" value="${h(st.phone)}" placeholder="07700 900000" oninput="st.phone=this.value;clearErr('phone')">
+          <span class="err">Add a phone number.</span>
+        </div>
+        <div class="field${e.email?' has-error':''}">
+          <label for="f-email">Email *</label>
+          <input id="f-email" type="email" value="${h(st.email)}" placeholder="you@business.co.uk" oninput="st.email=this.value;clearErr('email')">
+          <span class="err" id="email-err">${e.email==='format'?'That email doesn\'t look right.':'Please add an email.'}</span>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderStep2() {
+  const photosHtml = st.photos.length ? `<div class="photo-grid">${st.photos.map((p,i)=>`<div class="photo-thumb"><img src="${p.b64}" alt="${h(p.name)}"><button class="photo-remove" onclick="removePhoto(${i})">×</button></div>`).join('')}</div>` : '';
+  const logoHtml = st.logoB64
+    ? `<div style="display:flex;align-items:center;gap:14px;border:1px solid #E6E3DC;border-radius:12px;padding:14px 16px;background:#FAF9F6;">
+        <img src="${st.logoB64}" alt="Your logo" style="width:54px;height:54px;object-fit:contain;border-radius:8px;background:#fff;border:1px solid #E6E3DC;">
+        <div style="flex:1;min-width:0;"><div style="font-weight:600;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${h(st.logoName)}</div><div style="font-size:13px;color:#807E79;">Looks good.</div></div>
+        <button type="button" onclick="removeLogo()" style="background:none;border:0;color:#9B2B1A;font-size:13.5px;font-weight:600;cursor:pointer;padding:6px;">Remove</button>
+       </div>`
+    : `<label for="f-logo" class="upload-zone">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#3B82F6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4m0 0L8 8m4-4l4 4"/><path d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>
+        <span style="font-weight:600;font-size:14.5px;color:#1C1C1C;">Upload your logo</span>
+        <span style="font-size:13px;color:#807E79;">PNG, JPG or SVG</span>
+       </label>
+       <input id="f-logo" type="file" accept="image/*" onchange="onLogo(this)" style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;">`;
+  return `<div class="step-content">
+    <h1 style="margin:0 0 8px;font-weight:800;font-size:clamp(25px,3.4vw,33px);line-height:1.12;letter-spacing:-.03em;">Logo &amp; photos</h1>
+    <p style="margin:0 0 28px;font-size:16px;line-height:1.55;color:#5C5A56;">Both optional — skip if you like and add them later. Good photos of your work make a real difference.</p>
+    <div style="display:flex;flex-direction:column;gap:24px;">
+      <div>
+        <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin-bottom:9px;"><span style="font-size:14px;font-weight:600;color:#3A3A38;">Your logo</span><span style="font-size:12.5px;font-weight:600;color:#807E79;">Optional</span></div>
+        <p style="margin:0 0 10px;font-size:13.5px;line-height:1.5;color:#807E79;">This helps us match your brand colours.</p>
+        ${logoHtml}
+      </div>
+      <div>
+        <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin-bottom:9px;"><span style="font-size:14px;font-weight:600;color:#3A3A38;">Portfolio photos</span><span style="font-size:12.5px;font-weight:600;color:#807E79;">Optional</span></div>
+        <p style="margin:0 0 10px;font-size:13.5px;line-height:1.5;color:#807E79;">These appear in your portfolio section.</p>
+        <label for="f-photos" class="upload-zone">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#3B82F6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+          <span style="font-weight:600;font-size:14.5px;color:#1C1C1C;">Add photos of your work</span>
+          <span style="font-size:13px;color:#807E79;">Choose several at once</span>
+        </label>
+        <input id="f-photos" type="file" accept="image/*" multiple onchange="onPhotos(this)" style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;">
+        ${photosHtml}
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderStep3() {
+  const dom = 100 - st.commercial;
+  return `<div class="step-content">
+    <h1 style="margin:0 0 8px;font-weight:800;font-size:clamp(25px,3.4vw,33px);line-height:1.12;letter-spacing:-.03em;">How does your work split?</h1>
+    <p style="margin:0 0 32px;font-size:16px;line-height:1.55;color:#5C5A56;">Roughly what share of your work is domestic versus commercial? Drag the slider — a rough sense is plenty.</p>
+    <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:14px;">
+      <div><div style="font-size:34px;font-weight:800;letter-spacing:-.03em;" id="dom-pct">${dom}%</div><div style="font-size:13.5px;font-weight:600;color:#5C5A56;">Domestic</div></div>
+      <div style="text-align:right"><div style="font-size:34px;font-weight:800;letter-spacing:-.03em;" id="com-pct">${st.commercial}%</div><div style="font-size:13.5px;font-weight:600;color:#5C5A56;">Commercial</div></div>
+    </div>
+    <input type="range" min="0" max="100" step="5" value="${st.commercial}" oninput="onSplit(this.value)" style="width:100%;height:8px;cursor:pointer;">
+    <div style="display:flex;justify-content:space-between;margin-top:9px;font-size:12.5px;color:#807E79;"><span>100% domestic</span><span>50 / 50</span><span>100% commercial</span></div>
+  </div>`;
+}
+
+function renderOptions(list, current, onPick) {
+  return list.map(o => {
+    const sel = current === o.key;
+    return `<button type="button" class="option-card${sel?' sel':''}" onclick="${onPick}('${o.key}')">
+      <span class="option-dot"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l4 4 10-10"/></svg></span>
+      <span><span class="option-label">${h(o.label)}</span><span class="option-desc">${h(o.desc)}</span></span>
+    </button>`;
+  }).join('');
+}
+
+function renderStep4() {
+  const err = st.errors.workType ? '<span style="display:block;margin-top:12px;font-size:13px;color:#9B2B1A;">Please pick one to continue.</span>' : '';
+  return `<div class="step-content">
+    <h1 style="margin:0 0 8px;font-weight:800;font-size:clamp(25px,3.4vw,33px);line-height:1.12;letter-spacing:-.03em;">What kind of work, mostly?</h1>
+    <p style="margin:0 0 26px;font-size:16px;line-height:1.55;color:#5C5A56;">This shapes how we describe your services. Pick the closest fit.</p>
+    <div style="display:flex;flex-direction:column;gap:12px;">${renderOptions(WORK_TYPES, st.workType, 'pickWorkType')}</div>${err}
+  </div>`;
+}
+
+function renderStep5() {
+  const err = st.errors.teamSize ? '<span style="display:block;margin-top:12px;font-size:13px;color:#9B2B1A;">Please pick one to continue.</span>' : '';
+  const lcYes = st.largeContracts==='yes';
+  return `<div class="step-content">
+    <h1 style="margin:0 0 8px;font-weight:800;font-size:clamp(25px,3.4vw,33px);line-height:1.12;letter-spacing:-.03em;">Tell us about your team</h1>
+    <p style="margin:0 0 26px;font-size:16px;line-height:1.55;color:#5C5A56;">How big is the operation?</p>
+    <div style="display:flex;flex-direction:column;gap:12px;">${renderOptions(TEAM_SIZES, st.teamSize, 'pickTeamSize')}</div>${err}
+    <div style="margin-top:26px;padding-top:24px;border-top:1px solid #EDEAE3;">
+      <div style="font-weight:600;font-size:16px;color:#1C1C1C;margin-bottom:4px;">We take on large commercial contracts</div>
+      <div style="font-size:13.5px;color:#5C5A56;margin-bottom:14px;">Bigger fit-outs, site work, contracts with main builders.</div>
+      <div style="display:flex;gap:10px;">
+        <button type="button" class="toggle-btn${lcYes?'':' sel'}" onclick="st.largeContracts='no';render()">No</button>
+        <button type="button" class="toggle-btn${lcYes?' sel':''}" onclick="st.largeContracts='yes';render()">Yes</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderStep6() {
+  const err = st.errors.booking ? '<span style="display:block;margin-top:12px;font-size:13px;color:#9B2B1A;">Please pick one to continue.</span>' : '';
+  return `<div class="step-content">
+    <h1 style="margin:0 0 8px;font-weight:800;font-size:clamp(25px,3.4vw,33px);line-height:1.12;letter-spacing:-.03em;">How do customers reach you?</h1>
+    <p style="margin:0 0 26px;font-size:16px;line-height:1.55;color:#5C5A56;">This helps us put the right call-to-action front and centre.</p>
+    <div style="display:flex;flex-direction:column;gap:12px;">${renderOptions(BOOKINGS, st.booking, 'pickBooking')}</div>${err}
+  </div>`;
+}
+
+function renderStep7() {
+  return `<div class="step-content">
+    <h1 style="margin:0 0 8px;font-weight:800;font-size:clamp(25px,3.4vw,33px);line-height:1.12;letter-spacing:-.03em;">Anything else worth adding?</h1>
+    <p style="margin:0 0 28px;font-size:16px;line-height:1.55;color:#5C5A56;">All optional — skip anything that doesn't apply. Little details like these make your page feel more credible.</p>
+    <div style="display:flex;flex-direction:column;gap:18px;">
+      <div class="field"><label for="f-founded">Years trading or year founded</label><input id="f-founded" type="text" value="${h(st.founded)}" placeholder="e.g. Established 2009, or 15+ years" oninput="st.founded=this.value" style="${plainStyle}"></div>
+      <div class="field">
+        <label for="f-accred">Known accreditations or trade memberships</label>
+        <p style="margin:0;font-size:13px;line-height:1.5;color:#807E79;">e.g. Gas Safe, LCA, NICEIC — we'll verify these.</p>
+        <input id="f-accred" type="text" value="${h(st.accreditations)}" placeholder="e.g. Gas Safe, LCA, NICEIC" oninput="st.accreditations=this.value" style="${plainStyle}">
+      </div>
+      <div class="field"><label for="f-clients">Notable past clients or projects</label><input id="f-clients" type="text" value="${h(st.pastClients)}" placeholder="e.g. local schools, listed manor restoration" oninput="st.pastClients=this.value" style="${plainStyle}"></div>
+      <div class="field"><label for="f-notes">Anything else worth knowing?</label><textarea id="f-notes" rows="3" oninput="st.notes=this.value" placeholder="Family run, all work guaranteed, emergency cover — whatever sets you apart" style="${plainStyle}resize:vertical;line-height:1.5;">${h(st.notes)}</textarea></div>
+    </div>
+  </div>`;
+}
+
+function dash(v){ return String(v||'').trim() || '—'; }
+function reviewBlock(title, step, rows) {
+  return `<div class="review-block">
+    <div class="hdr"><div class="hdr-title">${h(title)}</div><button class="edit-btn" onclick="goToStep(${step})"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/></svg>Edit</button></div>
+    <dl>${rows.map(r=>`<div class="row"><dt>${h(r.k)}</dt><dd>${h(r.v)}</dd></div>`).join('')}</dl>
+  </div>`;
+}
+
+function renderStep8() {
+  const wt = (WORK_TYPES.find(o=>o.key===st.workType)||{}).label||'—';
+  const ts = (TEAM_SIZES.find(o=>o.key===st.teamSize)||{}).label||'—';
+  const bk = (BOOKINGS.find(o=>o.key===st.booking)||{}).label||'—';
+  return `<div class="step-content">
+    <h1 style="margin:0 0 8px;font-weight:800;font-size:clamp(25px,3.4vw,33px);line-height:1.12;letter-spacing:-.03em;">Review &amp; generate</h1>
+    <p style="margin:0 0 26px;font-size:16px;line-height:1.55;color:#5C5A56;">Quick check before we build it. Edit anything that's not right.</p>
+    ${reviewBlock('Business basics',1,[{k:'Business',v:dash(st.business)},{k:'Trade',v:dash(st.trade)},{k:'Town',v:dash(st.town)},{k:'Covers',v:dash(st.coverage)},{k:'Phone',v:dash(st.phone)},{k:'Email',v:dash(st.email)}])}
+    ${reviewBlock('Logo & photos',2,[{k:'Logo',v:st.logoName||'Not added'},{k:'Photos',v:st.photos.length?(st.photos.length+(st.photos.length===1?' photo':' photos')):'None added'}])}
+    ${reviewBlock('Work split',3,[{k:'Domestic',v:(100-st.commercial)+'%'},{k:'Commercial',v:st.commercial+'%'}])}
+    ${reviewBlock('Type of work',4,[{k:'Mostly',v:wt}])}
+    ${reviewBlock('Your team',5,[{k:'Size',v:ts},{k:'Big contracts',v:st.largeContracts==='yes'?'Yes':'No'}])}
+    ${reviewBlock('Reaching you',6,[{k:'Booking',v:bk}])}
+    ${reviewBlock('Extras',7,[{k:'Trading since',v:dash(st.founded)},{k:'Accreditations',v:dash(st.accreditations)},{k:'Past work',v:dash(st.pastClients)},{k:'Notes',v:dash(st.notes)}])}
+    <p style="margin:22px 0 0;font-size:13.5px;color:#807E79;line-height:1.55;">This usually takes 30–60 seconds.</p>
+  </div>`;
+}
+
+function render() {
+  const renderers = [,renderStep1,renderStep2,renderStep3,renderStep4,renderStep5,renderStep6,renderStep7,renderStep8];
+  document.getElementById('step-body').innerHTML = renderers[st.step]();
+  renderProgress();
+  save();
+}
+
+// Field helpers
+function clearErr(k){ delete st.errors[k]; }
+function onSplit(v){ st.commercial=parseInt(v); document.getElementById('com-pct').textContent=v+'%'; document.getElementById('dom-pct').textContent=(100-v)+'%'; }
+function onLogo(el){
+  const f=el.files&&el.files[0]; if(!f)return;
+  const r=new FileReader(); r.onload=()=>{ st.logoName=f.name; st.logoB64=r.result; st.logoMime=f.type||'image/png'; render(); }; r.readAsDataURL(f);
+}
+function removeLogo(){ st.logoName=''; st.logoB64=''; st.logoMime=''; render(); }
+function onPhotos(el){
+  const fs=Array.from(el.files||[]); if(!fs.length)return;
+  Promise.all(fs.map(f=>new Promise(res=>{const r=new FileReader();r.onload=()=>res({name:f.name,b64:r.result,mime:f.type||'image/jpeg'});r.onerror=()=>res(null);r.readAsDataURL(f);})))
+    .then(arr=>{st.photos=[...st.photos,...arr.filter(Boolean)];render();});
+  el.value='';
+}
+function removePhoto(i){ st.photos=st.photos.filter((_,idx)=>idx!==i); render(); }
+function pickWorkType(k){ st.workType=k; delete st.errors.workType; render(); }
+function pickTeamSize(k){ st.teamSize=k; delete st.errors.teamSize; render(); }
+function pickBooking(k){ st.booking=k; delete st.errors.booking; render(); }
+
+function validate() {
+  const e={};
+  if(st.step===1){
+    ['business','trade','town','coverage','phone'].forEach(k=>{ if(!String(st[k]).trim()) e[k]=true; });
+    const em=String(st.email).trim();
+    if(!em) e.email='empty';
+    else if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) e.email='format';
+  }
+  if(st.step===4&&!st.workType) e.workType=true;
+  if(st.step===5&&!st.teamSize) e.teamSize=true;
+  if(st.step===6&&!st.booking) e.booking=true;
+  return e;
+}
+
+function goToStep(n){ st.step=n; st.errors={}; render(); window.scrollTo(0,0); }
+function goBack(){ if(st.step>1) goToStep(st.step-1); }
+function skipStep(){ goToStep(Math.min(st.step+1,8)); }
+
+function advance(){
+  if(st.step<8){
+    const errs=validate();
+    if(Object.keys(errs).length){ st.errors=errs; render(); return; }
+    goToStep(st.step+1);
+  } else {
+    submit();
+  }
+}
+
+async function submit() {
+  const btn=document.getElementById('btn-next');
+  btn.disabled=true; btn.textContent='Building…';
+
+  const fd = new FormData();
+  fd.append('business_name', st.business);
+  fd.append('trade', st.trade);
+  fd.append('location', st.town);
+  fd.append('coverage_area', st.coverage);
+  fd.append('phone', st.phone);
+  fd.append('email', st.email);
+  fd.append('commercial_split', st.commercial);
+  fd.append('work_type', st.workType);
+  fd.append('team_size', st.teamSize);
+  fd.append('large_contracts', st.largeContracts);
+  fd.append('urgency', st.booking);
+  fd.append('years_trading', st.founded);
+  fd.append('accreditations', st.accreditations);
+  fd.append('past_clients', st.pastClients);
+  fd.append('notes', st.notes);
+
+  // Logo: convert data URL back to blob
+  if(st.logoB64){
+    const res=await fetch(st.logoB64);
+    const blob=await res.blob();
+    fd.append('logo', blob, st.logoName||'logo.png');
+  }
+  // Photos
+  for(const p of st.photos){
+    const res=await fetch(p.b64);
+    const blob=await res.blob();
+    fd.append('photos', blob, p.name);
+  }
+
+  try {
+    const apiBase = window.GROUNDWORK_API || '';
+    const r = await fetch(apiBase+'/api/generate', {method:'POST', body:fd});
+    if(!r.ok) throw new Error('Server error '+r.status);
+    const {id} = await r.json();
+    window.location.href = `loading.html?id=${id}`;
+  } catch(err) {
+    btn.disabled=false; btn.textContent='Generate my website';
+    alert('Something went wrong. Please try again.\n\n'+err.message);
+  }
+}
+
+render();
+</script>
+</body>
+</html>
