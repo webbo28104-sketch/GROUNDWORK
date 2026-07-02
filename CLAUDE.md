@@ -9,7 +9,7 @@ Groundwork generates AI-built marketing websites for UK trades businesses. A use
 | Backend API | Flask (`app.py`) | Railway |
 | Database | Postgres via SQLAlchemy (`models.py`) | Railway |
 | Email | Resend (`emails.py`) | — |
-| Frontend | Static HTML + vanilla JS (`frontend/`) | Cloudflare Pages |
+| Frontend | Static HTML + vanilla JS (`frontend/`) | Cloudflare Workers (Static Assets), git-linked, worker name `groundwork` |
 | AI generation | Anthropic API via `build_prompt.py` | — |
 
 ## Key environment variables
@@ -103,9 +103,15 @@ There's no Alembic (or any migration framework) in this project. `models.py`'s `
 
 ## Frontend API URL
 
-`frontend/config.js` sets `window.GROUNDWORK_API`. In development (Flask serves both), leave it empty. For Cloudflare Pages production, set it to the Railway backend URL — either by editing `config.js` before deploying, or by using a Cloudflare Pages build variable to inject it.
+`frontend/config.js` sets `window.GROUNDWORK_API`. In development (Flask serves both), leave it empty. For production, set it to the Railway backend URL — either by editing `config.js` before deploying, or by using a Cloudflare build variable to inject it.
 
-**Cookie/session-dependent calls are the exception** — they use a relative URL (e.g. `fetch('/api/generate', ...)`, not `window.GROUNDWORK_API + '/api/generate'`). `groundworkbuild.com` is served by Cloudflare Pages (static `frontend/` only); `frontend/_redirects` proxies `/verify/*`, `/account`, `/account/*`, `/admin/*`, and `/api/*` through to the Railway origin with a 200 status (transparent rewrite, URL bar stays on `groundworkbuild.com`). A relative fetch from a page on `groundworkbuild.com` goes through that proxy and carries the session cookie (which is scoped to `groundworkbuild.com`, since that's the origin the browser actually saw respond). The *absolute* Railway URL in `GROUNDWORK_API` is a genuinely different origin to the browser — a cookie scoped to `groundworkbuild.com` is never sent there. `build.html`'s account-session check and generate submission use relative URLs for exactly this reason; other calls that don't care about cookies (e.g. polling `/api/generate/<id>/status`, fetching `/api/generate/<id>/html`) keep using `GROUNDWORK_API` as before.
+**Cookie/session-dependent calls are the exception** — they use a relative URL (e.g. `fetch('/api/generate', ...)`, not `window.GROUNDWORK_API + '/api/generate'`). `groundworkbuild.com` is served by a Cloudflare **Worker with Static Assets** (git-linked, auto-deploys via `npx wrangler deploy` on push — this is *not* classic Cloudflare Pages, which matters below), serving `frontend/` as the assets directory. Flask/Railway routes that aren't static files (`/api/*`, `/verify/*`, `/account`, `/account/*`, `/admin/*`) are proxied through to the Railway origin by `frontend/_worker.js` — its presence switches wrangler into "Advanced Mode," where the worker script sees every request first and explicitly falls back to `env.ASSETS.fetch(request)` for anything that isn't a backend path.
+
+**This used to be a `frontend/_redirects` file** (the classic Cloudflare Pages proxy mechanism), which broke every deploy after it was added: `_redirects` on Workers Static Assets only supports *relative-path* proxy targets — pointing it at the Railway origin's absolute URL fails the build outright with `Proxy (200) redirects can only point to relative paths`, discovered via the Cloudflare dashboard's build log after "Sign In" (and everything else) started 404ing. `_worker.js` is the correct mechanism for this deployment type and has no such restriction, since it's a real `fetch()` call, not a declarative rule.
+
+A relative fetch from a page on `groundworkbuild.com` goes through `_worker.js`'s proxy and carries the session cookie (scoped to `groundworkbuild.com`, since that's the origin the browser actually saw respond). The *absolute* Railway URL in `GROUNDWORK_API` is a genuinely different origin to the browser — a cookie scoped to `groundworkbuild.com` is never sent there. `build.html`'s account-session check and generate submission use relative URLs for exactly this reason; other calls that don't care about cookies (e.g. polling `/api/generate/<id>/status`, fetching `/api/generate/<id>/html`) keep using `GROUNDWORK_API` as before.
+
+**If a new backend route is ever added that doesn't live under an existing prefix**, `BACKEND_PREFIXES` in `frontend/_worker.js` needs a matching entry, or it'll 404 on the custom domain even though it works fine hitting Railway directly — easy to miss since the failure mode looks identical to a real 404.
 
 ## Brand / contact
 
