@@ -6,6 +6,7 @@
 # transparently (200 = rewrite, keeps the groundworkbuild.com URL in the
 # browser) rather than redirecting.
 /verify/*   https://web-production-748b1.up.railway.app/verify/:splat   200
+/account    https://web-production-748b1.up.railway.app/account         200
 /account/*  https://web-production-748b1.up.railway.app/account/:splat  200
 /admin/*    https://web-production-748b1.up.railway.app/admin/:splat    200
 /api/*      https://web-production-748b1.up.railway.app/api/:splat      200

@@ -12,9 +12,11 @@ from PIL import Image, ImageDraw, ImageFilter
 from flask import Flask, request, jsonify, send_from_directory, session, redirect, url_for, render_template_string
 from flask_cors import CORS
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
+from markupsafe import escape
+from werkzeug.security import generate_password_hash, check_password_hash
 
 from build_prompt import build_prompt
-from models import SessionLocal, Lead, Generation, init_db
+from models import SessionLocal, Lead, Generation, Account, init_db
 from emails import send_verification_email, send_resend_email
 
 app = Flask(__name__, static_folder="frontend", static_url_path="")
@@ -359,10 +361,26 @@ def _client_ip():
     return request.remote_addr or ""
 
 
+def _has_generation(db, email: str) -> bool:
+    """Single source of truth for "has this email already generated a site" —
+    used by the public /api/generate 409 guard, the account sign-in branching
+    logic, and anything else that needs to ask the same question, so they
+    can't drift out of sync with each other."""
+    return db.query(Generation).filter(Generation.email == email).first() is not None
+
+
 @app.route("/api/generate", methods=["POST"])
 def generate():
     form = request.form
-    email = (form.get("email") or "").strip().lower()
+    account_email = session.get("account_email")
+    if account_email:
+        # Logged-in users can't submit as anyone but their own account email,
+        # regardless of what the (client-locked) form field actually contains —
+        # enforced here, not just in the UI, so it holds even against a raw
+        # API call with a spoofed email while a valid session cookie is sent.
+        email = account_email
+    else:
+        email = (form.get("email") or "").strip().lower()
     if not email:
         return jsonify({"error": "invalid_email", "message": "A valid email address is required."}), 400
 
@@ -372,8 +390,7 @@ def generate():
     db = SessionLocal()
     try:
         # Block repeat NEW generations from an email that already has one.
-        existing_gen = db.query(Generation).filter(Generation.email == email).first()
-        if existing_gen:
+        if _has_generation(db, email):
             return jsonify({
                 "error": "already_generated",
                 "message": "You've already generated a site with this email. Check your inbox for the link, or sign in to your account to find it.",
@@ -389,16 +406,21 @@ def generate():
                     "message": "Too many submissions from this network recently. Please try again later.",
                 }), 429
 
-        # Reuse a still-pending lead for this email instead of creating a duplicate.
-        pending_window = datetime.utcnow() - timedelta(hours=24)
-        lead = (
-            db.query(Lead)
-            .filter(Lead.email == email, Lead.status == "pending_verification", Lead.created_at >= pending_window)
-            .order_by(Lead.created_at.desc())
-            .first()
-        )
+        # Reuse a still-pending lead for this email instead of creating a duplicate
+        # (not applicable to the logged-in fast path, which always creates fresh —
+        # an authenticated account has no "pending verification" concept).
+        lead = None
+        if not account_email:
+            pending_window = datetime.utcnow() - timedelta(hours=24)
+            lead = (
+                db.query(Lead)
+                .filter(Lead.email == email, Lead.status == "pending_verification", Lead.created_at >= pending_window)
+                .order_by(Lead.created_at.desc())
+                .first()
+            )
         if lead is None:
-            lead = Lead(public_id=uuid.uuid4().hex[:10], email=email, ip=ip, status="pending_verification", form_data={})
+            initial_status = "verified" if account_email else "pending_verification"
+            lead = Lead(public_id=uuid.uuid4().hex[:10], email=email, ip=ip, status=initial_status, form_data={})
             db.add(lead)
             db.flush()
 
@@ -430,6 +452,13 @@ def generate():
         lead.logo_mime = logo_mime
         db.commit()
 
+        if account_email:
+            # Already an authenticated, verified account — a second email
+            # verification round-trip would be redundant friction. Skip
+            # straight to generation.
+            _kickoff_generation(lead)
+            return jsonify({"status": "generating", "id": lead.public_id})
+
         token = serializer.dumps({"lead_id": lead.id})
         verify_url = f"{base_url}/verify/{token}"
         send_verification_email(email, verify_url, build_data.get("business_name", ""))
@@ -437,6 +466,42 @@ def generate():
         return jsonify({"status": "check_email", "email": email})
     finally:
         db.close()
+
+
+def _kickoff_generation(lead):
+    """
+    Shared by /verify/<token>, /admin/generate-test, and the logged-in fast
+    path in /api/generate: builds the prompt (with media placeholder tokens),
+    reads the original-resolution logo for vision input, and starts the
+    background generation thread. Assumes lead.status is already set
+    appropriately and lead.form_data/logo_path are populated.
+    """
+    job_dir = os.path.join(UPLOAD_DIR, lead.public_id)
+    build_data = dict(lead.form_data)
+    media_overrides, image_placeholders = _build_media_placeholders(job_dir, lead.logo_path)
+    build_data.update(media_overrides)
+    prompt = build_prompt(build_data)
+
+    # Original-resolution logo bytes, sent as vision input so Claude can
+    # extract a real colour palette from it (separate from the resized/
+    # background-processed data URI above, which is what actually gets
+    # embedded in the HTML).
+    logo_b64 = None
+    if lead.logo_path:
+        logo_file_path = os.path.join(job_dir, lead.logo_path)
+        if os.path.exists(logo_file_path):
+            with open(logo_file_path, "rb") as f:
+                logo_b64 = base64.standard_b64encode(f.read()).decode()
+
+    with _jobs_lock:
+        _jobs[lead.public_id] = {"status": "pending"}
+
+    t = threading.Thread(
+        target=_run_and_persist,
+        args=(lead.public_id, lead.id, lead.email, build_data.get("business_name", ""), prompt, logo_b64, lead.logo_mime, image_placeholders),
+        daemon=True,
+    )
+    t.start()
 
 
 @app.route("/verify/<token>")
@@ -464,31 +529,7 @@ def verify(token):
         lead.status = "verified"
         db.commit()
 
-        job_dir = os.path.join(UPLOAD_DIR, lead.public_id)
-        build_data = dict(lead.form_data)
-        media_overrides, image_placeholders = _build_media_placeholders(job_dir, lead.logo_path)
-        build_data.update(media_overrides)
-        prompt = build_prompt(build_data)
-
-        # Original-resolution logo bytes, sent as vision input so Claude can
-        # extract a real colour palette from it (separate from the resized
-        # data URI above, which is what actually gets embedded in the HTML).
-        logo_b64 = None
-        if lead.logo_path:
-            logo_file_path = os.path.join(job_dir, lead.logo_path)
-            if os.path.exists(logo_file_path):
-                with open(logo_file_path, "rb") as f:
-                    logo_b64 = base64.standard_b64encode(f.read()).decode()
-
-        with _jobs_lock:
-            _jobs[lead.public_id] = {"status": "pending"}
-
-        t = threading.Thread(
-            target=_run_and_persist,
-            args=(lead.public_id, lead.id, lead.email, build_data.get("business_name", ""), prompt, logo_b64, lead.logo_mime, image_placeholders),
-            daemon=True,
-        )
-        t.start()
+        _kickoff_generation(lead)
 
         return redirect(f"/loading.html?id={lead.public_id}")
     finally:
@@ -555,53 +596,7 @@ input[type=email]{{width:100%;padding:13px 16px;border:1px solid #D9D7D0;border-
 </body></html>"""
 
 
-@app.route("/account/login", methods=["GET", "POST"])
-def account_login():
-    sent = False
-    if request.method == "POST":
-        email = (request.form.get("email") or "").strip().lower()
-        if email:
-            db = SessionLocal()
-            try:
-                has_sites = db.query(Generation).filter(Generation.email == email).first() is not None
-                if has_sites:
-                    token = serializer.dumps({"account_email": email})
-                    account_url = f"{request.host_url.rstrip('/')}/account/{token}"
-                    send_resend_email(email, account_url)
-            finally:
-                db.close()
-        # Always show the same confirmation, regardless of whether the email
-        # has any sites — avoids leaking which addresses have an account.
-        sent = True
-
-    if sent:
-        inner = """<div class="acct-card" style="text-align:center;">
-          <h1 style="margin:0 0 10px;font-weight:800;font-size:24px;letter-spacing:-.02em;">Check your email</h1>
-          <p style="margin:0;font-size:15px;color:#5C5A56;line-height:1.6;">If that address has a Groundwork account, we've sent a sign-in link. It expires in 24 hours.</p>
-        </div>"""
-    else:
-        inner = """<div class="acct-card">
-          <h1 style="margin:0 0 8px;font-weight:800;font-size:26px;letter-spacing:-.02em;">Sign in to your account</h1>
-          <p style="margin:0;font-size:15px;color:#5C5A56;line-height:1.55;">Enter the email you used to build your site and we'll send you a link straight in — no password needed.</p>
-          <form method="post">
-            <input type="email" name="email" placeholder="you@yourbusiness.co.uk" required autofocus>
-            <button type="submit" class="acct-btn" style="width:100%;">Send me a sign-in link</button>
-          </form>
-        </div>"""
-    return render_template_string(_account_page(inner, "Sign in"))
-
-
-@app.route("/account/<token>")
-def account_dashboard(token):
-    try:
-        data = serializer.loads(token, max_age=TOKEN_MAX_AGE)
-    except (BadSignature, SignatureExpired):
-        return redirect("/verify-error.html?reason=invalid")
-
-    email = data.get("account_email")
-    if not email:
-        return redirect("/verify-error.html?reason=invalid")
-
+def _render_dashboard(email: str) -> str:
     db = SessionLocal()
     try:
         gens = db.query(Generation).filter(Generation.email == email).order_by(Generation.created_at.desc()).all()
@@ -637,15 +632,168 @@ def account_dashboard(token):
         else:
             cards = '<div class="acct-card"><p style="margin:0;color:#5C5A56;font-size:15px;">No sites found for this account yet.</p></div>'
 
-        inner = f"""<div style="text-align:center;margin-bottom:28px;">
+        inner = f"""<div style="display:flex;justify-content:flex-end;margin-bottom:6px;">
+          <a href="/account/logout" style="color:#807E79;font-size:13px;text-decoration:none;">Log out</a>
+        </div>
+        <div style="text-align:center;margin-bottom:28px;">
           <div style="color:#2257CC;font-size:12.5px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;margin-bottom:10px;">Your account</div>
           <h1 style="margin:0 0 8px;font-weight:800;font-size:clamp(24px,3.4vw,32px);letter-spacing:-.02em;">Your sites, all in one place</h1>
-          <p style="margin:0;font-size:15.5px;color:#5C5A56;">Every website you've generated with {email}, ready whenever you need it.</p>
+          <p style="margin:0;font-size:15.5px;color:#5C5A56;">Every website you've generated with {escape(email)}, ready whenever you need it.</p>
         </div>
         {cards}"""
         return render_template_string(_account_page(inner, "Your account"))
     finally:
         db.close()
+
+
+def _render_password_form(email: str, stage: str, error: str = None, heading: str = None, body: str = None) -> str:
+    error_html = f'<p class="err">{error}</p>' if error else ""
+    heading = heading or ("Choose a password" if stage == "set_password" else "Enter your password")
+    body = body or (
+        "Set a password for this account so you can sign in instantly next time."
+        if stage == "set_password" else
+        "Welcome back — enter your password to continue."
+    )
+    inner = f"""<div class="acct-card">
+      <h1 style="margin:0 0 8px;font-weight:800;font-size:26px;letter-spacing:-.02em;">{heading}</h1>
+      <p style="margin:0;font-size:15px;color:#5C5A56;line-height:1.55;">{body}</p>
+      {error_html}
+      <form method="post" action="/account/login">
+        <input type="hidden" name="stage" value="{stage}">
+        <input type="hidden" name="email" value="{escape(email)}">
+        <p style="margin:14px 0 0;font-size:13.5px;color:#807E79;">{escape(email)}</p>
+        <input type="password" name="password" placeholder="{'At least 8 characters' if stage == 'set_password' else 'Password'}" required autofocus minlength="8">
+        <button type="submit" class="acct-btn" style="width:100%;">{'Set password &amp; sign in' if stage == 'set_password' else 'Sign in'}</button>
+      </form>
+    </div>"""
+    return render_template_string(_account_page(inner, "Sign in"))
+
+
+def _render_email_form(error: str = None) -> str:
+    error_html = f'<p class="err">{error}</p>' if error else ""
+    inner = f"""<div class="acct-card">
+      <h1 style="margin:0 0 8px;font-weight:800;font-size:26px;letter-spacing:-.02em;">Sign in to your account</h1>
+      <p style="margin:0;font-size:15px;color:#5C5A56;line-height:1.55;">Enter the email you used to build your site.</p>
+      {error_html}
+      <form method="post" action="/account/login">
+        <input type="hidden" name="stage" value="email">
+        <input type="email" name="email" placeholder="you@yourbusiness.co.uk" required autofocus>
+        <button type="submit" class="acct-btn" style="width:100%;">Continue</button>
+      </form>
+    </div>"""
+    return render_template_string(_account_page(inner, "Sign in"))
+
+
+@app.route("/account/login", methods=["GET", "POST"])
+def account_login():
+    if session.get("account_email"):
+        return redirect("/account")
+
+    if request.method == "GET":
+        return _render_email_form()
+
+    stage = request.form.get("stage", "email")
+    email = (request.form.get("email") or "").strip().lower()
+
+    if stage == "password":
+        # Step 2: password-login attempt for an account that already has one set.
+        password = request.form.get("password", "")
+        db = SessionLocal()
+        try:
+            account = db.query(Account).filter(Account.email == email).first()
+            if account and account.password_hash and check_password_hash(account.password_hash, password):
+                session["account_email"] = email
+                return redirect("/account")
+            return _render_password_form(email, "password", error="Incorrect password.")
+        finally:
+            db.close()
+
+    if stage == "set_password":
+        # Step 2: choosing a password, either because this email already has a
+        # generation (no re-verification needed) or because they just clicked
+        # a signup verification link.
+        password = request.form.get("password", "")
+        if len(password) < 8:
+            return _render_password_form(email, "set_password", error="Password must be at least 8 characters.")
+        db = SessionLocal()
+        try:
+            account = db.query(Account).filter(Account.email == email).first()
+            if account is None:
+                account = Account(email=email)
+                db.add(account)
+            account.password_hash = generate_password_hash(password)
+            db.commit()
+            session["account_email"] = email
+            return redirect("/account")
+        finally:
+            db.close()
+
+    # stage == "email" (step 1): decide which of the three flows applies.
+    if not email:
+        return _render_email_form(error="Enter a valid email address.")
+
+    db = SessionLocal()
+    try:
+        account = db.query(Account).filter(Account.email == email).first()
+        if account and account.password_hash:
+            return _render_password_form(email, "password")
+
+        if _has_generation(db, email):
+            # Real email (they already verified it once to generate a site) —
+            # no need to re-verify, just let them set a password directly.
+            return _render_password_form(email, "set_password")
+
+        # Brand new email with no generation on record — verify it first.
+        token = serializer.dumps({"signup_email": email})
+        verify_url = f"{request.host_url.rstrip('/')}/account/verify/{token}"
+        send_resend_email(email, verify_url)
+        inner = """<div class="acct-card" style="text-align:center;">
+          <h1 style="margin:0 0 10px;font-weight:800;font-size:24px;letter-spacing:-.02em;">Check your email</h1>
+          <p style="margin:0;font-size:15px;color:#5C5A56;line-height:1.6;">Click the link we've sent to confirm your address and set a password. It expires in 24 hours.</p>
+        </div>"""
+        return render_template_string(_account_page(inner, "Check your email"))
+    finally:
+        db.close()
+
+
+@app.route("/account/verify/<token>")
+def account_verify(token):
+    try:
+        data = serializer.loads(token, max_age=TOKEN_MAX_AGE)
+    except SignatureExpired:
+        return redirect("/verify-error.html?reason=expired")
+    except BadSignature:
+        return redirect("/verify-error.html?reason=invalid")
+
+    email = data.get("signup_email")
+    if not email:
+        return redirect("/verify-error.html?reason=invalid")
+
+    return _render_password_form(
+        email, "set_password",
+        heading="Confirm your email — choose a password",
+        body="Your address is confirmed. Set a password to finish creating your account.",
+    )
+
+
+@app.route("/account")
+def account_home():
+    email = session.get("account_email")
+    if not email:
+        return redirect("/account/login")
+    return _render_dashboard(email)
+
+
+@app.route("/account/logout")
+def account_logout():
+    session.pop("account_email", None)
+    return redirect("/account/login")
+
+
+@app.route("/api/account/session")
+def api_account_session():
+    email = session.get("account_email")
+    return jsonify({"logged_in": bool(email), "email": email})
 
 
 def admin_required(view):
@@ -796,29 +944,12 @@ def admin_generate_test():
 
         has_photos = any(fname.startswith("photo_") for fname in os.listdir(job_dir))
 
-        build_data = _map_form(form, logo_path, has_photos)
-        media_overrides, image_placeholders = _build_media_placeholders(job_dir, logo_path)
-        build_data.update(media_overrides)
-        lead.form_data = build_data
+        lead.form_data = _map_form(form, logo_path, has_photos)
         lead.logo_path = logo_path
         lead.logo_mime = logo_mime
         db.commit()
 
-        prompt = build_prompt(build_data)
-        logo_b64 = None
-        if logo_path:
-            with open(os.path.join(job_dir, logo_path), "rb") as f:
-                logo_b64 = base64.standard_b64encode(f.read()).decode()
-
-        with _jobs_lock:
-            _jobs[lead.public_id] = {"status": "pending"}
-
-        t = threading.Thread(
-            target=_run_and_persist,
-            args=(lead.public_id, lead.id, lead.email, build_data.get("business_name", ""), prompt, logo_b64, logo_mime, image_placeholders),
-            daemon=True,
-        )
-        t.start()
+        _kickoff_generation(lead)
 
         return redirect(f"/loading.html?id={lead.public_id}")
     finally:

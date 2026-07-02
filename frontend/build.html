@@ -135,6 +135,7 @@ const st = {
   workType:'', teamSize:'', largeContracts:'no', booking:'',
   founded:'', accreditations:'', pastClients:'', notes:'',
   errors:{},
+  accountLocked:false,
 };
 
 // Try restore from sessionStorage
@@ -213,7 +214,8 @@ function renderStep1() {
         </div>
         <div class="field${e.email?' has-error':''}">
           <label for="f-email">Email *</label>
-          <input id="f-email" type="email" value="${h(st.email)}" placeholder="you@business.co.uk" oninput="st.email=this.value;clearErr('email')">
+          <input id="f-email" type="email" value="${h(st.email)}" placeholder="you@business.co.uk" ${st.accountLocked?'readonly':''} oninput="st.email=this.value;clearErr('email')">
+          ${st.accountLocked?'<span style="font-size:13px;color:#807E79;">Signed in — this generation will be saved to your account.</span>':''}
           <span class="err" id="email-err">${e.email==='format'?'That email doesn\'t look right.':'Please add an email.'}</span>
         </div>
       </div>
@@ -461,8 +463,12 @@ async function submit() {
   }
 
   try {
-    const apiBase = window.GROUNDWORK_API || '';
-    const r = await fetch(apiBase+'/api/generate', {method:'POST', body:fd});
+    // Relative URL (not window.GROUNDWORK_API's absolute Railway URL) — this
+    // request needs to carry the account session cookie, which is scoped to
+    // whatever domain the user is actually browsing (groundworkbuild.com).
+    // A cross-origin request straight to the Railway URL wouldn't include it.
+    // The Cloudflare _redirects proxy forwards /api/* through to Railway.
+    const r = await fetch('/api/generate', {method:'POST', body:fd, credentials:'same-origin'});
     const data = await r.json().catch(() => ({}));
 
     if (r.status === 409) {
@@ -477,6 +483,12 @@ async function submit() {
     }
     if (!r.ok) throw new Error(data.message || ('Server error '+r.status));
 
+    if (data.status === 'generating' && data.id) {
+      // Logged-in fast path — already verified, generation started immediately.
+      window.location.href = `loading.html?id=${data.id}`;
+      return;
+    }
+
     window.location.href = `check-email.html?email=${encodeURIComponent(st.email)}`;
   } catch(err) {
     btn.disabled=false; btn.textContent='Generate my website';
@@ -484,7 +496,22 @@ async function submit() {
   }
 }
 
+async function checkAccountSession() {
+  try {
+    const r = await fetch('/api/account/session', {credentials:'same-origin'});
+    const data = await r.json();
+    if (data.logged_in && data.email) {
+      st.email = data.email;
+      st.accountLocked = true;
+      render();
+    }
+  } catch(e) {
+    // Not logged in / session check failed — proceed as a normal guest submission.
+  }
+}
+
 render();
+checkAccountSession();
 </script>
 </body>
 </html>

@@ -1,13 +1,20 @@
 """
 Groundwork — database models.
 
-Two tables:
+Three tables:
 - Lead: one row per form submission, created before email verification.
   Holds the mapped form data (as JSON) plus logo path, so generation can be
   kicked off later from /verify/<token> without asking the user to resubmit.
+  NOTE: email is NOT unique here — a person can resubmit, creating multiple
+  Lead rows for the same email. Don't key account/identity state off Lead.
 - Generation: one row per completed site generation. This is the durable
   source of truth for generated HTML — the verification/resend emails are
   just notifications pointing back at rows in this table.
+- Account: one row per email that has (or is setting up) password login.
+  Deliberately separate from Lead/Generation, which are keyed loosely by an
+  email string with no uniqueness guarantee — Account is the one place email
+  is unique, since a password is an account-level concept, not a per-
+  submission one.
 """
 import os
 from datetime import datetime
@@ -48,6 +55,15 @@ class Generation(Base):
     stripe_customer_id = Column(String(255))
 
     lead = relationship("Lead", back_populates="generations")
+
+
+class Account(Base):
+    __tablename__ = "accounts"
+
+    id = Column(Integer, primary_key=True)
+    email = Column(String(255), unique=True, nullable=False, index=True)
+    password_hash = Column(String(255))  # nullable until the user sets a password
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
 def _database_url() -> str:
