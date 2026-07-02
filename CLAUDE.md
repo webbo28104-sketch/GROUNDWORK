@@ -1,6 +1,6 @@
 # Groundwork — project overview
 
-Groundwork generates AI-built marketing websites for UK trades businesses. A user fills in an 8-step form, the Flask backend calls the Anthropic API, and the generated single-file HTML is shown in a preview iframe.
+Groundwork generates AI-built marketing websites for UK trades businesses. A user fills in an 8-step form, the Flask backend calls the Anthropic API, and the generated single-file HTML is served (watermarked, noindex) as a direct link the user opens in a new tab.
 
 ## Architecture
 
@@ -23,7 +23,7 @@ Groundwork generates AI-built marketing websites for UK trades businesses. A use
 
 3. **Loading page** (`frontend/loading.html`) — receives `?id=<id>` in URL, polls `GET /api/generate/<id>/status` every 2 seconds. On `"done"` redirects to `preview.html?id=<id>`. On `"error"` shows message.
 
-4. **Preview page** (`frontend/preview.html`) — fetches `GET /api/generate/<id>/html` and sets it as `iframe.srcdoc`. Desktop/mobile toggle adjusts iframe width. "Make it live" and "Go live" buttons link to `checkout.html`.
+4. **Preview page** (`frontend/preview.html`) — shows a "View your website →" link that opens `GET /api/generate/<id>/html` in a new tab (the response is watermarked with a preview bar + noindex meta tag, injected on the fly by `_inject_watermark()` in `app.py` — the stored HTML itself is never modified). "Make it live" and "Go live" buttons link to `checkout.html`.
 
 5. **Checkout** (`frontend/checkout.html`) — Stripe stub. Not yet wired; email fallback only.
 
@@ -41,7 +41,7 @@ Jobs live in an in-memory dict (`_jobs` in `app.py`). Status values: `pending` �
 
 ## build_prompt.py
 
-Do not modify. It expects these keys in `form_data`:
+It expects these keys in `form_data`:
 `business_name`, `trade`, `location`, `coverage_area`, `phone`, `email`, `logo_uploaded` (bool), `portfolio_uploaded` (bool), `domestic_commercial_split` (domestic %), `craft_prestige` (standard/mid/high), `team_size` (string), `large_commercial_contracts` (bool), `urgency` (high/low), `years_trading`, `claimed_accreditations`, `claimed_projects`, `other_notes`.
 
 ## Frontend API URL

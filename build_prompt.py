@@ -29,6 +29,7 @@ Use web search (2-4 targeted searches max) to:
 1. Confirm this is the correct business — disambiguate from any similarly-named businesses before using anything found online.
 2. Check accreditation bodies relevant to their specific trade (only relevant ones, not a blind sweep).
 3. If they listed any claimed accreditations/projects/clients, verify those specific claims.
+4. Look for a verified public email address for the business (their own site, official listing, etc.). If no verified public email address is found, omit the email field from the contact section entirely — do not display placeholder text, example addresses, or any invented email. Phone number only is acceptable.
 Do not search beyond this. Do not go looking for extra material if nothing was claimed.
 
 === STEP 2: LIST YOUR SOURCES ===
@@ -68,11 +69,11 @@ URGENCY OVERRIDES:
 Fixed page structure — always in this order, sections can be omitted but never reordered:
 1. Nav — logo (embed the real uploaded logo image directly if provided, else a typographic wordmark) + scroll-anchor links + primary contact CTA (phone if given, otherwise email/contact-anchor — never invent a phone number).
 2. Hero — value proposition, 1-2 CTAs, stat row ONLY if real verified stats exist.
-3. About — credibility section using only verified facts.
+3. About — credibility section using only verified facts. If research surfaces a specific named building, landmark, or notable project the company has worked on (e.g. a listed building, an award entry, a named institution), include it by name in the About body copy. Do not fabricate project names — only include if found in research. Named references are strongly preferred over generic descriptions.
 4. Services — from form input, generic safe categories unless something specific was found.
 5. Accreditations — OMIT ENTIRELY if nothing was verified. Do not pad with vague reassurance copy instead.
-6. Portfolio — use uploaded photos if provided; otherwise "photos coming soon" placeholders. Never invent project names.
-7. Contact — real contact details only, plus a front-end-only enquiry form (or the urgency-driven minimal version above).
+6. Portfolio — use uploaded photos if provided. If no photos are provided, render the portfolio grid with a single tasteful placeholder note rather than repeating "Photos Coming Soon" per card — wording along the lines of: "Portfolio photography in preparation. Contact us to discuss examples of work relevant to your project type." Do not repeat placeholder text across multiple cards. Never invent project names.
+7. Contact — real contact details only, plus a front-end-only enquiry form (or the urgency-driven minimal version above). If no verified public email address was found, omit the email field entirely — no placeholder text or invented addresses. Phone number only is acceptable.
 8. Footer.
 
 === HARD RULES ===

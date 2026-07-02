@@ -1,4 +1,5 @@
 import os
+import re
 import uuid
 import base64
 import threading
@@ -165,7 +166,31 @@ def job_html(job_id):
         return jsonify({"error": "not found"}), 404
     if job["status"] != "done":
         return jsonify({"error": "not ready", "status": job["status"]}), 409
-    return job["html"], 200, {"Content-Type": "text/html; charset=utf-8"}
+    return _inject_watermark(job["html"], job_id), 200, {"Content-Type": "text/html; charset=utf-8"}
+
+
+def _inject_watermark(html: str, job_id: str) -> str:
+    checkout_url = f"/checkout.html?id={job_id}"
+
+    watermark_bar = f"""<div id="gw-preview-bar" style="position:fixed;top:0;left:0;right:0;z-index:99999;background:#1C2630;color:#fff;font-family:sans-serif;font-size:13px;display:flex;align-items:center;justify-content:space-between;padding:10px 20px;box-shadow:0 2px 8px rgba(0,0,0,0.3);">
+  <span>⚠ Preview — this site is unpublished and watermarked</span>
+  <a href="{checkout_url}" style="background:#B8976A;color:#fff;padding:6px 16px;border-radius:4px;text-decoration:none;font-weight:600;">Go live — £99 + £24.99/mo →</a>
+</div>
+<div style="height:44px;"></div>"""
+
+    robots_meta = '<meta name="robots" content="noindex, nofollow">'
+
+    body_open = re.search(r"<body[^>]*>", html, re.IGNORECASE)
+    if body_open:
+        insert_at = body_open.end()
+        html = html[:insert_at] + watermark_bar + html[insert_at:]
+
+    head_open = re.search(r"<head[^>]*>", html, re.IGNORECASE)
+    if head_open:
+        insert_at = head_open.end()
+        html = html[:insert_at] + robots_meta + html[insert_at:]
+
+    return html
 
 
 @app.route("/api/generate/<job_id>/photos/<filename>")
