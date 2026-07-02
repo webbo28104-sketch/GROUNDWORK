@@ -168,7 +168,7 @@ def generate():
         if existing_gen:
             return jsonify({
                 "error": "already_generated",
-                "message": "You've already generated a site with this email. Check your inbox for the link, or use the resend page to get a new one.",
+                "message": "You've already generated a site with this email. Check your inbox for the link, or sign in to your account to find it.",
             }), 409
 
         # Per-IP rate limit.
@@ -285,28 +285,6 @@ def verify(token):
         db.close()
 
 
-@app.route("/api/resend", methods=["POST"])
-def resend():
-    if request.is_json:
-        email = (request.json or {}).get("email", "")
-    else:
-        email = request.form.get("email", "")
-    email = (email or "").strip().lower()
-    if email:
-        db = SessionLocal()
-        try:
-            has_sites = db.query(Generation).filter(Generation.email == email).first() is not None
-            if has_sites:
-                token = serializer.dumps({"resend_email": email})
-                my_sites_url = f"{request.host_url.rstrip('/')}/my-sites/{token}"
-                send_resend_email(email, my_sites_url)
-        finally:
-            db.close()
-    # Always respond the same way regardless of whether the email has sites,
-    # so this endpoint can't be used to enumerate which addresses have generated one.
-    return jsonify({"status": "sent"})
-
-
 _PAGE_STYLE = """
 *{box-sizing:border-box;}
 body{margin:0;background:#F5F3EE;font-family:Inter,Arial,sans-serif;color:#1C1C1C;min-height:100vh;}
@@ -321,29 +299,141 @@ th{color:#5C5A56;font-weight:600;font-size:12.5px;text-transform:uppercase;lette
 input[type=text],input[type=password],input[type=email]{width:100%;padding:11px 14px;border:1px solid #D8D5CE;border-radius:8px;font-size:15px;margin-bottom:12px;}
 button{background:#3B82F6;color:#fff;border:0;font-weight:700;padding:12px 22px;border-radius:8px;font-size:15px;cursor:pointer;}
 .err{color:#B42318;font-size:14px;margin-bottom:12px;}
+.badge-test{display:inline-block;background:#B8976A;color:#fff;font-size:10.5px;font-weight:700;letter-spacing:.04em;padding:2px 7px;border-radius:4px;margin-left:8px;vertical-align:middle;}
 """
 
+# Shared nav/footer markup so /account and other Flask-rendered pages match the
+# static frontend pages' look, since there's no shared CSS file in this repo —
+# every page (including frontend/index.html) inlines its own styles.
+_SITE_HEADER = """<header style="position:sticky;top:0;z-index:100;background:#1C1C1C;border-bottom:1px solid #2C2C2C;">
+  <nav style="max-width:1200px;margin:0 auto;padding:0 24px;height:68px;display:flex;align-items:center;justify-content:space-between;gap:24px;">
+    <a href="/index.html" style="display:flex;align-items:center;gap:11px;text-decoration:none;">
+      <svg viewBox="0 0 48 48" width="32" height="32" fill="none"><path d="M 37 13.1 A 17 17 0 1 0 41 24 L 27 24" stroke="#3B82F6" stroke-width="4.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M 30.9 18.2 A 9 9 0 1 0 30.9 29.8" stroke="#3B82F6" stroke-width="4.6" stroke-linecap="round"/></svg>
+      <span style="color:#fff;font-weight:800;font-size:20px;letter-spacing:-.03em;">Groundwork</span>
+    </a>
+    <a href="/build.html" style="background:#3B82F6;color:#fff;font-weight:700;font-size:15px;text-decoration:none;padding:10px 18px;border-radius:7px;">Get started</a>
+  </nav>
+</header>"""
 
-@app.route("/my-sites/<token>")
-def my_sites(token):
+_SITE_FOOTER = """<footer style="background:#1C1C1C;color:#9A9893;margin-top:56px;">
+  <div style="max-width:1200px;margin:0 auto;padding:28px 24px;font-size:13px;color:#5E5C58;">© 2026 Groundwork Ltd. Made for people who build things.</div>
+</footer>"""
+
+
+def _account_page(inner_html: str, title: str) -> str:
+    return f"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{title} — Groundwork</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@700;800&display=swap" rel="stylesheet">
+<style>
+*{{box-sizing:border-box;}}
+h1,h2,h3{{font-family:'Plus Jakarta Sans','Inter',sans-serif;}}
+body{{margin:0;background:#FAFAF8;font-family:Inter,sans-serif;color:#1C1C1C;}}
+a:focus-visible,button:focus-visible,input:focus-visible{{outline:3px solid #3B82F6;outline-offset:2px;}}
+.acct-wrap{{max-width:640px;margin:0 auto;padding:clamp(40px,6vw,64px) 24px;}}
+.acct-card{{background:#fff;border:1px solid #E2E0DA;border-radius:14px;padding:24px 26px;margin-bottom:16px;}}
+input[type=email]{{width:100%;padding:13px 16px;border:1px solid #D9D7D0;border-radius:10px;font-size:15.5px;margin:14px 0;font-family:Inter,sans-serif;}}
+.acct-btn{{display:inline-block;background:#3B82F6;color:#fff;font-weight:700;font-size:15.5px;text-decoration:none;border:0;padding:14px 24px;border-radius:10px;cursor:pointer;}}
+.acct-btn:hover{{background:#2563EB;}}
+</style>
+</head><body>
+{_SITE_HEADER}
+<div class="acct-wrap">{inner_html}</div>
+{_SITE_FOOTER}
+</body></html>"""
+
+
+@app.route("/account/login", methods=["GET", "POST"])
+def account_login():
+    sent = False
+    if request.method == "POST":
+        email = (request.form.get("email") or "").strip().lower()
+        if email:
+            db = SessionLocal()
+            try:
+                has_sites = db.query(Generation).filter(Generation.email == email).first() is not None
+                if has_sites:
+                    token = serializer.dumps({"account_email": email})
+                    account_url = f"{request.host_url.rstrip('/')}/account/{token}"
+                    send_resend_email(email, account_url)
+            finally:
+                db.close()
+        # Always show the same confirmation, regardless of whether the email
+        # has any sites — avoids leaking which addresses have an account.
+        sent = True
+
+    if sent:
+        inner = """<div class="acct-card" style="text-align:center;">
+          <h1 style="margin:0 0 10px;font-weight:800;font-size:24px;letter-spacing:-.02em;">Check your email</h1>
+          <p style="margin:0;font-size:15px;color:#5C5A56;line-height:1.6;">If that address has a Groundwork account, we've sent a sign-in link. It expires in 24 hours.</p>
+        </div>"""
+    else:
+        inner = """<div class="acct-card">
+          <h1 style="margin:0 0 8px;font-weight:800;font-size:26px;letter-spacing:-.02em;">Sign in to your account</h1>
+          <p style="margin:0;font-size:15px;color:#5C5A56;line-height:1.55;">Enter the email you used to build your site and we'll send you a link straight in — no password needed.</p>
+          <form method="post">
+            <input type="email" name="email" placeholder="you@yourbusiness.co.uk" required autofocus>
+            <button type="submit" class="acct-btn" style="width:100%;">Send me a sign-in link</button>
+          </form>
+        </div>"""
+    return render_template_string(_account_page(inner, "Sign in"))
+
+
+@app.route("/account/<token>")
+def account_dashboard(token):
     try:
         data = serializer.loads(token, max_age=TOKEN_MAX_AGE)
     except (BadSignature, SignatureExpired):
         return redirect("/verify-error.html?reason=invalid")
 
-    email = data.get("resend_email")
+    email = data.get("account_email")
+    if not email:
+        return redirect("/verify-error.html?reason=invalid")
+
     db = SessionLocal()
     try:
         gens = db.query(Generation).filter(Generation.email == email).order_by(Generation.created_at.desc()).all()
-        rows = "".join(
-            f'<div class="card"><strong>{g.business_name or "Untitled site"}</strong><br>'
-            f'<span class="muted">Generated {g.created_at:%d %b %Y}</span><br>'
-            f'<a class="btn" href="/api/generate/{g.lead.public_id}/html" target="_blank" rel="noopener">View site →</a></div>'
-            for g in gens
-        ) or '<p class="muted">No sites found for this email yet.</p>'
-        return render_template_string(f"""<!DOCTYPE html><html><head><meta charset="utf-8">
-<title>Your Groundwork sites</title><style>{_PAGE_STYLE}</style></head>
-<body><div class="wrap"><h1>Your Groundwork website(s)</h1>{rows}</div></body></html>""")
+
+        if gens:
+            card_parts = []
+            for g in gens:
+                business_label = g.business_name or "Untitled site"
+                status_label = "Live" if g.status == "live" else "Draft — not yet published"
+                go_live_link = ""
+                if g.status != "live":
+                    go_live_link = (
+                        '<a href="/checkout.html?id=' + g.lead.public_id + '" '
+                        'style="display:inline-block;background:#3B82F6;color:#fff;font-weight:700;font-size:14.5px;'
+                        'text-decoration:none;padding:11px 18px;border-radius:9px;">Go live →</a>'
+                    )
+                card_parts.append(
+                    '<div class="acct-card" style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;">'
+                    '<div>'
+                    '<div style="font-weight:700;font-size:17px;">' + business_label + '</div>'
+                    '<div style="font-size:13.5px;color:#807E79;margin-top:3px;">Generated '
+                    + g.created_at.strftime("%d %b %Y") + " · " + status_label + '</div>'
+                    '</div>'
+                    '<div style="display:flex;gap:10px;flex-wrap:wrap;">'
+                    '<a href="/api/generate/' + g.lead.public_id + '/html" target="_blank" rel="noopener" '
+                    'style="display:inline-block;background:#fff;color:#1C1C1C;font-weight:700;font-size:14.5px;'
+                    'text-decoration:none;border:1px solid #D9D7D0;padding:11px 18px;border-radius:9px;">View site →</a>'
+                    + go_live_link +
+                    '</div>'
+                    '</div>'
+                )
+            cards = "".join(card_parts)
+        else:
+            cards = '<div class="acct-card"><p style="margin:0;color:#5C5A56;font-size:15px;">No sites found for this account yet.</p></div>'
+
+        inner = f"""<div style="text-align:center;margin-bottom:28px;">
+          <div style="color:#2257CC;font-size:12.5px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;margin-bottom:10px;">Your account</div>
+          <h1 style="margin:0 0 8px;font-weight:800;font-size:clamp(24px,3.4vw,32px);letter-spacing:-.02em;">Your sites, all in one place</h1>
+          <p style="margin:0;font-size:15.5px;color:#5C5A56;">Every website you've generated with {email}, ready whenever you need it.</p>
+        </div>
+        {cards}"""
+        return render_template_string(_account_page(inner, "Your account"))
     finally:
         db.close()
 
@@ -392,19 +482,138 @@ def admin_generations():
     db = SessionLocal()
     try:
         gens = db.query(Generation).order_by(Generation.created_at.desc()).all()
-        rows = "".join(
-            f"<tr><td>{g.business_name or ''}</td><td>{g.email}</td>"
-            f"<td>{g.created_at:%d %b %Y %H:%M}</td><td>{g.status}</td>"
-            f'<td><a href="/admin/generations/{g.id}/html" target="_blank" rel="noopener">View HTML</a> · '
-            f'<a href="/admin/generations/{g.id}/form-data" target="_blank" rel="noopener">Form data</a></td></tr>'
-            for g in gens
-        )
+        row_parts = []
+        for g in gens:
+            test_badge = '<span class="badge-test">TEST</span>' if (g.lead and g.lead.is_test) else ""
+            row_parts.append(
+                "<tr><td>" + (g.business_name or "") + test_badge + "</td><td>" + g.email + "</td>"
+                "<td>" + g.created_at.strftime("%d %b %Y %H:%M") + "</td><td>" + g.status + "</td>"
+                '<td><a href="/admin/generations/' + str(g.id) + '/html" target="_blank" rel="noopener">View HTML</a> · '
+                '<a href="/admin/generations/' + str(g.id) + '/form-data" target="_blank" rel="noopener">Form data</a></td></tr>'
+            )
+        rows = "".join(row_parts)
         return render_template_string(f"""<!DOCTYPE html><html><head><meta charset="utf-8">
 <title>Admin — generations</title><style>{_PAGE_STYLE}</style></head>
 <body><div class="wrap" style="max-width:1100px;">
-<h1>All generations ({len(gens)}) <a href="/admin/logout" style="float:right;font-size:13px;">Log out</a></h1>
+<h1>All generations ({len(gens)})
+<a href="/admin/generate-test" style="float:right;font-size:13px;margin-left:18px;">+ Generate test site</a>
+<a href="/admin/logout" style="float:right;font-size:13px;">Log out</a></h1>
 <table><thead><tr><th>Business</th><th>Email</th><th>Created</th><th>Status</th><th>Links</th></tr></thead>
 <tbody>{rows}</tbody></table></div></body></html>""")
+    finally:
+        db.close()
+
+
+_ADMIN_TEST_FORM_FIELDS = [
+    ("email", "Email", "email", True),
+    ("business_name", "Business name", "text", True),
+    ("trade", "Trade", "text", True),
+    ("location", "Location", "text", True),
+    ("coverage_area", "Coverage area", "text", False),
+    ("phone", "Phone", "text", False),
+    ("commercial_split", "Commercial split (0-100)", "number", False),
+    ("work_type", "Work type (standard/mix/bespoke)", "text", False),
+    ("team_size", "Team size (sole/small/company)", "text", False),
+    ("large_contracts", "Large contracts (yes/no)", "text", False),
+    ("urgency", "Urgency (ahead/emergency)", "text", False),
+    ("years_trading", "Years trading", "text", False),
+    ("accreditations", "Accreditations", "text", False),
+    ("past_clients", "Past clients / projects", "text", False),
+    ("notes", "Notes", "text", False),
+]
+
+
+@app.route("/admin/generate-test", methods=["GET", "POST"])
+@admin_required
+def admin_generate_test():
+    if request.method == "GET":
+        field_rows = "".join(
+            f'<label style="display:block;font-size:13.5px;font-weight:600;margin-bottom:5px;">{label}{" *" if required else ""}</label>'
+            f'<input type="{itype}" name="{name}" {"required" if required else ""} style="width:100%;padding:10px 12px;border:1px solid #D8D5CE;border-radius:8px;font-size:14.5px;margin-bottom:14px;">'
+            for name, label, itype, required in _ADMIN_TEST_FORM_FIELDS
+        )
+        return render_template_string(f"""<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>Admin — generate test site</title><style>{_PAGE_STYLE}</style></head>
+<body><div class="wrap" style="max-width:640px;">
+<h1>Generate a test site</h1>
+<p class="muted">Admin-only: skips email verification and the one-generation-per-email limit. Flagged as TEST in the generations list.</p>
+<form method="post" enctype="multipart/form-data">
+{field_rows}
+<label style="display:block;font-size:13.5px;font-weight:600;margin-bottom:5px;">Logo</label>
+<input type="file" name="logo" accept="image/*" style="margin-bottom:14px;">
+<label style="display:block;font-size:13.5px;font-weight:600;margin-bottom:5px;">Photos</label>
+<input type="file" name="photos" accept="image/*" multiple style="margin-bottom:18px;">
+<button type="submit">Generate test site</button>
+</form>
+</div></body></html>""")
+
+    # POST — build and kick off a generation immediately, bypassing verification
+    # and the repeat-generation block. Admin-only route; never exposed publicly.
+    form = request.form
+    email = (form.get("email") or "").strip().lower()
+    if not email:
+        return jsonify({"error": "email required"}), 400
+
+    base_url = request.host_url.rstrip("/")
+    db = SessionLocal()
+    try:
+        lead = Lead(
+            public_id=uuid.uuid4().hex[:10],
+            email=email,
+            ip=_client_ip(),
+            status="verified",
+            form_data={},
+            is_test=True,
+        )
+        db.add(lead)
+        db.flush()
+
+        job_dir = os.path.join(UPLOAD_DIR, lead.public_id)
+        os.makedirs(job_dir, exist_ok=True)
+
+        logo_file = request.files.get("logo")
+        logo_path, logo_mime = None, None
+        if logo_file and logo_file.filename:
+            ext = os.path.splitext(logo_file.filename)[1] or ".png"
+            fname = f"logo{ext}"
+            logo_file.save(os.path.join(job_dir, fname))
+            logo_path = fname
+            logo_mime = logo_file.content_type or "image/png"
+
+        for i, pf in enumerate(request.files.getlist("photos")):
+            if pf and pf.filename:
+                ext = os.path.splitext(pf.filename)[1] or ".jpg"
+                pf.save(os.path.join(job_dir, f"photo_{i}{ext}"))
+
+        photo_urls = [
+            f"{base_url}/api/generate/{lead.public_id}/photos/{fname}"
+            for fname in sorted(os.listdir(job_dir))
+            if fname.startswith("photo_")
+        ]
+
+        build_data = _map_form(form, logo_path, photo_urls)
+        lead.form_data = build_data
+        lead.logo_path = logo_path
+        lead.logo_mime = logo_mime
+        db.commit()
+
+        prompt = build_prompt(build_data)
+        logo_b64 = None
+        if logo_path:
+            with open(os.path.join(job_dir, logo_path), "rb") as f:
+                logo_b64 = base64.standard_b64encode(f.read()).decode()
+
+        with _jobs_lock:
+            _jobs[lead.public_id] = {"status": "pending"}
+
+        t = threading.Thread(
+            target=_run_and_persist,
+            args=(lead.public_id, lead.id, lead.email, build_data.get("business_name", ""), prompt, logo_b64, logo_mime),
+            daemon=True,
+        )
+        t.start()
+
+        return redirect(f"/loading.html?id={lead.public_id}")
     finally:
         db.close()
 

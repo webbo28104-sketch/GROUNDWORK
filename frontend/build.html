@@ -67,10 +67,13 @@ input[type=range]{accent-color:#3B82F6;width:100%;height:8px;cursor:pointer;}
       <svg viewBox="0 0 48 48" width="30" height="30" fill="none"><path d="M 37 13.1 A 17 17 0 1 0 41 24 L 27 24" stroke="#3B82F6" stroke-width="4.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M 30.9 18.2 A 9 9 0 1 0 30.9 29.8" stroke="#3B82F6" stroke-width="4.6" stroke-linecap="round"/></svg>
       <span style="color:#fff;font-weight:800;font-size:19px;letter-spacing:-.03em;">Groundwork</span>
     </a>
-    <a href="index.html" style="color:#9A9893;text-decoration:none;font-size:14px;font-weight:500;display:inline-flex;align-items:center;gap:7px;">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M15 6l-6 6 6 6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      Back to site
-    </a>
+    <div style="display:flex;align-items:center;gap:20px;">
+      <a href="/account/login" style="color:#9A9893;text-decoration:none;font-size:14px;font-weight:500;">Sign In</a>
+      <a href="index.html" style="color:#9A9893;text-decoration:none;font-size:14px;font-weight:500;display:inline-flex;align-items:center;gap:7px;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M15 6l-6 6 6 6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Back to site
+      </a>
+    </div>
   </div>
 </div>
 
@@ -463,7 +466,7 @@ async function submit() {
     const data = await r.json().catch(() => ({}));
 
     if (r.status === 409) {
-      alert(data.message || "You've already generated a site with this email. Use the resend page to get your link.");
+      alert(data.message || "You've already generated a site with this email. Sign in to your account to find it.");
       btn.disabled=false; btn.textContent='Generate my website';
       return;
     }

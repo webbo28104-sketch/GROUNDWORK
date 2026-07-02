@@ -6,6 +6,7 @@ It is the distilled version of SITE_GENERATION_SPEC.md — instructions only,
 no commentary or history. Update this file when the spec doc changes;
 don't send the spec doc itself to the API.
 """
+from datetime import datetime
 
 def build_prompt(form_data: dict) -> str:
     """
@@ -19,6 +20,7 @@ def build_prompt(form_data: dict) -> str:
     """
 
     facts = "\n".join(f"- {k}: {v}" for k, v in form_data.items() if v)
+    current_year = datetime.now().year
 
     return f"""You are generating a single-page marketing website for a UK trades/construction business, from their sign-up form data below.
 
@@ -75,7 +77,7 @@ Fixed page structure — always in this order, sections can be omitted but never
 5. Accreditations — OMIT ENTIRELY if nothing was verified. Do not pad with vague reassurance copy instead.
 6. Portfolio — use uploaded photos if provided. If no photos are provided, render the portfolio grid with a single tasteful placeholder note rather than repeating "Photos Coming Soon" per card — wording along the lines of: "Portfolio photography in preparation. Contact us to discuss examples of work relevant to your project type." Do not repeat placeholder text across multiple cards. Never invent project names.
 7. Contact — real contact details only, plus a front-end-only enquiry form (or the urgency-driven minimal version above). If no verified public email address was found, omit the email field entirely — no placeholder text or invented addresses. Phone number only is acceptable.
-8. Footer.
+8. Footer — copyright line must read exactly "© {current_year} [business name]." using {current_year} as the literal year (do not use 2025, 2024, or any other year — this is the actual current year, computed at generation time). Do not invent a different year. Below or beside the copyright line, include a small, unobtrusive builder credit: "Website by Groundwork" as a real hyperlink to https://groundworkbuild.com — styled small and low-contrast like a typical site-builder credit line, not a prominent CTA. Never use placeholder text like "Your Agency" or any other agency name.
 
 === HARD RULES ===
 - Never state who specifically performs the work (e.g. "our team of two") — work may be subcontracted. Describe quality/standard instead of staffing.
