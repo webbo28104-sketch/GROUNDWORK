@@ -25,6 +25,7 @@ def _map_form(form, logo_b64, photo_urls):
     team_map = {"sole": "sole trader", "small": "small team", "company": "established company"}
     urgency_map = {"emergency": "high", "ahead": "low"}
     commercial = int(form.get("commercial_split", 50))
+    domestic = 100 - commercial
 
     data = {
         "business_name": form.get("business_name", ""),
@@ -35,7 +36,7 @@ def _map_form(form, logo_b64, photo_urls):
         "email": form.get("email", ""),
         "logo_uploaded": bool(logo_b64),
         "portfolio_uploaded": bool(photo_urls),
-        "domestic_commercial_split": 100 - commercial,
+        "work_split": f"{domestic}% domestic / {commercial}% commercial",
         "craft_prestige": prestige_map.get(form.get("work_type", ""), "standard"),
         "team_size": team_map.get(form.get("team_size", ""), "sole trader"),
         "large_commercial_contracts": form.get("large_contracts") == "yes",

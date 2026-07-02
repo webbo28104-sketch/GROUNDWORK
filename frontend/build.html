@@ -265,7 +265,7 @@ function renderStep3() {
       <div><div style="font-size:34px;font-weight:800;letter-spacing:-.03em;" id="dom-pct">${dom}%</div><div style="font-size:13.5px;font-weight:600;color:#5C5A56;">Domestic</div></div>
       <div style="text-align:right"><div style="font-size:34px;font-weight:800;letter-spacing:-.03em;" id="com-pct">${st.commercial}%</div><div style="font-size:13.5px;font-weight:600;color:#5C5A56;">Commercial</div></div>
     </div>
-    <input type="range" min="0" max="100" step="5" value="${st.commercial}" oninput="onSplit(this.value)" style="width:100%;height:8px;cursor:pointer;">
+    <input id="split-slider" type="range" min="0" max="100" step="5" value="${st.commercial}" oninput="onSplit(this.value)" style="width:100%;height:8px;cursor:pointer;background:${splitGradient(st.commercial)};">
     <div style="display:flex;justify-content:space-between;margin-top:9px;font-size:12.5px;color:#807E79;"><span>100% domestic</span><span>50 / 50</span><span>100% commercial</span></div>
   </div>`;
 }
@@ -368,7 +368,17 @@ function render() {
 
 // Field helpers
 function clearErr(k){ delete st.errors[k]; }
-function onSplit(v){ st.commercial=parseInt(v); document.getElementById('com-pct').textContent=v+'%'; document.getElementById('dom-pct').textContent=(100-v)+'%'; }
+function splitGradient(v){
+  // Fills left-to-right from the "domestic" colour to the "commercial" colour,
+  // so the filled track visibly tracks which side is dominant as the handle moves.
+  return `linear-gradient(to right, #B8976A 0%, #B8976A ${v}%, #D8D5CE ${v}%, #D8D5CE 100%)`;
+}
+function onSplit(v){
+  st.commercial=parseInt(v);
+  document.getElementById('com-pct').textContent=v+'%';
+  document.getElementById('dom-pct').textContent=(100-v)+'%';
+  document.getElementById('split-slider').style.background=splitGradient(v);
+}
 function onLogo(el){
   const f=el.files&&el.files[0]; if(!f)return;
   const r=new FileReader(); r.onload=()=>{ st.logoName=f.name; st.logoB64=r.result; st.logoMime=f.type||'image/png'; render(); }; r.readAsDataURL(f);

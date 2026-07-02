@@ -12,7 +12,8 @@ def build_prompt(form_data: dict) -> str:
     form_data keys expected:
     business_name, trade, location, coverage_area, phone, email,
     logo_uploaded (bool), portfolio_uploaded (bool),
-    domestic_commercial_split, craft_prestige, team_size,
+    work_split (plain-language string, e.g. "30% domestic / 70% commercial"),
+    craft_prestige, team_size,
     large_commercial_contracts (bool), urgency,
     years_trading, claimed_accreditations, claimed_projects, other_notes
     """
@@ -78,7 +79,7 @@ Fixed page structure — always in this order, sections can be omitted but never
 
 === HARD RULES ===
 - Never state who specifically performs the work (e.g. "our team of two") — work may be subcontracted. Describe quality/standard instead of staffing.
-- Never publish the domestic/commercial split percentage or contract value figures, even though they were given — these are for tone-setting only. If reflected at all, do it indirectly (e.g. "primarily serving commercial clients") with no number.
+- Never publish the work_split percentage or contract value figures, even though they were given — these are for tone-setting only. If reflected at all, do it indirectly (e.g. "primarily serving commercial clients" for a commercial-majority split, or omit entirely for a domestic-majority split) with no number.
 - Never fabricate reviews, projects, credentials, years-trading, or operational claims (response times, turnaround) — if it's not in the form or verified by search, it doesn't go on the page.
 - If multiple businesses share a similar name, never conflate them.
 
