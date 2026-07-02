@@ -17,7 +17,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 from build_prompt import build_prompt
 from models import SessionLocal, Lead, Generation, Account, init_db
-from emails import send_verification_email, send_resend_email
+from emails import send_verification_email, send_resend_email, send_password_reset_email
 
 app = Flask(__name__, static_folder="frontend", static_url_path="")
 CORS(app)
@@ -25,6 +25,7 @@ app.secret_key = os.environ.get("SECRET_KEY", "dev-insecure-secret-change-me")
 serializer = URLSafeTimedSerializer(app.secret_key)
 
 TOKEN_MAX_AGE = 24 * 3600  # 24h magic-link expiry
+RESET_TOKEN_MAX_AGE = 3600  # 1h — shorter-lived since it grants a password change
 IP_RATE_LIMIT_PER_HOUR = int(os.environ.get("IP_RATE_LIMIT_PER_HOUR", "5"))
 
 init_db()
@@ -588,11 +589,23 @@ a:focus-visible,button:focus-visible,input:focus-visible{{outline:3px solid #3B8
 input[type=email]{{width:100%;padding:13px 16px;border:1px solid #D9D7D0;border-radius:10px;font-size:15.5px;margin:14px 0;font-family:Inter,sans-serif;}}
 .acct-btn{{display:inline-block;background:#3B82F6;color:#fff;font-weight:700;font-size:15.5px;text-decoration:none;border:0;padding:14px 24px;border-radius:10px;cursor:pointer;}}
 .acct-btn:hover{{background:#2563EB;}}
+.pw-field{{position:relative;margin:14px 0;}}
+.pw-field input[type=password],.pw-field input[type=text]{{width:100%;padding:13px 60px 13px 16px;border:1px solid #D9D7D0;border-radius:10px;font-size:15.5px;font-family:Inter,sans-serif;box-sizing:border-box;}}
+.pw-toggle{{position:absolute;right:6px;top:6px;bottom:6px;background:none;border:0;color:#5C5A56;font-size:13px;font-weight:600;cursor:pointer;padding:0 10px;}}
+.pw-toggle:hover{{color:#3B82F6;}}
 </style>
 </head><body>
 {_SITE_HEADER}
 <div class="acct-wrap">{inner_html}</div>
 {_SITE_FOOTER}
+<script>
+function gwTogglePw(id, btn){{
+  const el = document.getElementById(id);
+  const showing = el.type === 'text';
+  el.type = showing ? 'password' : 'text';
+  btn.textContent = showing ? 'Show' : 'Hide';
+}}
+</script>
 </body></html>"""
 
 
@@ -646,6 +659,15 @@ def _render_dashboard(email: str) -> str:
         db.close()
 
 
+def _password_field_html(field_id: str, name: str, placeholder: str) -> str:
+    """A password <input> with a Show/Hide toggle button, shared across every
+    password-entry form (login, set-password, reset-password)."""
+    return f"""<div class="pw-field">
+        <input id="{field_id}" type="password" name="{name}" placeholder="{placeholder}" required autofocus minlength="8">
+        <button type="button" class="pw-toggle" onclick="gwTogglePw('{field_id}', this)">Show</button>
+      </div>"""
+
+
 def _render_password_form(email: str, stage: str, error: str = None, heading: str = None, body: str = None) -> str:
     error_html = f'<p class="err">{error}</p>' if error else ""
     heading = heading or ("Choose a password" if stage == "set_password" else "Enter your password")
@@ -653,6 +675,10 @@ def _render_password_form(email: str, stage: str, error: str = None, heading: st
         "Set a password for this account so you can sign in instantly next time."
         if stage == "set_password" else
         "Welcome back — enter your password to continue."
+    )
+    forgot_link = (
+        '<p style="margin:12px 0 0;text-align:right;"><a href="/account/forgot-password" style="color:#807E79;font-size:13px;text-decoration:none;">Forgot password?</a></p>'
+        if stage == "password" else ""
     )
     inner = f"""<div class="acct-card">
       <h1 style="margin:0 0 8px;font-weight:800;font-size:26px;letter-spacing:-.02em;">{heading}</h1>
@@ -662,9 +688,10 @@ def _render_password_form(email: str, stage: str, error: str = None, heading: st
         <input type="hidden" name="stage" value="{stage}">
         <input type="hidden" name="email" value="{escape(email)}">
         <p style="margin:14px 0 0;font-size:13.5px;color:#807E79;">{escape(email)}</p>
-        <input type="password" name="password" placeholder="{'At least 8 characters' if stage == 'set_password' else 'Password'}" required autofocus minlength="8">
+        {_password_field_html('pw-input', 'password', 'At least 8 characters' if stage == 'set_password' else 'Password')}
         <button type="submit" class="acct-btn" style="width:100%;">{'Set password &amp; sign in' if stage == 'set_password' else 'Sign in'}</button>
       </form>
+      {forgot_link}
     </div>"""
     return render_template_string(_account_page(inner, "Sign in"))
 
@@ -774,6 +801,88 @@ def account_verify(token):
         heading="Confirm your email — choose a password",
         body="Your address is confirmed. Set a password to finish creating your account.",
     )
+
+
+@app.route("/account/forgot-password", methods=["GET", "POST"])
+def account_forgot_password():
+    if request.method == "GET":
+        inner = """<div class="acct-card">
+          <h1 style="margin:0 0 8px;font-weight:800;font-size:26px;letter-spacing:-.02em;">Reset your password</h1>
+          <p style="margin:0;font-size:15px;color:#5C5A56;line-height:1.55;">Enter your account email and we'll send you a link to choose a new password.</p>
+          <form method="post">
+            <input type="email" name="email" placeholder="you@yourbusiness.co.uk" required autofocus>
+            <button type="submit" class="acct-btn" style="width:100%;">Send reset link</button>
+          </form>
+        </div>"""
+        return render_template_string(_account_page(inner, "Reset your password"))
+
+    email = (request.form.get("email") or "").strip().lower()
+    if email:
+        db = SessionLocal()
+        try:
+            account = db.query(Account).filter(Account.email == email).first()
+            if account and account.password_hash:
+                token = serializer.dumps({"reset_email": email})
+                reset_url = f"{request.host_url.rstrip('/')}/account/reset-password/{token}"
+                send_password_reset_email(email, reset_url)
+        finally:
+            db.close()
+    # Always show the same confirmation, regardless of whether the email has
+    # a password-protected account — avoids leaking which addresses do.
+    inner = """<div class="acct-card" style="text-align:center;">
+      <h1 style="margin:0 0 10px;font-weight:800;font-size:24px;letter-spacing:-.02em;">Check your email</h1>
+      <p style="margin:0;font-size:15px;color:#5C5A56;line-height:1.6;">If that address has a Groundwork account, we've sent a link to reset your password. It expires in 1 hour.</p>
+    </div>"""
+    return render_template_string(_account_page(inner, "Check your email"))
+
+
+@app.route("/account/reset-password/<token>", methods=["GET", "POST"])
+def account_reset_password(token):
+    try:
+        data = serializer.loads(token, max_age=RESET_TOKEN_MAX_AGE)
+    except SignatureExpired:
+        return redirect("/verify-error.html?reason=expired")
+    except BadSignature:
+        return redirect("/verify-error.html?reason=invalid")
+
+    email = data.get("reset_email")
+    if not email:
+        return redirect("/verify-error.html?reason=invalid")
+
+    def render_form(error=None):
+        error_html = f'<p class="err">{error}</p>' if error else ""
+        inner = f"""<div class="acct-card">
+          <h1 style="margin:0 0 8px;font-weight:800;font-size:26px;letter-spacing:-.02em;">Choose a new password</h1>
+          <p style="margin:0;font-size:15px;color:#5C5A56;line-height:1.55;">Setting a new password for {escape(email)}.</p>
+          {error_html}
+          <form method="post">
+            {_password_field_html('pw-input', 'password', 'At least 8 characters')}
+            <button type="submit" class="acct-btn" style="width:100%;">Set new password &amp; sign in</button>
+          </form>
+        </div>"""
+        return render_template_string(_account_page(inner, "Reset your password"))
+
+    if request.method == "GET":
+        return render_form()
+
+    password = request.form.get("password", "")
+    if len(password) < 8:
+        return render_form(error="Password must be at least 8 characters.")
+
+    db = SessionLocal()
+    try:
+        # Token itself proves this email is the requester — re-validate the
+        # account exists (it must, to have requested a reset) rather than
+        # trusting any client-submitted email field.
+        account = db.query(Account).filter(Account.email == email).first()
+        if account is None:
+            return redirect("/verify-error.html?reason=invalid")
+        account.password_hash = generate_password_hash(password)
+        db.commit()
+        session["account_email"] = email
+        return redirect("/account")
+    finally:
+        db.close()
 
 
 @app.route("/account")

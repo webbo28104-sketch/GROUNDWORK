@@ -1,8 +1,8 @@
 """
 Groundwork — transactional email via Resend.
 
-Two templates: verification (magic link to trigger generation) and
-resend (magic link to view previously generated sites). Both are plain,
+Templates: verification (magic link to trigger generation), resend (magic
+link to view previously generated sites), and password reset. All plain,
 single-CTA emails matching the funnel's existing brand.
 """
 import os
@@ -72,3 +72,14 @@ def send_resend_email(to_email: str, my_sites_url: str) -> None:
         cta_label="View my website(s) →",
     )
     _send(to_email, "Your Groundwork website(s)", html)
+
+
+def send_password_reset_email(to_email: str, reset_url: str) -> None:
+    html = _wrapper(
+        preheader="You're receiving this because a password reset was requested for this Groundwork account.",
+        heading="Reset your password",
+        body_html="Click the button below to choose a new password for your Groundwork account. This link expires in 1 hour. If you didn't request this, you can safely ignore this email — your password won't change.",
+        cta_url=reset_url,
+        cta_label="Reset my password →",
+    )
+    _send(to_email, "Reset your password — Groundwork", html)
