@@ -1,13 +1,14 @@
-// This deployment is Cloudflare Workers Static Assets (not classic Pages) —
-// the wrangler-generated config only serves files from frontend/ by default.
+// This deployment is Cloudflare Workers Static Assets (not classic Pages).
 // A plain `_redirects` file can't proxy to an external absolute URL on this
 // platform ("Proxy (200) redirects can only point to relative paths"), so
 // Flask/Railway routes that don't exist as static files here (magic-link
 // verification, the account area, admin) need an actual Worker script to
-// forward them to the Railway origin. Presence of this file switches
-// wrangler into "Advanced Mode", where it — not the default asset router —
-// handles every request; we explicitly fall back to env.ASSETS.fetch() for
-// anything that isn't one of these backend paths.
+// forward them to the Railway origin. Wired up explicitly as `main` in
+// /wrangler.jsonc (relying on auto-detecting this file's presence did not
+// work in practice — the build kept using assets-only mode regardless), so
+// this script sees every request first; we explicitly fall back to
+// env.ASSETS.fetch() (the "ASSETS" binding, also named explicitly in
+// wrangler.jsonc) for anything that isn't one of these backend paths.
 
 const RAILWAY_ORIGIN = "https://web-production-748b1.up.railway.app";
 

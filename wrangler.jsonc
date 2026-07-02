@@ -1,0 +1,13 @@
+{
+  "name": "groundwork",
+  "compatibility_date": "2026-07-02",
+  "compatibility_flags": ["nodejs_compat"],
+  "main": "frontend/_worker.js",
+  "assets": {
+    "directory": "frontend",
+    "binding": "ASSETS"
+  },
+  "observability": {
+    "enabled": true
+  }
+}
