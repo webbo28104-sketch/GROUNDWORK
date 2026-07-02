@@ -460,9 +460,21 @@ async function submit() {
   try {
     const apiBase = window.GROUNDWORK_API || '';
     const r = await fetch(apiBase+'/api/generate', {method:'POST', body:fd});
-    if(!r.ok) throw new Error('Server error '+r.status);
-    const {id} = await r.json();
-    window.location.href = `loading.html?id=${id}`;
+    const data = await r.json().catch(() => ({}));
+
+    if (r.status === 409) {
+      alert(data.message || "You've already generated a site with this email. Use the resend page to get your link.");
+      btn.disabled=false; btn.textContent='Generate my website';
+      return;
+    }
+    if (r.status === 429) {
+      alert(data.message || 'Too many submissions from this network. Please try again later.');
+      btn.disabled=false; btn.textContent='Generate my website';
+      return;
+    }
+    if (!r.ok) throw new Error(data.message || ('Server error '+r.status));
+
+    window.location.href = `check-email.html?email=${encodeURIComponent(st.email)}`;
   } catch(err) {
     btn.disabled=false; btn.textContent='Generate my website';
     alert('Something went wrong. Please try again.\n\n'+err.message);

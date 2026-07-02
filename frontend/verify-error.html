@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Link problem — Groundwork</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@700;800&display=swap" rel="stylesheet">
+<script src="./config.js"></script>
+<style>
+*{box-sizing:border-box;}
+h1{font-family:'Plus Jakarta Sans','Inter',sans-serif;}
+html,body{margin:0;height:100%;background:#1C1C1C;}
+</style>
+</head>
+<body style="font-family:Inter,sans-serif;background:#1C1C1C;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px 24px;">
+
+<div style="width:100%;max-width:480px;text-align:center;">
+  <h1 id="heading" style="margin:0 0 12px;font-weight:800;font-size:clamp(24px,3.6vw,32px);color:#FAFAF8;letter-spacing:-.02em;">This link isn't valid</h1>
+  <p id="body-msg" style="margin:0 0 28px;font-size:15.5px;color:#B9B7B2;line-height:1.6;"></p>
+  <a href="build.html" style="display:inline-block;background:#3B82F6;color:#fff;font-weight:700;font-size:15px;text-decoration:none;padding:13px 26px;border-radius:8px;">Start a new build →</a>
+  <p style="margin-top:22px;"><a href="resend.html" style="color:#8B8985;font-size:13.5px;text-decoration:none;">Already generated a site? Resend my link</a></p>
+</div>
+
+<script>
+const reason = new URLSearchParams(location.search).get('reason');
+const heading = document.getElementById('heading');
+const body = document.getElementById('body-msg');
+if (reason === 'expired') {
+  heading.textContent = 'This link has expired';
+  body.textContent = 'Verification links are valid for 24 hours. Please start a new build to get a fresh one.';
+} else {
+  heading.textContent = "This link isn't valid";
+  body.textContent = "We couldn't verify this link. It may have already been used, or the URL may be incomplete.";
+}
+</script>
+</body>
+</html>

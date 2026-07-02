@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Check your email — Groundwork</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@700;800&display=swap" rel="stylesheet">
+<script src="./config.js"></script>
+<style>
+*{box-sizing:border-box;}
+h1,h2{font-family:'Plus Jakarta Sans','Inter',sans-serif;}
+html,body{margin:0;height:100%;background:#1C1C1C;}
+</style>
+</head>
+<body style="font-family:Inter,sans-serif;background:#1C1C1C;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px 24px;">
+
+<div style="width:100%;max-width:480px;text-align:center;">
+  <svg viewBox="0 0 48 48" width="48" height="48" fill="none" style="margin-bottom:26px;">
+    <path d="M 37 13.1 A 17 17 0 1 0 41 24 L 27 24" stroke="#3B82F6" stroke-width="4.6" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M 30.9 18.2 A 9 9 0 1 0 30.9 29.8" stroke="#3B82F6" stroke-width="4.6" stroke-linecap="round"/>
+  </svg>
+
+  <h1 style="margin:0 0 12px;font-weight:800;font-size:clamp(24px,3.6vw,32px);color:#FAFAF8;letter-spacing:-.02em;">Check your email</h1>
+  <p style="margin:0 0 6px;font-size:16px;color:#B9B7B2;line-height:1.55;">We've sent a verification link to</p>
+  <p id="email-out" style="margin:0 0 24px;font-size:17px;color:#fff;font-weight:700;"></p>
+  <p style="margin:0;font-size:14.5px;color:#8B8985;line-height:1.6;">Click the link in that email to confirm your address and start building your site. It expires in 24 hours. Didn't get it? Check spam, or head back and try again.</p>
+
+  <a href="build.html" style="display:inline-block;margin-top:28px;color:#3B82F6;font-weight:600;font-size:14.5px;text-decoration:none;">← Back to the form</a>
+</div>
+
+<script>
+const params = new URLSearchParams(location.search);
+document.getElementById('email-out').textContent = params.get('email') || '';
+</script>
+</body>
+</html>

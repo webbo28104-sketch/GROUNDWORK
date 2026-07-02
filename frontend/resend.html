@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Resend my site — Groundwork</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@700;800&display=swap" rel="stylesheet">
+<script src="./config.js"></script>
+<style>
+*{box-sizing:border-box;}
+h1{font-family:'Plus Jakarta Sans','Inter',sans-serif;}
+body{margin:0;background:#F5F3EE;font-family:Inter,sans-serif;color:#1C1C1C;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:32px 24px;}
+input{width:100%;padding:13px 16px;border:1px solid #D8D5CE;border-radius:8px;font-size:15px;margin:18px 0;font-family:Inter,sans-serif;}
+button{width:100%;background:#3B82F6;color:#fff;border:0;font-weight:700;padding:14px;border-radius:8px;font-size:15.5px;cursor:pointer;}
+button:disabled{opacity:.6;cursor:default;}
+</style>
+</head>
+<body>
+
+<div style="width:100%;max-width:420px;background:#fff;border:1px solid #E2E0DA;border-radius:14px;padding:36px 32px;">
+  <div id="form-state">
+    <h1 style="margin:0 0 8px;font-weight:800;font-size:24px;letter-spacing:-.02em;">Resend my site</h1>
+    <p style="margin:0;font-size:14.5px;color:#5C5A56;line-height:1.5;">Enter the email you used and we'll send you a link to view any sites you've generated.</p>
+    <form id="resend-form">
+      <input type="email" id="email" placeholder="you@yourbusiness.co.uk" required>
+      <button type="submit" id="submit-btn">Send me the link</button>
+    </form>
+  </div>
+  <div id="sent-state" style="display:none;text-align:center;">
+    <h1 style="margin:0 0 10px;font-weight:800;font-size:24px;letter-spacing:-.02em;">Check your email</h1>
+    <p style="margin:0;font-size:14.5px;color:#5C5A56;line-height:1.5;">If that address has a Groundwork site, we've sent a link to view it. It expires in 24 hours.</p>
+  </div>
+</div>
+
+<script>
+const apiBase = window.GROUNDWORK_API || '';
+document.getElementById('resend-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = document.getElementById('submit-btn');
+  btn.disabled = true; btn.textContent = 'Sending…';
+  const email = document.getElementById('email').value.trim();
+  try {
+    const fd = new FormData();
+    fd.append('email', email);
+    await fetch(apiBase + '/api/resend', { method: 'POST', body: fd });
+  } catch (e) {
+    // Fall through to the same confirmation regardless — avoids leaking state over the network too.
+  }
+  document.getElementById('form-state').style.display = 'none';
+  document.getElementById('sent-state').style.display = 'block';
+});
+</script>
+</body>
+</html>
