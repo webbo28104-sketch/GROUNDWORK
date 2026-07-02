@@ -8,7 +8,7 @@ Groundwork generates AI-built marketing websites for UK trades businesses. A use
 |---|---|---|
 | Backend API | Flask (`app.py`) | Railway |
 | Database | Postgres via SQLAlchemy (`models.py`) | Railway |
-| Email | SendGrid (`emails.py`) | — |
+| Email | Resend (`emails.py`) | — |
 | Frontend | Static HTML + vanilla JS (`frontend/`) | Cloudflare Pages |
 | AI generation | Anthropic API via `build_prompt.py` | — |
 
@@ -17,7 +17,7 @@ Groundwork generates AI-built marketing websites for UK trades businesses. A use
 - `ANTHROPIC_API_KEY` — must be set in Railway. Never hardcode.
 - `DATABASE_URL` — Postgres connection string, set automatically by Railway's Postgres plugin. Falls back to a local `sqlite:///local_dev.db` if unset (dev only).
 - `SECRET_KEY` — signs Flask sessions and magic-link tokens (`itsdangerous`). Must be set in production — the code falls back to an insecure dev default otherwise.
-- `SENDGRID_API_KEY` / `SENDGRID_FROM_EMAIL` — for verification and resend emails. If `SENDGRID_API_KEY` is unset, sends are skipped and logged instead of failing.
+- `RESEND_API_KEY` / `RESEND_FROM_EMAIL` — for verification and resend emails via Resend. If `RESEND_API_KEY` is unset, sends are skipped and logged instead of failing. `RESEND_FROM_EMAIL` must be an address on a domain verified in Resend (DNS-verified) or sends will fail even with a valid API key.
 - `ADMIN_USERNAME` / `ADMIN_PASSWORD` — credentials for `/admin/login`. Unset means admin login always fails.
 - `IP_RATE_LIMIT_PER_HOUR` — max form submissions per IP per hour (default `5`).
 - `PORT` — set automatically by Railway.
@@ -30,7 +30,7 @@ Groundwork generates AI-built marketing websites for UK trades businesses. A use
    - blocks the request (409) if this email already has a `Generation` row (repeat-generation guard),
    - rate-limits by IP (429 past `IP_RATE_LIMIT_PER_HOUR`),
    - creates a `Lead` row (or reuses an existing unverified one from the same email within 24h, to avoid duplicate rows / spam on resubmit), saving the mapped form data as JSON and any uploaded logo/photos to `uploads/<lead.public_id>/`,
-   - signs a 24h token (`itsdangerous.URLSafeTimedSerializer`) encoding the lead id, emails a verification link via SendGrid, and returns `{"status": "check_email"}`.
+   - signs a 24h token (`itsdangerous.URLSafeTimedSerializer`) encoding the lead id, emails a verification link via Resend, and returns `{"status": "check_email"}`.
    - Frontend redirects to `check-email.html?email=...`.
 
 3. **`GET /verify/<token>`** — validates signature + 24h expiry. Invalid/expired → redirects to `verify-error.html?reason=invalid|expired`. Valid → marks the lead verified, rebuilds the prompt from the stored form data, and starts the same background-thread Claude call as before, keyed by `lead.public_id` (reused as the job id everywhere downstream) — then redirects to `loading.html?id=<public_id>`. If the lead already has a generation (token reused/idempotent), redirects straight to `preview.html?id=<public_id>`.

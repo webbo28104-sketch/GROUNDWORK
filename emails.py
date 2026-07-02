@@ -1,5 +1,5 @@
 """
-Groundwork — transactional email via SendGrid.
+Groundwork — transactional email via Resend.
 
 Two templates: verification (magic link to trigger generation) and
 resend (magic link to view previously generated sites). Both are plain,
@@ -7,23 +7,27 @@ single-CTA emails matching the funnel's existing brand.
 """
 import os
 
-from sendgrid import SendGridAPIClient
-from sendgrid.helpers.mail import Mail
+import resend
 
 ACCENT = "#3B82F6"
 
 
 def _send(to_email: str, subject: str, html_content: str) -> None:
-    api_key = os.environ.get("SENDGRID_API_KEY")
-    from_email = os.environ.get("SENDGRID_FROM_EMAIL", "groundwork-build@outlook.com")
+    api_key = os.environ.get("RESEND_API_KEY")
+    from_email = os.environ.get("RESEND_FROM_EMAIL", "groundwork-build@outlook.com")
 
     if not api_key:
-        print(f"[emails] SENDGRID_API_KEY not set — skipping send of '{subject}' to {to_email}")
+        print(f"[emails] RESEND_API_KEY not set — skipping send of '{subject}' to {to_email}")
         return
 
-    message = Mail(from_email=from_email, to_emails=to_email, subject=subject, html_content=html_content)
+    resend.api_key = api_key
     try:
-        SendGridAPIClient(api_key).send(message)
+        resend.Emails.send({
+            "from": from_email,
+            "to": [to_email],
+            "subject": subject,
+            "html": html_content,
+        })
     except Exception as exc:
         print(f"[emails] failed to send '{subject}' to {to_email}: {exc}")
 
