@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from functools import wraps
 
 import anthropic
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFilter
 from flask import Flask, request, jsonify, send_from_directory, session, redirect, url_for, render_template_string
 from flask_cors import CORS
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
@@ -68,31 +68,172 @@ def _map_form(form, logo_present, has_photos):
     return data
 
 
+_BG_UNIFORM_TOLERANCE = 14   # per-channel max deviation across sampled border points to call it "uniform"
+_FLOODFILL_THRESH = 18       # per-channel tolerance for the flood-fill match itself
+_MIN_LOGO_DIMENSION = 24     # below this, don't attempt background processing at all
+_MAX_TRANSPARENT_FRACTION = 0.97  # if flood-fill eats almost the whole image, bail out — likely misdetection
+
+
+def _sample_border_points(img_rgb):
+    """Corners plus edge midpoints — enough to catch a busy/gradient background
+    without being fooled by a logo mark that happens to touch one corner."""
+    w, h = img_rgb.size
+    xs = [0, w // 2, w - 1]
+    ys = [0, h // 2, h - 1]
+    points = [(x, y) for x in xs for y in ys if (x, y) != (w // 2, h // 2)]
+    px = img_rgb.load()
+    return [px[x, y] for x, y in points]
+
+
+def _channelwise_spread(samples):
+    spread = 0
+    for c in range(3):
+        vals = [s[c] for s in samples]
+        spread = max(spread, max(vals) - min(vals))
+    return spread
+
+
+def _average_colour(samples):
+    n = len(samples)
+    return tuple(sum(s[c] for s in samples) // n for c in range(3))
+
+
+def _process_logo(path: str, max_dimension: int):
+    """
+    Logo-specific processing on top of the generic resize/encode path:
+    - If the logo already has real transparency, leave it alone (already fine).
+    - Else sample the border for a near-uniform background colour. If found,
+      flood-fill it to transparent (from all four corners, so background
+      trapped *inside* the mark — e.g. the hole in a letter "O" — survives),
+      with a light blur on the alpha edge to avoid a harsh cutout ring.
+    - If the border isn't uniform (photo/gradient/busy background), don't
+      attempt removal — instead bake the logo into a small rounded-rect chip
+      filled with the dominant border colour, so a deliberately different
+      background reads as an intentional badge rather than a mismatched
+      rectangle.
+    - Any failure, or an image too small/ambiguous to trust, falls back to
+      today's plain behaviour (resize + encode as-is) rather than risking a
+      mangled result.
+
+    Returns (mode, PIL.Image) where mode is "as_is", "transparent", or "chip",
+    purely for the caller/tests to report which path was taken.
+    """
+    try:
+        with Image.open(path) as raw:
+            img = raw.convert("RGBA") if raw.mode in ("RGBA", "LA", "P") else raw.convert("RGB")
+
+        w, h = img.size
+        if min(w, h) < _MIN_LOGO_DIMENSION:
+            return "as_is", img
+
+        already_transparent = img.mode == "RGBA" and img.getchannel("A").getextrema()[0] < 255
+        if already_transparent:
+            return "as_is", img
+
+        img_rgb = img.convert("RGB")
+        samples = _sample_border_points(img_rgb)
+        spread = _channelwise_spread(samples)
+        bg_colour = _average_colour(samples)
+
+        if spread > _BG_UNIFORM_TOLERANCE:
+            # Busy/gradient background — badge it instead of cutting it out.
+            return "chip", _make_logo_chip(img, bg_colour, max_dimension)
+
+        # Uniform background — flood-fill it away from all four corners.
+        marker = (1, 2, 3)
+        filled = img_rgb.copy()
+        draw = ImageDraw.Draw(filled)
+        for seed in [(0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1)]:
+            try:
+                ImageDraw.floodfill(filled, seed, marker, thresh=_FLOODFILL_THRESH)
+            except Exception:
+                pass
+
+        filled_px = filled.load()
+        alpha = Image.new("L", (w, h), 255)
+        alpha_px = alpha.load()
+        transparent_count = 0
+        for y in range(h):
+            for x in range(w):
+                if filled_px[x, y] == marker:
+                    alpha_px[x, y] = 0
+                    transparent_count += 1
+
+        if transparent_count == 0 or (transparent_count / (w * h)) > _MAX_TRANSPARENT_FRACTION:
+            # Nothing removed, or removal ate almost the whole logo — misdetection, bail out safely.
+            return "as_is", img
+
+        alpha = alpha.filter(ImageFilter.GaussianBlur(radius=1.0))
+        out = img.convert("RGBA")
+        out.putalpha(alpha)
+        return "transparent", out
+
+    except Exception:
+        with Image.open(path) as raw:
+            return "as_is", raw.convert("RGBA") if raw.mode in ("RGBA", "LA", "P") else raw.convert("RGB")
+
+
+def _make_logo_chip(img, bg_colour: tuple, max_dimension: int) -> "Image.Image":
+    w, h = img.size
+    padding = max(int(0.15 * max(w, h)), 14)
+    new_w, new_h = w + 2 * padding, h + 2 * padding
+    radius = max(8, min(20, new_w // 6, new_h // 6))
+
+    mask = Image.new("L", (new_w, new_h), 0)
+    ImageDraw.Draw(mask).rounded_rectangle([0, 0, new_w - 1, new_h - 1], radius=radius, fill=255)
+
+    chip = Image.new("RGBA", (new_w, new_h), bg_colour + (255,))
+    chip.putalpha(mask)
+
+    logo_rgba = img.convert("RGBA")
+    chip.paste(logo_rgba, (padding, padding), logo_rgba)
+
+    if max(chip.size) > max_dimension:
+        chip.thumbnail((max_dimension, max_dimension), Image.LANCZOS)
+    return chip
+
+
+def _encode_pil_image_to_data_uri(img, max_dimension: int, jpeg_quality: int = 82) -> str:
+    """
+    Downsizes a PIL image if larger than max_dimension on its longest side
+    (these are web display images, not originals) and returns a data: URI.
+    PNG is kept for images with real transparency; everything else is
+    re-encoded as JPEG to keep the embedded HTML small.
+    """
+    has_alpha = img.mode == "RGBA" and img.getchannel("A").getextrema()[0] < 255
+
+    if max(img.size) > max_dimension:
+        img = img.copy()
+        img.thumbnail((max_dimension, max_dimension), Image.LANCZOS)
+
+    buf = io.BytesIO()
+    if has_alpha:
+        img.save(buf, format="PNG", optimize=True)
+        mime = "image/png"
+    else:
+        img.convert("RGB").save(buf, format="JPEG", quality=jpeg_quality, optimize=True)
+        mime = "image/jpeg"
+
+    encoded = base64.standard_b64encode(buf.getvalue()).decode()
+    return f"data:{mime};base64,{encoded}"
+
+
 def _image_file_to_data_uri(path: str, max_dimension: int, jpeg_quality: int = 82) -> str:
+    """Reads an image off disk and encodes it — see _encode_pil_image_to_data_uri."""
+    with Image.open(path) as raw:
+        img = raw.convert("RGBA") if raw.mode in ("RGBA", "LA", "P") else raw.convert("RGB")
+        return _encode_pil_image_to_data_uri(img, max_dimension, jpeg_quality)
+
+
+def _logo_file_to_data_uri(path: str, max_dimension: int):
     """
-    Reads an image off disk, downsizes it if larger than max_dimension on its
-    longest side (these are web display images, not originals — no need to
-    keep full-resolution uploads), and returns a data: URI. PNG is kept for
-    images with real transparency (logos); everything else is re-encoded as
-    JPEG to keep the embedded HTML small.
+    Logo-specific: runs background detection/removal (_process_logo) before
+    encoding, then encodes the result. Returns (data_uri, mode) where mode is
+    "as_is" / "transparent" / "chip" — useful for logging/testing which path
+    was taken; callers that don't care can just use the data_uri.
     """
-    with Image.open(path) as img:
-        img = img.convert("RGBA") if img.mode in ("RGBA", "LA", "P") else img.convert("RGB")
-        has_alpha = img.mode == "RGBA" and img.getchannel("A").getextrema()[0] < 255
-
-        if max(img.size) > max_dimension:
-            img.thumbnail((max_dimension, max_dimension), Image.LANCZOS)
-
-        buf = io.BytesIO()
-        if has_alpha:
-            img.save(buf, format="PNG", optimize=True)
-            mime = "image/png"
-        else:
-            img.convert("RGB").save(buf, format="JPEG", quality=jpeg_quality, optimize=True)
-            mime = "image/jpeg"
-
-        encoded = base64.standard_b64encode(buf.getvalue()).decode()
-        return f"data:{mime};base64,{encoded}"
+    mode, img = _process_logo(path, max_dimension)
+    return _encode_pil_image_to_data_uri(img, max_dimension, jpeg_quality=90), mode
 
 
 def _build_media_placeholders(job_dir, logo_path):
@@ -111,7 +252,8 @@ def _build_media_placeholders(job_dir, logo_path):
         logo_file = os.path.join(job_dir, logo_path)
         if os.path.exists(logo_file):
             token = "GW_LOGO_SRC"
-            image_placeholders[token] = _image_file_to_data_uri(logo_file, max_dimension=480)
+            data_uri, _mode = _logo_file_to_data_uri(logo_file, max_dimension=480)
+            image_placeholders[token] = data_uri
             build_overrides["logo_src_token"] = token
 
     if os.path.isdir(job_dir):
