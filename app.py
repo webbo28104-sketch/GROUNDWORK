@@ -1,4 +1,5 @@
 import os
+import io
 import re
 import uuid
 import base64
@@ -7,6 +8,7 @@ from datetime import datetime, timedelta
 from functools import wraps
 
 import anthropic
+from PIL import Image
 from flask import Flask, request, jsonify, send_from_directory, session, redirect, url_for, render_template_string
 from flask_cors import CORS
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
@@ -36,7 +38,7 @@ UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 
-def _map_form(form, logo_present, photo_urls):
+def _map_form(form, logo_present, has_photos):
     prestige_map = {"standard": "standard", "mix": "mid", "bespoke": "high"}
     team_map = {"sole": "sole trader", "small": "small team", "company": "established company"}
     urgency_map = {"emergency": "high", "ahead": "low"}
@@ -51,7 +53,7 @@ def _map_form(form, logo_present, photo_urls):
         "phone": form.get("phone", ""),
         "email": form.get("email", ""),
         "logo_uploaded": bool(logo_present),
-        "portfolio_uploaded": bool(photo_urls),
+        "portfolio_uploaded": bool(has_photos),
         "work_split": f"{domestic}% domestic / {commercial}% commercial",
         "craft_prestige": prestige_map.get(form.get("work_type", ""), "standard"),
         "team_size": team_map.get(form.get("team_size", ""), "sole trader"),
@@ -63,10 +65,66 @@ def _map_form(form, logo_present, photo_urls):
         "other_notes": form.get("notes", ""),
     }
 
-    if photo_urls:
-        data["other_notes"] = (data["other_notes"] + "\n\nPortfolio photos are available at these URLs (embed them as <img> tags in the portfolio section): " + ", ".join(photo_urls)).strip()
-
     return data
+
+
+def _image_file_to_data_uri(path: str, max_dimension: int, jpeg_quality: int = 82) -> str:
+    """
+    Reads an image off disk, downsizes it if larger than max_dimension on its
+    longest side (these are web display images, not originals — no need to
+    keep full-resolution uploads), and returns a data: URI. PNG is kept for
+    images with real transparency (logos); everything else is re-encoded as
+    JPEG to keep the embedded HTML small.
+    """
+    with Image.open(path) as img:
+        img = img.convert("RGBA") if img.mode in ("RGBA", "LA", "P") else img.convert("RGB")
+        has_alpha = img.mode == "RGBA" and img.getchannel("A").getextrema()[0] < 255
+
+        if max(img.size) > max_dimension:
+            img.thumbnail((max_dimension, max_dimension), Image.LANCZOS)
+
+        buf = io.BytesIO()
+        if has_alpha:
+            img.save(buf, format="PNG", optimize=True)
+            mime = "image/png"
+        else:
+            img.convert("RGB").save(buf, format="JPEG", quality=jpeg_quality, optimize=True)
+            mime = "image/jpeg"
+
+        encoded = base64.standard_b64encode(buf.getvalue()).decode()
+        return f"data:{mime};base64,{encoded}"
+
+
+def _build_media_placeholders(job_dir, logo_path):
+    """
+    Scans a lead's upload directory and builds:
+    - build_data overrides (logo_src_token / photo_src_tokens) for the prompt
+    - image_placeholders: token -> real data URI, substituted into the HTML
+      after Claude generates it (Claude only ever sees the short token
+      strings, never the base64 data itself, so it never has to reproduce
+      long strings verbatim and the prompt stays small).
+    """
+    image_placeholders = {}
+    build_overrides = {}
+
+    if logo_path:
+        logo_file = os.path.join(job_dir, logo_path)
+        if os.path.exists(logo_file):
+            token = "GW_LOGO_SRC"
+            image_placeholders[token] = _image_file_to_data_uri(logo_file, max_dimension=480)
+            build_overrides["logo_src_token"] = token
+
+    if os.path.isdir(job_dir):
+        photo_files = sorted(f for f in os.listdir(job_dir) if f.startswith("photo_"))
+        if photo_files:
+            tokens = []
+            for i, fname in enumerate(photo_files):
+                token = f"GW_PHOTO_SRC_{i}"
+                image_placeholders[token] = _image_file_to_data_uri(os.path.join(job_dir, fname), max_dimension=1600)
+                tokens.append(token)
+            build_overrides["photo_src_tokens"] = tokens
+
+    return build_overrides, image_placeholders
 
 
 def _run(job_id, prompt, logo_b64, logo_mime):
@@ -124,19 +182,27 @@ def _run(job_id, prompt, logo_b64, logo_mime):
             _jobs[job_id] = {"status": "error", "error": str(exc)}
 
 
-def _run_and_persist(job_id, lead_id, email, business_name, prompt, logo_b64, logo_mime):
+def _run_and_persist(job_id, lead_id, email, business_name, prompt, logo_b64, logo_mime, image_placeholders=None):
     _run(job_id, prompt, logo_b64, logo_mime)
     with _jobs_lock:
         job = _jobs.get(job_id)
     if not job or job.get("status") != "done":
         return
+
+    html = job["html"]
+    if image_placeholders:
+        for token, data_uri in image_placeholders.items():
+            html = html.replace(token, data_uri)
+        with _jobs_lock:
+            _jobs[job_id]["html"] = html
+
     db = SessionLocal()
     try:
         db.add(Generation(
             lead_id=lead_id,
             email=email,
             business_name=business_name,
-            html_content=job["html"],
+            html_content=html,
             status="draft",
         ))
         db.commit()
@@ -211,13 +277,9 @@ def generate():
                 ext = os.path.splitext(pf.filename)[1] or ".jpg"
                 pf.save(os.path.join(job_dir, f"photo_{i}{ext}"))
 
-        photo_urls = [
-            f"{base_url}/api/generate/{lead.public_id}/photos/{fname}"
-            for fname in sorted(os.listdir(job_dir))
-            if fname.startswith("photo_")
-        ]
+        has_photos = any(fname.startswith("photo_") for fname in os.listdir(job_dir))
 
-        build_data = _map_form(form, logo_path, photo_urls)
+        build_data = _map_form(form, logo_path, has_photos)
 
         lead.email = email
         lead.ip = ip
@@ -260,12 +322,18 @@ def verify(token):
         lead.status = "verified"
         db.commit()
 
+        job_dir = os.path.join(UPLOAD_DIR, lead.public_id)
         build_data = dict(lead.form_data)
+        media_overrides, image_placeholders = _build_media_placeholders(job_dir, lead.logo_path)
+        build_data.update(media_overrides)
         prompt = build_prompt(build_data)
 
+        # Original-resolution logo bytes, sent as vision input so Claude can
+        # extract a real colour palette from it (separate from the resized
+        # data URI above, which is what actually gets embedded in the HTML).
         logo_b64 = None
         if lead.logo_path:
-            logo_file_path = os.path.join(UPLOAD_DIR, lead.public_id, lead.logo_path)
+            logo_file_path = os.path.join(job_dir, lead.logo_path)
             if os.path.exists(logo_file_path):
                 with open(logo_file_path, "rb") as f:
                     logo_b64 = base64.standard_b64encode(f.read()).decode()
@@ -275,7 +343,7 @@ def verify(token):
 
         t = threading.Thread(
             target=_run_and_persist,
-            args=(lead.public_id, lead.id, lead.email, build_data.get("business_name", ""), prompt, logo_b64, lead.logo_mime),
+            args=(lead.public_id, lead.id, lead.email, build_data.get("business_name", ""), prompt, logo_b64, lead.logo_mime, image_placeholders),
             daemon=True,
         )
         t.start()
@@ -554,7 +622,6 @@ def admin_generate_test():
     if not email:
         return jsonify({"error": "email required"}), 400
 
-    base_url = request.host_url.rstrip("/")
     db = SessionLocal()
     try:
         lead = Lead(
@@ -585,13 +652,11 @@ def admin_generate_test():
                 ext = os.path.splitext(pf.filename)[1] or ".jpg"
                 pf.save(os.path.join(job_dir, f"photo_{i}{ext}"))
 
-        photo_urls = [
-            f"{base_url}/api/generate/{lead.public_id}/photos/{fname}"
-            for fname in sorted(os.listdir(job_dir))
-            if fname.startswith("photo_")
-        ]
+        has_photos = any(fname.startswith("photo_") for fname in os.listdir(job_dir))
 
-        build_data = _map_form(form, logo_path, photo_urls)
+        build_data = _map_form(form, logo_path, has_photos)
+        media_overrides, image_placeholders = _build_media_placeholders(job_dir, logo_path)
+        build_data.update(media_overrides)
         lead.form_data = build_data
         lead.logo_path = logo_path
         lead.logo_mime = logo_mime
@@ -608,7 +673,7 @@ def admin_generate_test():
 
         t = threading.Thread(
             target=_run_and_persist,
-            args=(lead.public_id, lead.id, lead.email, build_data.get("business_name", ""), prompt, logo_b64, logo_mime),
+            args=(lead.public_id, lead.id, lead.email, build_data.get("business_name", ""), prompt, logo_b64, logo_mime, image_placeholders),
             daemon=True,
         )
         t.start()

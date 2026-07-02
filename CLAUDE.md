@@ -56,8 +56,21 @@ Groundwork generates AI-built marketing websites for UK trades businesses. A use
 - Model: `claude-sonnet-4-6`
 - Tools: `web_search_20250305` (Anthropic server-side search)
 - Max tokens: 16 000
-- Logo (if uploaded) is read back from disk at verify-time and passed as a base64 image block before the text prompt — used for palette extraction.
-- Portfolio photos are stored in `uploads/<lead.public_id>/` and served at `/api/generate/<id>/photos/<filename>`. **Known limitation:** this is local disk, which is not guaranteed to survive a Railway redeploy — logo/photo files (and therefore `<img>` tags pointing at them in older generated HTML) can go missing after a redeploy even though the HTML text itself is safely persisted in Postgres. Worth moving to object storage (S3/R2) if this becomes a problem.
+- Logo (if uploaded) is read back from disk at verify-time, full resolution, and passed as a base64 vision input block before the text prompt — used only for palette extraction. This is separate from the embedded logo image described below.
+
+### Image persistence (logo + portfolio photos)
+
+Uploaded logo/photos are saved to local disk (`uploads/<lead.public_id>/`) at submission time, same as before — but that disk is only ever used as **transient staging** between upload and generation, never as the long-term source for images that appear on the generated site. At generation time (`/verify/<token>` and `/admin/generate-test`), `_build_media_placeholders()` in `app.py`:
+
+1. Reads each image file, downsizes it with Pillow if larger than a max dimension (480px for the logo, 1600px for portfolio photos — these are web display images, not originals), and re-encodes it as a `data:` URI (PNG if the source has real transparency, otherwise JPEG at quality 82, to keep the embedded HTML reasonably sized).
+2. Assigns each image a short literal placeholder token (`GW_LOGO_SRC`, `GW_PHOTO_SRC_0`, `GW_PHOTO_SRC_1`, ...) and puts *only those tokens* — never the base64 data itself — into the prompt via `build_prompt.py`'s `MEDIA REFERENCES` section, instructing Claude to use them verbatim as `<img src="">` values. Claude never has to reproduce a long base64 string in its output, which would be slow and failure-prone at scale.
+3. After generation, `_run_and_persist()` does a plain string substitution of each token for its real data URI before the HTML is written to the `generations` table — so the row in Postgres already contains the final, fully self-contained HTML with images baked in as data URIs.
+
+This closes the gap that caused two related but distinct bugs previously: the **logo never rendered even immediately after generation**, because it was only ever sent to Claude as vision input for colour analysis — there was no `src` value for Claude to reference, so it had nothing valid to embed, ever. **Portfolio photos rendered at first but broke after a redeploy**, because they were referenced by external URL (`/api/generate/<id>/photos/<filename>`) pointing at the same ephemeral disk, which Railway wipes on every redeploy (confirmed via `railway volume list` — no volume is mounted on this service). Both are now fixed the same way: images live inside the persisted HTML itself, with no runtime dependency on disk surviving anything.
+
+**Residual, much narrower caveat:** the upload files on disk still only need to survive from form submission until the user clicks the verification link (usually minutes). If a redeploy happens to land in that specific window, before generation has run, the not-yet-generated lead's images would be missing at generation time. This is a small, hard-to-hit edge case inherent to using local disk as any kind of staging, not a design flaw in the fix — true object storage (S3/R2) would close it entirely if it ever becomes a real problem.
+
+**Old generations don't retroactively heal.** Any site generated before this fix (e.g. the G. Standing Roofing test) still has the old broken `<img>` references baked into its stored HTML — regenerating is the only way to pick up the fix for an existing row.
 
 ## Jobs store
 
@@ -66,7 +79,7 @@ Groundwork generates AI-built marketing websites for UK trades businesses. A use
 ## build_prompt.py
 
 It expects these keys in `form_data`:
-`business_name`, `trade`, `location`, `coverage_area`, `phone`, `email`, `logo_uploaded` (bool), `portfolio_uploaded` (bool), `work_split` (plain-language string, e.g. "30% domestic / 70% commercial"), `craft_prestige` (standard/mid/high), `team_size` (string), `large_commercial_contracts` (bool), `urgency` (high/low), `years_trading`, `claimed_accreditations`, `claimed_projects`, `other_notes`.
+`business_name`, `trade`, `location`, `coverage_area`, `phone`, `email`, `logo_uploaded` (bool), `portfolio_uploaded` (bool), `work_split` (plain-language string, e.g. "30% domestic / 70% commercial"), `craft_prestige` (standard/mid/high), `team_size` (string), `large_commercial_contracts` (bool), `urgency` (high/low), `years_trading`, `claimed_accreditations`, `claimed_projects`, `other_notes`, and optionally `logo_src_token` / `photo_src_tokens` (see Image persistence above) — these two are rendered in their own `MEDIA REFERENCES` section rather than the generic facts list.
 
 The footer instruction (Step 4.8) computes `current_year = datetime.now().year` in Python and interpolates the literal value directly into the prompt text — Claude is told the actual current year, not left to guess or copy a stale example. It's also told to use a real "Website by Groundwork" hyperlink to `https://groundworkbuild.com` rather than any placeholder agency name.
 

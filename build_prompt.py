@@ -17,10 +17,40 @@ def build_prompt(form_data: dict) -> str:
     craft_prestige, team_size,
     large_commercial_contracts (bool), urgency,
     years_trading, claimed_accreditations, claimed_projects, other_notes
-    """
 
-    facts = "\n".join(f"- {k}: {v}" for k, v in form_data.items() if v)
+    Optional media-reference keys (not printed in the generic facts list —
+    rendered in their own MEDIA REFERENCES section instead):
+    logo_src_token (str) — literal placeholder string to use verbatim as the
+        logo <img> src; substituted for the real data URI after generation.
+    photo_src_tokens (list[str]) — literal placeholder strings, one per
+        portfolio photo, in display order; substituted the same way.
+    """
+    MEDIA_KEYS = {"logo_src_token", "photo_src_tokens"}
+
+    facts = "\n".join(f"- {k}: {v}" for k, v in form_data.items() if v and k not in MEDIA_KEYS)
     current_year = datetime.now().year
+
+    logo_src_token = form_data.get("logo_src_token")
+    photo_src_tokens = form_data.get("photo_src_tokens") or []
+
+    media_lines = []
+    if logo_src_token:
+        media_lines.append(
+            f'- Logo: use exactly this literal string as the logo <img> src attribute: {logo_src_token} '
+            f'— copy it verbatim, character for character. Do not modify it, do not invent a different path, '
+            f'filename, or data URI of your own.'
+        )
+    if photo_src_tokens:
+        tokens_list = ", ".join(photo_src_tokens)
+        media_lines.append(
+            f'- Portfolio photos: use exactly these literal strings as the src attribute for the portfolio images, '
+            f'one per card, in this exact order: {tokens_list} — copy each one verbatim, character for character. '
+            f'Do not modify them, do not invent filenames or paths of your own, and do not add extra photo cards '
+            f'beyond the {len(photo_src_tokens)} tokens given.'
+        )
+    media_references_section = ""
+    if media_lines:
+        media_references_section = "\n=== MEDIA REFERENCES ===\n" + "\n".join(media_lines) + "\n"
 
     return f"""You are generating a single-page marketing website for a UK trades/construction business, from their sign-up form data below.
 
@@ -44,7 +74,7 @@ Three dials come directly from the form — do not re-derive them:
 - SCALE (from team_size + large_commercial_contracts) — controls layout density and how much "evidence" structure (stat bars, capability grids) is shown.
 - URGENCY (from urgency field) — controls CTA aggressiveness and contact form complexity.
 These are independent — a low-prestige business can still be large-scale (dense layout, plain type); a high-prestige business can still be small (simple layout, distinctive type).
-
+{media_references_section}
 TYPE — pick one pairing matching the PRESTIGE level, rotate, don't reuse the same pairing as last time:
 - High prestige, heritage/institutional register: Cinzel + EB Garamond + Barlow Condensed
 - High prestige, contemporary/design-led register: Fraunces + Newsreader + Inter
@@ -70,12 +100,12 @@ URGENCY OVERRIDES:
 
 === STEP 4: BUILD ===
 Fixed page structure — always in this order, sections can be omitted but never reordered:
-1. Nav — logo (embed the real uploaded logo image directly if provided, else a typographic wordmark) + scroll-anchor links + primary contact CTA (phone if given, otherwise email/contact-anchor — never invent a phone number).
+1. Nav — logo (if a logo src token is given in MEDIA REFERENCES, embed it as an <img> using that exact token as the src; otherwise a typographic wordmark) + scroll-anchor links + primary contact CTA (phone if given, otherwise email/contact-anchor — never invent a phone number).
 2. Hero — value proposition, 1-2 CTAs, stat row ONLY if real verified stats exist.
 3. About — credibility section using only verified facts. If research surfaces a specific named building, landmark, or notable project the company has worked on (e.g. a listed building, an award entry, a named institution), include it by name in the About body copy. Do not fabricate project names — only include if found in research. Named references are strongly preferred over generic descriptions.
 4. Services — from form input, generic safe categories unless something specific was found.
 5. Accreditations — OMIT ENTIRELY if nothing was verified. Do not pad with vague reassurance copy instead.
-6. Portfolio — use uploaded photos if provided. If no photos are provided, render the portfolio grid with a single tasteful placeholder note rather than repeating "Photos Coming Soon" per card — wording along the lines of: "Portfolio photography in preparation. Contact us to discuss examples of work relevant to your project type." Do not repeat placeholder text across multiple cards. Never invent project names.
+6. Portfolio — if photo src tokens are given in MEDIA REFERENCES, use them as the src for the portfolio image cards, one token per card, in the order given. If no photo tokens are given, render the portfolio grid with a single tasteful placeholder note rather than repeating "Photos Coming Soon" per card — wording along the lines of: "Portfolio photography in preparation. Contact us to discuss examples of work relevant to your project type." Do not repeat placeholder text across multiple cards. Never invent project names.
 7. Contact — real contact details only, plus a front-end-only enquiry form (or the urgency-driven minimal version above). If no verified public email address was found, omit the email field entirely — no placeholder text or invented addresses. Phone number only is acceptable.
 8. Footer — copyright line must read exactly "© {current_year} [business name]." using {current_year} as the literal year (do not use 2025, 2024, or any other year — this is the actual current year, computed at generation time). Do not invent a different year. Below or beside the copyright line, include a small, unobtrusive builder credit: "Website by Groundwork" as a real hyperlink to https://groundworkbuild.com — styled small and low-contrast like a typical site-builder credit line, not a prominent CTA. Never use placeholder text like "Your Agency" or any other agency name.
 
