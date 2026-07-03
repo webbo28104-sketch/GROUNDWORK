@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 from functools import wraps
 
 import anthropic
+import stripe
 from PIL import Image, ImageDraw, ImageFilter
 from flask import Flask, request, jsonify, send_from_directory, session, redirect, url_for, render_template_string
 from flask_cors import CORS
@@ -30,6 +31,19 @@ serializer = URLSafeTimedSerializer(app.secret_key)
 TOKEN_MAX_AGE = 24 * 3600  # 24h magic-link expiry
 RESET_TOKEN_MAX_AGE = 3600  # 1h — shorter-lived since it grants a password change
 IP_RATE_LIMIT_PER_HOUR = int(os.environ.get("IP_RATE_LIMIT_PER_HOUR", "5"))
+
+# Stripe — all values come from environment variables set in Railway.
+# STRIPE_SETUP_PRICE_ID   → the one-time £99 price  (price_...)
+# STRIPE_MONTHLY_PRICE_ID → the £24.99/month price   (price_...)
+# STRIPE_SECRET_KEY       → sk_live_... (or sk_test_... for testing)
+# STRIPE_WEBHOOK_SECRET   → whsec_... from `stripe listen` or dashboard
+# SITE_URL                → https://groundworkbuild.com (used for redirect URLs)
+STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY", "")
+STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
+STRIPE_SETUP_PRICE_ID = os.environ.get("STRIPE_SETUP_PRICE_ID", "")
+STRIPE_MONTHLY_PRICE_ID = os.environ.get("STRIPE_MONTHLY_PRICE_ID", "")
+SITE_URL = os.environ.get("SITE_URL", "https://groundworkbuild.com")
+stripe.api_key = STRIPE_SECRET_KEY
 
 init_db()
 
@@ -1799,6 +1813,64 @@ def job_html(job_id):
     finally:
         db.close()
     return jsonify({"error": "not found"}), 404
+
+
+@app.route("/api/checkout/session", methods=["POST"])
+def create_checkout_session():
+    if not STRIPE_SECRET_KEY:
+        return jsonify({"error": "Stripe is not configured"}), 503
+    data = request.get_json(silent=True) or {}
+    job_id = str(data.get("job_id", "")).strip()
+    if not job_id:
+        return jsonify({"error": "missing job_id"}), 400
+
+    db = SessionLocal()
+    try:
+        gen = db.query(Generation).join(Lead).filter(Lead.public_id == job_id).first()
+        if not gen:
+            return jsonify({"error": "not found"}), 404
+        if gen.status == "live":
+            return jsonify({"error": "already live"}), 409
+    finally:
+        db.close()
+
+    cs = stripe.checkout.Session.create(
+        mode="subscription",
+        line_items=[{"price": STRIPE_MONTHLY_PRICE_ID, "quantity": 1}],
+        subscription_data={"add_invoice_items": [{"price": STRIPE_SETUP_PRICE_ID, "quantity": 1}]},
+        client_reference_id=job_id,
+        success_url=f"{SITE_URL}/live.html?id={job_id}",
+        cancel_url=f"{SITE_URL}/api/generate/{job_id}/html",
+    )
+    return jsonify({"url": cs.url})
+
+
+@app.route("/webhook/stripe", methods=["POST"])
+def stripe_webhook():
+    payload = request.get_data()
+    sig = request.headers.get("Stripe-Signature", "")
+    try:
+        event = stripe.Webhook.construct_event(payload, sig, STRIPE_WEBHOOK_SECRET)
+    except (ValueError, stripe.error.SignatureVerificationError):
+        return "", 400
+
+    if event["type"] == "checkout.session.completed":
+        cs = event["data"]["object"]
+        job_id = cs.get("client_reference_id")
+        customer_id = cs.get("customer")
+        if job_id:
+            db = SessionLocal()
+            try:
+                gen = db.query(Generation).join(Lead).filter(Lead.public_id == job_id).first()
+                if gen and gen.status != "live":
+                    gen.status = "live"
+                    if customer_id:
+                        gen.stripe_customer_id = customer_id
+                    db.commit()
+            finally:
+                db.close()
+
+    return "", 200
 
 
 def _inject_watermark(html: str, job_id: str, *, show_toast: bool = False) -> str:

@@ -113,6 +113,7 @@ SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
 def init_db():
     Base.metadata.create_all(engine)
     _ensure_column(Lead.__tablename__, "is_test", "BOOLEAN NOT NULL DEFAULT FALSE")
+    _ensure_column(Generation.__tablename__, "stripe_customer_id", "VARCHAR(255)")
 
 
 def _ensure_column(table_name: str, column_name: str, ddl_type: str) -> None:

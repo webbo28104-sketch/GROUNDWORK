@@ -16,7 +16,7 @@ const RAILWAY_ORIGIN = "https://web-production-748b1.up.railway.app";
 // bare /api or /verify route). /account and /admin have no trailing slash
 // since both have a route at the bare path too (/account, /admin/login, ...)
 // and no static file of that name exists in frontend/ to collide with.
-const BACKEND_PREFIXES = ["/api/", "/verify/", "/account", "/admin"];
+const BACKEND_PREFIXES = ["/api/", "/verify/", "/account", "/admin", "/webhook/"];
 
 export default {
   async fetch(request, env) {
