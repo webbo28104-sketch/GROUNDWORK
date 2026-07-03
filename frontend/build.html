@@ -70,7 +70,7 @@ input[type=range]{accent-color:#3B82F6;width:100%;height:8px;cursor:pointer;}
       <span style="color:#fff;font-weight:800;font-size:19px;letter-spacing:-.03em;">Groundwork</span>
     </a>
     <div style="display:flex;align-items:center;gap:20px;">
-      <a href="/account/login" style="color:#9A9893;text-decoration:none;font-size:14px;font-weight:500;">Sign In</a>
+      <a href="/account/login" id="nav-account-link" style="color:#9A9893;text-decoration:none;font-size:14px;font-weight:500;">Sign In</a>
       <a href="index.html" style="color:#9A9893;text-decoration:none;font-size:14px;font-weight:500;display:inline-flex;align-items:center;gap:7px;">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M15 6l-6 6 6 6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
         Back to site
@@ -510,9 +510,11 @@ async function checkAccountSession() {
   try {
     const r = await fetch('/api/account/session', {credentials:'same-origin'});
     const data = await r.json();
+    const navLink = document.getElementById('nav-account-link');
     if (data.logged_in && data.email) {
       st.email = data.email;
       st.accountLocked = true;
+      if (navLink) { navLink.href = '/account'; navLink.textContent = 'Dashboard'; }
       render();
     } else if (st.accountLocked) {
       // st.accountLocked was restored true from a previous (now stale) logged-in
@@ -520,6 +522,7 @@ async function checkAccountSession() {
       // email rather than leaving it displayed in the form.
       st.email = '';
       st.accountLocked = false;
+      if (navLink) { navLink.href = '/account/login'; navLink.textContent = 'Sign In'; }
       render();
     }
   } catch(e) {

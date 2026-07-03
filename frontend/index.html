@@ -58,7 +58,7 @@ a:focus-visible,button:focus-visible{outline:3px solid #3B82F6;outline-offset:2p
       <a href="pricing.html" class="nav-link">Pricing</a>
       <a href="about.html" class="nav-link">About</a>
       <a href="contact.html" class="nav-link">Contact</a>
-      <a href="/account/login" class="nav-link">Sign In</a>
+      <a href="/account/login" class="nav-link" id="nav-account-link">Sign In</a>
       <a href="build.html" style="background:#3B82F6;color:#fff;font-weight:700;font-size:15px;text-decoration:none;padding:10px 18px;border-radius:7px;">Get started</a>
     </div>
     <button id="hamburger" onclick="toggleMenu()" aria-label="Toggle menu" aria-expanded="false" style="display:none;background:transparent;border:1px solid #3A3A3A;border-radius:7px;width:42px;height:42px;flex-direction:column;align-items:center;justify-content:center;gap:4px;cursor:pointer;padding:0;">
@@ -72,7 +72,7 @@ a:focus-visible,button:focus-visible{outline:3px solid #3B82F6;outline-offset:2p
     <a href="pricing.html" style="color:#D8D6D0;text-decoration:none;font-size:16px;font-weight:500;padding:14px 0;display:block;border-bottom:1px solid #2C2C2C;">Pricing</a>
     <a href="about.html" style="color:#D8D6D0;text-decoration:none;font-size:16px;font-weight:500;padding:14px 0;display:block;border-bottom:1px solid #2C2C2C;">About</a>
     <a href="contact.html" style="color:#D8D6D0;text-decoration:none;font-size:16px;font-weight:500;padding:14px 0;display:block;border-bottom:1px solid #2C2C2C;">Contact</a>
-    <a href="/account/login" style="color:#D8D6D0;text-decoration:none;font-size:16px;font-weight:500;padding:14px 0;display:block;border-bottom:1px solid #2C2C2C;">Sign In</a>
+    <a href="/account/login" id="mobile-nav-account-link" style="color:#D8D6D0;text-decoration:none;font-size:16px;font-weight:500;padding:14px 0;display:block;border-bottom:1px solid #2C2C2C;">Sign In</a>
     <a href="build.html" style="background:#3B82F6;color:#fff;font-weight:700;font-size:16px;text-decoration:none;padding:13px;border-radius:7px;text-align:center;margin-top:16px;display:block;">Get started</a>
   </div>
 </header>
@@ -297,6 +297,21 @@ function toggleMenu() {
   menu.style.display = open ? 'none' : 'flex';
   btn.setAttribute('aria-expanded', String(!open));
 }
+
+// Swap "Sign In" for "Dashboard" (linking to /account) when already signed in.
+(async function checkAccountSession() {
+  try {
+    const r = await fetch('/api/account/session', {credentials: 'same-origin'});
+    const data = await r.json();
+    if (!data.logged_in) return;
+    ['nav-account-link', 'mobile-nav-account-link'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) { el.href = '/account'; el.textContent = 'Dashboard'; }
+    });
+  } catch (e) {
+    // Not logged in / session check failed — leave as "Sign In".
+  }
+})();
 </script>
 </body>
 </html>
