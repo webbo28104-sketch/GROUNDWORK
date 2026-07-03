@@ -6,13 +6,14 @@ link to view previously generated sites), and password reset. All plain,
 single-CTA emails matching the funnel's existing brand.
 """
 import os
+from html import escape
 
 import resend
 
 ACCENT = "#3B82F6"
 
 
-def _send(to_email: str, subject: str, html_content: str) -> None:
+def _send(to_email: str, subject: str, html_content: str, reply_to: str = None) -> None:
     api_key = os.environ.get("RESEND_API_KEY")
     from_email = os.environ.get("RESEND_FROM_EMAIL", "groundwork-build@outlook.com")
 
@@ -21,13 +22,16 @@ def _send(to_email: str, subject: str, html_content: str) -> None:
         return
 
     resend.api_key = api_key
+    payload = {
+        "from": from_email,
+        "to": [to_email],
+        "subject": subject,
+        "html": html_content,
+    }
+    if reply_to:
+        payload["reply_to"] = reply_to
     try:
-        resend.Emails.send({
-            "from": from_email,
-            "to": [to_email],
-            "subject": subject,
-            "html": html_content,
-        })
+        resend.Emails.send(payload)
     except Exception as exc:
         print(f"[emails] failed to send '{subject}' to {to_email}: {exc}")
 
@@ -83,3 +87,27 @@ def send_password_reset_email(to_email: str, reset_url: str) -> None:
         cta_label="Reset my password →",
     )
     _send(to_email, "Reset your password — Groundwork", html)
+
+
+def send_support_message_email(from_email: str, message: str) -> None:
+    """
+    Forwards a message submitted from the account dashboard straight to the
+    support inbox (the same RESEND_FROM_EMAIL address used to send everything
+    else), with reply_to set to the customer's email so replying goes
+    straight back to them rather than to Groundwork's own sending address.
+    Not a templated/CTA email like the others — just the plain message.
+    """
+    support_inbox = os.environ.get("RESEND_FROM_EMAIL", "groundwork-build@outlook.com")
+    html = f"""<div style="font-family:Arial,Helvetica,sans-serif;background:#F5F3EE;padding:32px 20px;">
+  <div style="max-width:480px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;">
+    <div style="background:#1C1C1C;padding:20px 28px;">
+      <span style="color:{ACCENT};font-weight:800;font-size:18px;letter-spacing:-.03em;">Groundwork</span>
+    </div>
+    <div style="padding:28px;">
+      <h2 style="margin:0 0 6px;font-size:19px;color:#1C1C1C;">New dashboard message</h2>
+      <p style="margin:0 0 18px;font-size:13.5px;color:#807E79;">From: {escape(from_email)}</p>
+      <div style="white-space:pre-wrap;font-size:15px;line-height:1.6;color:#1C1C1C;border-top:1px solid #E6E3DC;padding-top:16px;">{escape(message)}</div>
+    </div>
+  </div>
+</div>"""
+    _send(support_inbox, f"Dashboard message from {from_email}", html, reply_to=from_email)

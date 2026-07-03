@@ -20,7 +20,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 from build_prompt import build_prompt
 from models import SessionLocal, Lead, Generation, Account, GenerationImage, init_db
-from emails import send_verification_email, send_resend_email, send_password_reset_email
+from emails import send_verification_email, send_resend_email, send_password_reset_email, send_support_message_email
 
 app = Flask(__name__, static_folder="frontend", static_url_path="")
 CORS(app)
@@ -857,6 +857,26 @@ async function gwUploadImage(genId, slot, input){{
     input.value = '';
   }}
 }}
+
+async function gwSendSupportMessage(){{
+  const ta = document.getElementById('support-message');
+  const statusEl = document.getElementById('support-status');
+  if (!ta) return;
+  const message = ta.value.trim();
+  if (!message) {{ statusEl.textContent = 'Write a message first.'; return; }}
+  statusEl.textContent = 'Sending…';
+  const fd = new FormData();
+  fd.append('message', message);
+  try {{
+    const r = await fetch('/api/account/support-message', {{method:'POST', body: fd, credentials:'same-origin'}});
+    const data = await r.json().catch(() => ({{}}));
+    if (!r.ok) throw new Error(data.error || ('Failed (' + r.status + ')'));
+    statusEl.textContent = "Sent — we'll reply by email.";
+    ta.value = '';
+  }} catch (err) {{
+    statusEl.textContent = 'Something went wrong — try again.';
+  }}
+}}
 </script>
 </body></html>"""
 
@@ -937,17 +957,42 @@ def _render_dashboard(email: str) -> str:
                 )
             cards = "".join(card_parts)
         else:
-            cards = '<div class="acct-card"><p style="margin:0;color:#5C5A56;font-size:15px;">No sites found for this account yet.</p></div>'
+            cards = '<div class="acct-card"><p style="margin:0;color:#5C5A56;font-size:15px;">No website yet — once you generate one, it\'ll show up here.</p></div>'
+
+        # Copy is written for the common case — one account, one generated
+        # site (enforced by the one-generation-per-email guard) — rather than
+        # a generic "your sites" plural that's rarely true for a real user.
+        if len(gens) == 1:
+            business_label = gens[0].business_name or "Your website"
+            headline = f"{escape(business_label)} is ready"
+            subcopy = "View it any time, swap the logo or photos, or send us a message below if you'd like something changed."
+        elif len(gens) > 1:
+            headline = "Your sites, all in one place"
+            subcopy = f"Every website you've generated with {escape(email)}, ready whenever you need it."
+        else:
+            headline = "Your Groundwork account"
+            subcopy = f"Signed in as {escape(email)}."
+
+        support_card = """<div class="acct-card">
+          <div style="font-weight:700;font-size:17px;margin-bottom:4px;">Need something changed?</div>
+          <p style="margin:0 0 14px;font-size:14px;color:#5C5A56;">A wording tweak, a new photo, a question about going live — send it straight to the Groundwork team.</p>
+          <textarea id="support-message" rows="4" placeholder="What would you like changed?" style="width:100%;padding:13px 15px;border-radius:10px;border:1px solid #D9D7D0;font-size:15px;font-family:Inter,sans-serif;resize:vertical;"></textarea>
+          <div style="display:flex;align-items:center;gap:14px;margin-top:10px;">
+            <button type="button" class="acct-btn" style="width:auto;padding:12px 22px;" onclick="gwSendSupportMessage()">Send message</button>
+            <span id="support-status" style="font-size:13.5px;color:#807E79;"></span>
+          </div>
+        </div>"""
 
         inner = f"""<div style="display:flex;justify-content:flex-end;margin-bottom:6px;">
           <a href="/account/logout" style="color:#807E79;font-size:13px;text-decoration:none;">Log out</a>
         </div>
         <div style="text-align:center;margin-bottom:28px;">
           <div style="color:#2257CC;font-size:12.5px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;margin-bottom:10px;">Your account</div>
-          <h1 style="margin:0 0 8px;font-weight:800;font-size:clamp(24px,3.4vw,32px);letter-spacing:-.02em;">Your sites, all in one place</h1>
-          <p style="margin:0;font-size:15.5px;color:#5C5A56;">Every website you've generated with {escape(email)}, ready whenever you need it.</p>
+          <h1 style="margin:0 0 8px;font-weight:800;font-size:clamp(24px,3.4vw,32px);letter-spacing:-.02em;">{headline}</h1>
+          <p style="margin:0;font-size:15.5px;color:#5C5A56;">{subcopy}</p>
         </div>
-        {cards}"""
+        {cards}
+        {support_card}"""
         return render_template_string(_account_page(inner, "Your account"))
     finally:
         db.close()
@@ -1206,6 +1251,19 @@ def account_required(view):
             return jsonify({"error": "not_authenticated"}), 401
         return view(*args, **kwargs)
     return wrapped
+
+
+@app.route("/api/account/support-message", methods=["POST"])
+@account_required
+def api_account_support_message():
+    email = session["account_email"]
+    message = (request.form.get("message") or "").strip()
+    if not message:
+        return jsonify({"error": "empty_message"}), 400
+    if len(message) > 4000:
+        return jsonify({"error": "message_too_long"}), 400
+    send_support_message_email(email, message)
+    return jsonify({"status": "sent"})
 
 
 @app.route("/api/account/generations/<int:gen_id>/images")
