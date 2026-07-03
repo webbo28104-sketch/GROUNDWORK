@@ -77,6 +77,22 @@ def _subdomain_is_taken(slug: str, db, exclude_gen_id=None) -> bool:
 init_db()
 
 
+def _logo_to_favicon(data_uri: str) -> str | None:
+    """Generate a 32x32 PNG favicon from a logo data URI (center-crop then resize)."""
+    try:
+        _, b64 = data_uri.split(",", 1)
+        img = Image.open(io.BytesIO(base64.b64decode(b64))).convert("RGBA")
+        w, h = img.size
+        side = min(w, h)
+        img = img.crop(((w - side) // 2, (h - side) // 2, (w + side) // 2, (h + side) // 2))
+        img = img.resize((32, 32), Image.LANCZOS)
+        buf = io.BytesIO()
+        img.save(buf, format="PNG", optimize=True)
+        return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+    except Exception:
+        return None
+
+
 def _migrate_legacy_subdomains():
     """Assign subdomains to existing live non-test generations that don't have one yet.
     Runs on every startup but is a no-op once all rows are covered (subdomain IS NOT NULL).
@@ -131,7 +147,7 @@ def _migrate_favicons():
         )
         patched = 0
         for img_row in logo_rows:
-            gen = db.query(Generation).get(img_row.generation_id)
+            gen = db.get(Generation, img_row.generation_id)
             if not gen or not gen.html_content:
                 continue
             if 'rel="icon"' in gen.html_content:
@@ -488,22 +504,6 @@ def _logo_file_to_data_uri(path: str, max_dimension: int):
     """
     mode, img, bg_hex, accent_hex = _process_logo(path, max_dimension)
     return _encode_pil_image_to_data_uri(img, max_dimension, jpeg_quality=90), mode, bg_hex, accent_hex
-
-
-def _logo_to_favicon(data_uri: str) -> str | None:
-    """Generate a 32x32 PNG favicon from a logo data URI (center-crop then resize)."""
-    try:
-        _, b64 = data_uri.split(",", 1)
-        img = Image.open(io.BytesIO(base64.b64decode(b64))).convert("RGBA")
-        w, h = img.size
-        side = min(w, h)
-        img = img.crop(((w - side) // 2, (h - side) // 2, (w + side) // 2, (h + side) // 2))
-        img = img.resize((32, 32), Image.LANCZOS)
-        buf = io.BytesIO()
-        img.save(buf, format="PNG", optimize=True)
-        return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
-    except Exception:
-        return None
 
 
 def _build_media_placeholders(job_dir, logo_path):
