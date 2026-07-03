@@ -134,7 +134,7 @@ def handle_subdomain_request():
             Generation.status == "live",
         ).first()
         if gen:
-            return gen.html_content, 200, {"Content-Type": "text/html; charset=utf-8"}
+            return _inject_badge(gen.html_content), 200, {"Content-Type": "text/html; charset=utf-8"}
     finally:
         db.close()
     return (
@@ -2047,6 +2047,27 @@ def stripe_webhook():
                 db.close()
 
     return "", 200
+
+
+def _inject_badge(html: str) -> str:
+    """Inject a fixed 'Powered by Groundwork' badge into a live customer's site.
+    Only called from handle_subdomain_request — never on watermarked previews."""
+    badge = (
+        '<a href="https://groundworkbuild.com" target="_blank" rel="noopener" '
+        'style="position:fixed;bottom:16px;right:16px;z-index:9999;'
+        'background:rgba(28,28,28,0.82);color:#fff;font-family:sans-serif;'
+        'font-size:11px;font-weight:500;padding:6px 11px;border-radius:6px;'
+        'text-decoration:none;letter-spacing:.01em;opacity:0.85;'
+        'backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);'
+        'transition:opacity .2s;" '
+        'onmouseover="this.style.opacity=\'1\'" onmouseout="this.style.opacity=\'0.85\'">'
+        'Powered by <strong>Groundwork</strong>'
+        '</a>'
+    )
+    insert = html.rfind("</body>")
+    if insert != -1:
+        return html[:insert] + badge + html[insert:]
+    return html + badge
 
 
 def _inject_watermark(html: str, job_id: str, *, show_toast: bool = False) -> str:
