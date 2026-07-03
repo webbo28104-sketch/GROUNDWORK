@@ -803,7 +803,7 @@ _SITE_FOOTER = """<footer style="background:#1C1C1C;color:#9A9893;margin-top:56p
 def _account_page(inner_html: str, title: str) -> str:
     return f"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{title} — Groundwork</title>
+<title>{title} — Groundwork</title><link rel="icon" type="image/x-icon" href="/favicon.ico"><link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@700;800&display=swap" rel="stylesheet">
@@ -1302,7 +1302,7 @@ def admin_login():
         error = "Invalid credentials."
     error_html = f'<p class="err">{error}</p>' if error else ""
     return render_template_string(f"""<!DOCTYPE html><html><head><meta charset="utf-8">
-<title>Admin login</title><style>{_PAGE_STYLE}</style></head>
+<title>Admin login</title><link rel="icon" type="image/x-icon" href="/favicon.ico"><link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png"><style>{_PAGE_STYLE}</style></head>
 <body><div class="wrap" style="max-width:360px;"><h1>Admin login</h1>{error_html}
 <form method="post">
 <input type="text" name="username" placeholder="Username" autofocus>
@@ -1338,7 +1338,7 @@ def admin_generations():
             )
         rows = "".join(row_parts)
         return render_template_string(f"""<!DOCTYPE html><html><head><meta charset="utf-8">
-<title>Admin — generations</title><style>{_PAGE_STYLE}</style></head>
+<title>Admin — generations</title><link rel="icon" type="image/x-icon" href="/favicon.ico"><link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png"><style>{_PAGE_STYLE}</style></head>
 <body><div class="wrap" style="max-width:1100px;">
 <h1>All generations ({len(gens)})
 <a href="/admin/generate-test" style="float:right;font-size:13px;margin-left:18px;">+ Generate test site</a>
@@ -1381,7 +1381,7 @@ def _admin_test_form_page() -> str:
     special-casing needed for the admin path.
     """
     return """<!DOCTYPE html><html><head><meta charset="utf-8">
-<title>Admin — generate test site</title>
+<title>Admin — generate test site</title><link rel="icon" type="image/x-icon" href="/favicon.ico"><link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@700;800&display=swap" rel="stylesheet">
@@ -1598,7 +1598,7 @@ def admin_wait(public_id):
     purchase decision to make, so it's pure friction here.
     """
     return render_template_string(f"""<!DOCTYPE html><html><head><meta charset="utf-8">
-<title>Admin — generating…</title><style>{_PAGE_STYLE}</style></head>
+<title>Admin — generating…</title><link rel="icon" type="image/x-icon" href="/favicon.ico"><link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png"><style>{_PAGE_STYLE}</style></head>
 <body><div class="wrap" style="max-width:640px;text-align:center;">
 <h1>Generating…</h1>
 <p class="muted" id="status-msg">Building the test site — this usually takes under a minute.</p>
