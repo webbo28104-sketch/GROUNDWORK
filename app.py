@@ -22,7 +22,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 from build_prompt import build_prompt
 from models import SessionLocal, Lead, Generation, Account, GenerationImage, init_db
-from emails import send_verification_email, send_resend_email, send_password_reset_email, send_support_message_email
+from emails import send_verification_email, send_resend_email, send_password_reset_email, send_support_message_email, send_enquiry_email
 
 app = Flask(__name__, static_folder="frontend", static_url_path="")
 CORS(app)
@@ -75,6 +75,26 @@ def _subdomain_is_taken(slug: str, db, exclude_gen_id=None) -> bool:
     return q.first() is not None
 
 init_db()
+
+# Per-IP rate limiter for the public contact form endpoint.
+# Stored in memory (not DB) — intentionally ephemeral; it resets on redeploy,
+# which is acceptable since the honeypot is the primary spam defence.
+_contact_submissions: dict[str, list[float]] = {}
+_contact_submissions_lock = threading.Lock()
+_CONTACT_RATE_PER_HOUR = 10
+
+
+def _contact_rate_limited(ip: str) -> bool:
+    import time as _time
+    now = _time.time()
+    cutoff = now - 3600
+    with _contact_submissions_lock:
+        times = [t for t in _contact_submissions.get(ip, []) if t > cutoff]
+        if len(times) >= _CONTACT_RATE_PER_HOUR:
+            return True
+        times.append(now)
+        _contact_submissions[ip] = times
+    return False
 
 
 def _logo_to_favicon(data_uri: str) -> str | None:
@@ -725,6 +745,10 @@ def _run_and_persist(job_id, lead_id, email, business_name, prompt, logo_b64, lo
         return
 
     html = _fix_low_contrast_text(job["html"])
+    # Substitute contact form tokens before image tokens so GW_SITE_ID/GW_CONTACT_URL
+    # are never accidentally embedded inside a data URI string.
+    html = html.replace("GW_SITE_ID", job_id)
+    html = html.replace("GW_CONTACT_URL", f"{SITE_URL}/api/contact")
     if image_placeholders:
         for token, data_uri in image_placeholders.items():
             html = html.replace(token, data_uri)
@@ -2021,6 +2045,50 @@ def job_info(job_id):
         })
     finally:
         db.close()
+
+
+@app.route("/api/contact", methods=["POST"])
+def contact_form():
+    """Receive a contact form submission from a generated site and forward it
+    to the business owner's email via Resend. Expects multipart/form-data with
+    fields: site_id, name, email, message, phone (optional), website (honeypot)."""
+    ip = _client_ip()
+
+    # Honeypot — bots fill this in, real visitors never see it (hidden off-screen).
+    if request.form.get("website", "").strip():
+        return jsonify({"ok": True})  # silent accept to avoid teaching bots
+
+    if _contact_rate_limited(ip):
+        return jsonify({"ok": False, "error": "Too many submissions. Please try again later."}), 429
+
+    site_id = request.form.get("site_id", "").strip()
+    name = request.form.get("name", "").strip()
+    email_addr = request.form.get("email", "").strip()
+    phone = request.form.get("phone", "").strip()
+    message = request.form.get("message", "").strip()
+
+    if not site_id or not name or not email_addr or not message:
+        return jsonify({"ok": False, "error": "Please fill in all required fields."}), 400
+
+    if not re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', email_addr):
+        return jsonify({"ok": False, "error": "Please enter a valid email address."}), 400
+
+    db = SessionLocal()
+    try:
+        gen = db.query(Generation).join(Lead).filter(Lead.public_id == site_id).first()
+        if not gen:
+            return jsonify({"ok": False, "error": "Site not found."}), 404
+        business_name = gen.business_name or (gen.lead.form_data or {}).get("business_name", "")
+        to_email = gen.email
+    finally:
+        db.close()
+
+    try:
+        send_enquiry_email(to_email, business_name, name, email_addr, phone, message)
+        return jsonify({"ok": True})
+    except Exception as exc:
+        app.logger.error(f"Contact form send failed for site {site_id}: {exc}")
+        return jsonify({"ok": False, "error": "Sorry, we couldn't send your message. Please call or email us directly."}), 500
 
 
 @app.route("/api/checkout/session", methods=["POST"])

@@ -126,7 +126,13 @@ Fixed page structure — always in this order, sections can be omitted but never
 4. Services — from form input, generic safe categories unless something specific was found.
 5. Accreditations — OMIT ENTIRELY if nothing was verified. Do not pad with vague reassurance copy instead.
 6. Portfolio — if photo src tokens are given in MEDIA REFERENCES, use them as the src for the portfolio image cards, one token per card, in the order given. If no photo tokens are given, render the portfolio grid with a single tasteful placeholder note rather than repeating "Photos Coming Soon" per card — wording along the lines of: "Portfolio photography in preparation. Contact us to discuss examples of work relevant to your project type." Do not repeat placeholder text across multiple cards. Never invent project names.
-7. Contact — real contact details only, plus a front-end-only enquiry form (or the urgency-driven minimal version above). If no verified public email address was found, omit the email field entirely — no placeholder text or invented addresses. Phone number only is acceptable.
+7. Contact — real contact details only. For low/normal urgency: include an enquiry form that submits via JavaScript fetch() to GW_CONTACT_URL (use this literal string as the fetch URL — it will be substituted at deploy time). The form must include exactly these fields:
+   - `<input type="hidden" name="site_id" value="GW_SITE_ID">` (use the literal string GW_SITE_ID as the value — substituted at deploy time)
+   - `<input type="text" name="website" tabindex="-1" autocomplete="off" style="position:absolute;left:-9999px;opacity:0;pointer-events:none;" aria-hidden="true">` (spam honeypot, hidden off-screen — must be present but invisible)
+   - name (required text input), email (required email input), phone (optional tel input), message (required textarea)
+   - A submit button that is disabled during submission
+   After a successful response (`json.ok === true`): hide the form and show an inline "Thanks — we'll be in touch shortly." confirmation. On failure: show the `json.error` message inline beneath the form and re-enable the submit button. Never reload or redirect the page on submit.
+   For high urgency: omit the form entirely — phone and email link only.
 8. Footer — copyright line must read exactly "© {current_year} [business name]." using {current_year} as the literal year (do not use 2025, 2024, or any other year — this is the actual current year, computed at generation time). Do not invent a different year. Below or beside the copyright line, include a small, unobtrusive builder credit: "Website by Groundwork" as a real hyperlink to https://groundworkbuild.com — styled small and low-contrast like a typical site-builder credit line, not a prominent CTA. Never use placeholder text like "Your Agency" or any other agency name.
 
 === HARD RULES ===

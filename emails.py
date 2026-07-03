@@ -89,6 +89,39 @@ def send_password_reset_email(to_email: str, reset_url: str) -> None:
     _send(to_email, "Reset your password — Groundwork", html)
 
 
+def send_enquiry_email(to_email: str, business_name: str, visitor_name: str,
+                       visitor_email: str, visitor_phone: str, message: str) -> None:
+    """Forward a contact form submission from a visitor to the business owner.
+    Reply-to is set to the visitor's email so the owner can reply directly."""
+    name_esc = escape(visitor_name)
+    email_esc = escape(visitor_email)
+    phone_esc = escape(visitor_phone) if visitor_phone else ""
+    msg_esc = escape(message)
+    biz_esc = escape(business_name) if business_name else "your Groundwork website"
+    phone_row = f'<tr><td style="padding:6px 0;font-size:14px;color:#5C5A56;width:90px;">Phone</td><td style="padding:6px 0;font-size:14px;color:#1C1C1C;">{phone_esc}</td></tr>' if phone_esc else ""
+    html = f"""<div style="font-family:Arial,Helvetica,sans-serif;background:#F5F3EE;padding:32px 20px;">
+  <div style="max-width:500px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;">
+    <div style="background:#1C1C1C;padding:20px 28px;">
+      <span style="color:{ACCENT};font-weight:800;font-size:18px;letter-spacing:-.03em;">Groundwork</span>
+    </div>
+    <div style="padding:28px;">
+      <h2 style="margin:0 0 6px;font-size:19px;color:#1C1C1C;">New enquiry via {biz_esc}</h2>
+      <p style="margin:0 0 20px;font-size:13.5px;color:#807E79;">Someone submitted the contact form on your website. Reply directly to this email to respond.</p>
+      <table style="width:100%;border-collapse:collapse;margin-bottom:20px;">
+        <tr><td style="padding:6px 0;font-size:14px;color:#5C5A56;width:90px;">Name</td><td style="padding:6px 0;font-size:14px;color:#1C1C1C;">{name_esc}</td></tr>
+        <tr><td style="padding:6px 0;font-size:14px;color:#5C5A56;">Email</td><td style="padding:6px 0;font-size:14px;color:#1C1C1C;"><a href="mailto:{email_esc}" style="color:{ACCENT};">{email_esc}</a></td></tr>
+        {phone_row}
+      </table>
+      <div style="background:#F5F3EE;border-radius:8px;padding:16px 18px;">
+        <div style="font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#807E79;margin-bottom:10px;">Message</div>
+        <div style="white-space:pre-wrap;font-size:15px;line-height:1.6;color:#1C1C1C;">{msg_esc}</div>
+      </div>
+    </div>
+  </div>
+</div>"""
+    _send(to_email, f"New enquiry from {visitor_name} — {biz_esc}", html, reply_to=visitor_email)
+
+
 def send_support_message_email(from_email: str, message: str) -> None:
     """
     Forwards a message submitted from the account dashboard straight to the
