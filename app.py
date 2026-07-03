@@ -193,6 +193,88 @@ def _migrate_favicons():
 _migrate_favicons()
 
 
+def _migrate_contact_forms():
+    """Backfill working contact form submission into generations built before the
+    fetch()-based form was introduced. Finds any stored HTML that contains a
+    <form> but no reference to /api/contact, and injects a small self-contained
+    script that intercepts the first textarea-containing form, adds the hidden
+    site_id + honeypot fields, and POSTs to /api/contact via fetch().
+    Idempotent — the /api/contact check ensures it never runs twice."""
+    contact_url = f"{SITE_URL}/api/contact"
+    script_template = (
+        '<script>'
+        '(function(){{'
+        'var fs=document.querySelectorAll("form");'
+        'for(var i=0;i<fs.length;i++){{'
+        'if(fs[i].querySelector("textarea")){{'
+        'var f=fs[i];'
+        # inject site_id
+        'var s=document.createElement("input");s.type="hidden";s.name="site_id";s.value="{job_id}";f.appendChild(s);'
+        # inject honeypot
+        'var h=document.createElement("input");h.type="text";h.name="website";h.setAttribute("tabindex","-1");h.setAttribute("autocomplete","off");h.style.cssText="position:absolute;left:-9999px;opacity:0;pointer-events:none;";h.setAttribute("aria-hidden","true");f.appendChild(h);'
+        # intercept submit
+        'f.addEventListener("submit",function(e){{'
+        'e.preventDefault();'
+        'var b=f.querySelector("button[type=submit],input[type=submit],button:not([type])");'
+        'if(b)b.disabled=true;'
+        'fetch("{contact_url}",{{method:"POST",body:new FormData(f)}})'
+        '.then(function(r){{return r.json();}})'
+        '.then(function(d){{'
+        'if(d.ok){{'
+        'f.innerHTML="<p style=\\"text-align:center;padding:24px 0;font-size:16px;\\">Thanks — we\'ll be in touch shortly.</p>";'
+        '}}else{{'
+        'var er=f.querySelector(".gw-ce");'
+        'if(!er){{er=document.createElement("p");er.className="gw-ce";er.style.cssText="color:#B91C1C;font-size:14px;margin-top:10px;";f.appendChild(er);}}'
+        'er.textContent=d.error||"Something went wrong. Please try calling us directly.";'
+        'if(b)b.disabled=false;'
+        '}}'
+        '}})'
+        '.catch(function(){{'
+        'var er=f.querySelector(".gw-ce");'
+        'if(!er){{er=document.createElement("p");er.className="gw-ce";er.style.cssText="color:#B91C1C;font-size:14px;margin-top:10px;";f.appendChild(er);}}'
+        'er.textContent="Could not connect. Please try calling us directly.";'
+        'if(b)b.disabled=false;'
+        '}});'
+        '}});'
+        'break;'
+        '}}'
+        '}}'
+        '}})();'
+        '</script>'
+    )
+
+    db = SessionLocal()
+    try:
+        gens = db.query(Generation).filter(
+            Generation.html_content.isnot(None),
+        ).all()
+        patched = 0
+        for gen in gens:
+            html = gen.html_content
+            if '/api/contact' in html:
+                continue
+            if '<form' not in html or 'textarea' not in html:
+                continue
+            job_id = gen.lead.public_id if gen.lead else None
+            if not job_id:
+                continue
+            script = script_template.format(job_id=job_id, contact_url=contact_url)
+            body_close = html.rfind("</body>")
+            if body_close != -1:
+                gen.html_content = html[:body_close] + script + html[body_close:]
+            else:
+                gen.html_content = html + script
+            patched += 1
+        db.commit()
+        if patched:
+            app.logger.info(f"Contact form migration: patched {patched} generation(s)")
+    finally:
+        db.close()
+
+
+_migrate_contact_forms()
+
+
 @app.before_request
 def handle_subdomain_request():
     """Serve a live customer's site when the request arrives on their subdomain."""
