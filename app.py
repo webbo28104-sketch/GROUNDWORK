@@ -1836,8 +1836,10 @@ def create_checkout_session():
 
     cs = stripe.checkout.Session.create(
         mode="subscription",
-        line_items=[{"price": STRIPE_MONTHLY_PRICE_ID, "quantity": 1}],
-        subscription_data={"add_invoice_items": [{"price": STRIPE_SETUP_PRICE_ID, "quantity": 1}]},
+        line_items=[
+            {"price": STRIPE_SETUP_PRICE_ID, "quantity": 1},
+            {"price": STRIPE_MONTHLY_PRICE_ID, "quantity": 1},
+        ],
         client_reference_id=job_id,
         success_url=f"{SITE_URL}/live.html?id={job_id}",
         cancel_url=f"{SITE_URL}/api/generate/{job_id}/html",
