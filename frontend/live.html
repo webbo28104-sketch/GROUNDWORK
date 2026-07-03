@@ -13,6 +13,7 @@
 *{box-sizing:border-box;}
 h1,h2,h3,h4{font-family:'Plus Jakarta Sans','Inter',sans-serif;}
 body{margin:0;background:#F5F3EE;font-family:Inter,sans-serif;color:#1C1C1C;}
+@keyframes gw-fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
 </style>
 </head>
 <body>
@@ -32,8 +33,55 @@ body{margin:0;background:#F5F3EE;font-family:Inter,sans-serif;color:#1C1C1C;}
   </div>
   <h1 style="margin:0 0 12px;font-weight:800;font-size:clamp(28px,4vw,38px);letter-spacing:-.03em;">Your site is live.</h1>
   <p style="margin:0 0 10px;font-size:17px;line-height:1.6;color:#5C5A56;">Congratulations — your Groundwork website is published.</p>
-  <p style="margin:0 0 36px;font-size:15px;line-height:1.6;color:#807E79;">Questions or changes? <a href="mailto:groundwork-build@outlook.com" style="color:#2257CC;font-weight:600;">Email us</a> and we'll sort it.</p>
+
+  <!-- Subdomain link — shown once the webhook fires and subdomain is assigned -->
+  <div id="url-section" style="display:none;margin:24px 0;animation:gw-fade .4s ease;">
+    <p style="margin:0 0 14px;font-size:15px;color:#5C5A56;">Your site is live at:</p>
+    <a id="site-url" href="#" target="_blank" rel="noopener"
+       style="display:inline-block;background:#1C1C1C;color:#3B82F6;font-weight:700;font-size:17px;
+              text-decoration:none;padding:14px 24px;border-radius:10px;word-break:break-all;">
+    </a>
+  </div>
+  <div id="url-pending" style="margin:24px 0;font-size:15px;color:#9A9893;">
+    Fetching your web address…
+  </div>
+
+  <p style="margin:0 0 0;font-size:15px;line-height:1.6;color:#807E79;">Questions or changes? <a href="mailto:groundwork-build@outlook.com" style="color:#2257CC;font-weight:600;">Email us</a> and we'll sort it.</p>
 </div>
 
+<script>
+const params = new URLSearchParams(location.search);
+const jobId = params.get('id');
+
+if (jobId) {
+  pollForSubdomain(8);  // try up to 8 times (covers slight webhook delay)
+} else {
+  document.getElementById('url-pending').style.display = 'none';
+}
+
+async function pollForSubdomain(attemptsLeft) {
+  try {
+    const r = await fetch('/api/generate/' + jobId + '/info');
+    if (r.ok) {
+      const d = await r.json();
+      if (d.subdomain_url) {
+        const link = document.getElementById('site-url');
+        link.href = d.subdomain_url;
+        link.textContent = d.subdomain_url.replace('https://', '');
+        document.getElementById('url-pending').style.display = 'none';
+        document.getElementById('url-section').style.display = 'block';
+        return;
+      }
+    }
+  } catch (e) {}
+
+  if (attemptsLeft > 1) {
+    setTimeout(() => pollForSubdomain(attemptsLeft - 1), 2000);
+  } else {
+    document.getElementById('url-pending').textContent =
+      'Your address will be ready shortly — check back in a moment or email us.';
+  }
+}
+</script>
 </body>
 </html>

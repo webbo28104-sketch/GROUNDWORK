@@ -9,6 +9,7 @@ import threading
 from collections import Counter
 from datetime import datetime, timedelta
 from functools import wraps
+from urllib.parse import urlparse as _urlparse
 
 import anthropic
 import stripe
@@ -45,7 +46,109 @@ STRIPE_MONTHLY_PRICE_ID = os.environ.get("STRIPE_MONTHLY_PRICE_ID", "")
 SITE_URL = os.environ.get("SITE_URL", "https://groundworkbuild.com")
 stripe.api_key = STRIPE_SECRET_KEY
 
+# Subdomain routing — every live customer gets <slug>.groundworkbuild.com.
+# _SUBDOMAIN_BASE is derived from SITE_URL so local dev (localhost) doesn't
+# accidentally try to serve subdomain routes.
+_SUBDOMAIN_BASE = _urlparse(SITE_URL).hostname or "groundworkbuild.com"
+_RESERVED_SUBDOMAINS = {"www", "mail", "api", "admin", "app", "static"}
+
+
+def _make_subdomain(business_name: str) -> str:
+    """Lowercase and remove spaces only. Other characters are left intact so
+    _subdomain_has_invalid_chars() can catch and flag them."""
+    return business_name.lower().replace(" ", "")
+
+
+def _subdomain_has_invalid_chars(slug: str) -> bool:
+    """DNS labels only allow a-z, 0-9. Returns True if anything else is present."""
+    return not re.match(r'^[a-z0-9]+$', slug)
+
+
+def _subdomain_is_taken(slug: str, db, exclude_gen_id=None) -> bool:
+    """True if any other live generation already holds this subdomain."""
+    q = db.query(Generation).filter(
+        Generation.subdomain == slug,
+        Generation.status == "live",
+    )
+    if exclude_gen_id is not None:
+        q = q.filter(Generation.id != exclude_gen_id)
+    return q.first() is not None
+
 init_db()
+
+
+def _migrate_legacy_subdomains():
+    """Assign subdomains to existing live non-test generations that don't have one yet.
+    Runs on every startup but is a no-op once all rows are covered (subdomain IS NOT NULL).
+    Oldest generation wins on a name collision; conflicts are logged for manual review."""
+    db = SessionLocal()
+    try:
+        pending = (
+            db.query(Generation)
+            .join(Lead)
+            .filter(
+                Generation.status == "live",
+                Generation.subdomain.is_(None),
+                Lead.is_test.is_(False),
+            )
+            .order_by(Generation.created_at)
+            .all()
+        )
+        for gen in pending:
+            business_name = (gen.lead.form_data or {}).get("business_name", "")
+            slug = _make_subdomain(business_name)
+            if not slug or _subdomain_has_invalid_chars(slug):
+                app.logger.warning(
+                    f"Legacy subdomain skipped — invalid chars: gen {gen.id} {business_name!r}"
+                )
+                continue
+            if _subdomain_is_taken(slug, db, exclude_gen_id=gen.id):
+                app.logger.warning(
+                    f"Legacy subdomain conflict: {slug!r} already taken, skipping gen {gen.id} ({business_name!r})"
+                )
+                continue
+            gen.subdomain = slug
+            app.logger.info(f"Assigned legacy subdomain {slug!r} to gen {gen.id}")
+        db.commit()
+    finally:
+        db.close()
+
+
+_migrate_legacy_subdomains()
+
+
+@app.before_request
+def handle_subdomain_request():
+    """Serve a live customer's site when the request arrives on their subdomain."""
+    host = request.host.split(":")[0].lower()
+    suffix = "." + _SUBDOMAIN_BASE
+    if not host.endswith(suffix):
+        return  # main domain or unrelated host — normal routing continues
+    slug = host[: -len(suffix)]
+    if not slug or slug in _RESERVED_SUBDOMAINS:
+        return
+    db = SessionLocal()
+    try:
+        gen = db.query(Generation).filter(
+            Generation.subdomain == slug,
+            Generation.status == "live",
+        ).first()
+        if gen:
+            return gen.html_content, 200, {"Content-Type": "text/html; charset=utf-8"}
+    finally:
+        db.close()
+    return (
+        "<!DOCTYPE html><html><head><meta charset='utf-8'>"
+        "<title>Site not found — Groundwork</title></head>"
+        "<body style='font-family:sans-serif;padding:60px;text-align:center'>"
+        f"<h2>No site found at {slug}.{_SUBDOMAIN_BASE}</h2>"
+        "<p>This address doesn't belong to an active Groundwork site.</p>"
+        "<p><a href='https://groundworkbuild.com'>groundworkbuild.com</a></p>"
+        "</body></html>",
+        404,
+        {"Content-Type": "text/html; charset=utf-8"},
+    )
+
 
 # In-memory job store for in-flight generations: id -> {status, html, error}
 # This is a live-progress cache only — completed generations are persisted to
@@ -1815,6 +1918,45 @@ def job_html(job_id):
     return jsonify({"error": "not found"}), 404
 
 
+@app.route("/api/generate/<job_id>/info")
+def job_info(job_id):
+    """Return metadata used by checkout.html and live.html — subdomain preview,
+    validity, and whether it's already taken by another live generation."""
+    db = SessionLocal()
+    try:
+        gen = db.query(Generation).join(Lead).filter(Lead.public_id == job_id).first()
+        if not gen:
+            return jsonify({"error": "not found"}), 404
+        business_name = (gen.lead.form_data or {}).get("business_name", "")
+        preview_slug = _make_subdomain(business_name)
+        invalid = _subdomain_has_invalid_chars(preview_slug) if preview_slug else True
+        taken = (
+            _subdomain_is_taken(preview_slug, db, exclude_gen_id=gen.id)
+            if preview_slug and not invalid
+            else False
+        )
+        assigned_url = (
+            f"https://{gen.subdomain}.{_SUBDOMAIN_BASE}" if gen.subdomain else None
+        )
+        preview_url = (
+            f"https://{preview_slug}.{_SUBDOMAIN_BASE}"
+            if preview_slug and not invalid
+            else None
+        )
+        return jsonify({
+            "status": gen.status,
+            "business_name": business_name,
+            "subdomain": gen.subdomain,
+            "subdomain_url": assigned_url,
+            "subdomain_preview": preview_slug,
+            "subdomain_preview_url": preview_url,
+            "subdomain_invalid_chars": invalid,
+            "subdomain_taken": taken,
+        })
+    finally:
+        db.close()
+
+
 @app.route("/api/checkout/session", methods=["POST"])
 def create_checkout_session():
     if not STRIPE_SECRET_KEY:
@@ -1831,6 +1973,26 @@ def create_checkout_session():
             return jsonify({"error": "not found"}), 404
         if gen.status == "live":
             return jsonify({"error": "already live"}), 409
+
+        business_name = (gen.lead.form_data or {}).get("business_name", "")
+        slug = _make_subdomain(business_name)
+
+        if not slug:
+            return jsonify({"error": "Company name is missing — please contact us."}), 422
+
+        if _subdomain_has_invalid_chars(slug):
+            app.logger.warning(f"Checkout blocked — invalid subdomain chars: {business_name!r} → {slug!r}")
+            return jsonify({
+                "error": "Your company name contains characters (e.g. apostrophes or symbols) "
+                         "that can't be used in a web address. Please email us at "
+                         "groundwork-build@outlook.com and we'll sort out your address before you pay."
+            }), 422
+
+        if _subdomain_is_taken(slug, db, exclude_gen_id=gen.id):
+            return jsonify({
+                "error": f"The address {slug}.{_SUBDOMAIN_BASE} is already taken by another company. "
+                         "Please email us at groundwork-build@outlook.com and we'll help you pick a different name."
+            }), 409
     finally:
         db.close()
 
@@ -1868,6 +2030,18 @@ def stripe_webhook():
                     gen.status = "live"
                     if customer_id:
                         gen.stripe_customer_id = customer_id
+                    # Assign subdomain (the checkout route already validated this;
+                    # the double-check here guards the rare simultaneous-payment race).
+                    if not gen.subdomain:
+                        business_name = (gen.lead.form_data or {}).get("business_name", "")
+                        slug = _make_subdomain(business_name)
+                        if slug and not _subdomain_has_invalid_chars(slug):
+                            if not _subdomain_is_taken(slug, db, exclude_gen_id=gen.id):
+                                gen.subdomain = slug
+                            else:
+                                app.logger.error(
+                                    f"Subdomain race: {slug!r} taken when webhook fired for job {job_id}"
+                                )
                     db.commit()
             finally:
                 db.close()

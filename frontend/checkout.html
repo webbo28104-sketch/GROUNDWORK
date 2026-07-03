@@ -34,7 +34,14 @@ body{margin:0;background:#F5F3EE;font-family:Inter,sans-serif;color:#1C1C1C;}
   <div style="background:#fff;border-radius:16px;border:1px solid #E2E0DA;padding:clamp(28px,4vw,40px);margin-bottom:24px;">
     <div style="font-size:12.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#2257CC;margin-bottom:14px;">Your plan</div>
     <h1 style="margin:0 0 4px;font-weight:800;font-size:clamp(26px,3.5vw,34px);letter-spacing:-.03em;">Go live</h1>
-    <p style="margin:0 0 24px;font-size:16px;color:#5C5A56;">Publish your Groundwork site to your own domain.</p>
+    <p style="margin:0 0 24px;font-size:16px;color:#5C5A56;">Publish your Groundwork site to your own web address.</p>
+
+    <!-- Subdomain preview — loaded via JS -->
+    <div id="subdomain-section" style="display:none;background:#EEF4FF;border:1px solid #C7D9F8;border-radius:10px;padding:14px 16px;margin-bottom:20px;">
+      <div style="font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#2257CC;margin-bottom:6px;">Your web address</div>
+      <div id="subdomain-url" style="font-size:15px;font-weight:600;color:#1C1C1C;word-break:break-all;"></div>
+    </div>
+    <div id="subdomain-error" style="display:none;background:#FEF2F2;border:1px solid #FCA5A5;border-radius:10px;padding:14px 16px;margin-bottom:20px;font-size:14px;color:#B91C1C;line-height:1.5;"></div>
 
     <div style="border-top:1px solid #E2E0DA;padding-top:20px;margin-bottom:20px;">
       <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;">
@@ -50,11 +57,11 @@ body{margin:0;background:#F5F3EE;font-family:Inter,sans-serif;color:#1C1C1C;}
     <div style="background:#F5F3EE;border-radius:10px;padding:16px 18px;margin-bottom:28px;">
       <div class="check-row">
         <div class="check-icon"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#2257CC" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l4 4 10-10"/></svg></div>
-        <span>Site published to your domain within 24 hours</span>
+        <span>Site live at your address within 24 hours</span>
       </div>
       <div class="check-row">
         <div class="check-icon"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#2257CC" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l4 4 10-10"/></svg></div>
-        <span>Domain wiring handled for you — just point your DNS</span>
+        <span>Connect your own domain for free — we'll handle the setup</span>
       </div>
       <div class="check-row" style="margin-bottom:0;">
         <div class="check-icon"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#2257CC" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l4 4 10-10"/></svg></div>
@@ -66,7 +73,7 @@ body{margin:0;background:#F5F3EE;font-family:Inter,sans-serif;color:#1C1C1C;}
       Pay and go live →
     </button>
 
-    <div id="pay-error" style="display:none;margin-top:14px;background:#FEF2F2;border:1px solid #FCA5A5;border-radius:8px;padding:12px 14px;font-size:14px;color:#B91C1C;"></div>
+    <div id="pay-error" style="display:none;margin-top:14px;background:#FEF2F2;border:1px solid #FCA5A5;border-radius:8px;padding:12px 14px;font-size:14px;color:#B91C1C;line-height:1.5;"></div>
 
     <p style="margin:16px 0 0;font-size:13px;color:#9A9893;text-align:center;">Powered by Stripe — your card details go directly to Stripe, never to us.</p>
   </div>
@@ -82,16 +89,53 @@ body{margin:0;background:#F5F3EE;font-family:Inter,sans-serif;color:#1C1C1C;}
 <script>
 const params = new URLSearchParams(location.search);
 const jobId = params.get('id');
+let subdomainBlocked = false;
 
 if (jobId) {
   document.getElementById('back-link').href = '/api/generate/' + jobId + '/html';
+  loadSubdomainPreview();
+}
+
+async function loadSubdomainPreview() {
+  try {
+    const r = await fetch('/api/generate/' + jobId + '/info');
+    if (!r.ok) return;
+    const d = await r.json();
+
+    if (d.subdomain_invalid_chars) {
+      showSubdomainError(
+        'Your company name contains characters (like apostrophes or symbols) that can\'t be used in a web address. ' +
+        'Please email us at groundwork-build@outlook.com before paying and we\'ll sort your address out.'
+      );
+      subdomainBlocked = true;
+    } else if (d.subdomain_taken) {
+      showSubdomainError(
+        'The address <strong>' + (d.subdomain_preview || '') + '.groundworkbuild.com</strong> is already taken by another company. ' +
+        'Please email us at groundwork-build@outlook.com and we\'ll help you choose a different name.'
+      );
+      subdomainBlocked = true;
+    } else if (d.subdomain_preview_url) {
+      document.getElementById('subdomain-url').textContent = d.subdomain_preview_url.replace('https://', '');
+      document.getElementById('subdomain-section').style.display = 'block';
+    }
+
+    if (subdomainBlocked) {
+      const btn = document.getElementById('pay-btn');
+      btn.disabled = true;
+      btn.style.opacity = '0.45';
+      btn.style.cursor = 'not-allowed';
+    }
+  } catch (e) { /* non-fatal — preview is cosmetic, validation also runs server-side */ }
+}
+
+function showSubdomainError(html) {
+  const el = document.getElementById('subdomain-error');
+  el.innerHTML = html;
+  el.style.display = 'block';
 }
 
 async function startCheckout() {
-  if (!jobId) {
-    showError('No site ID found. Please go back and try again.');
-    return;
-  }
+  if (!jobId) { showError('No site ID found. Please go back and try again.'); return; }
   const btn = document.getElementById('pay-btn');
   btn.disabled = true;
   btn.textContent = 'Redirecting to payment…';
