@@ -753,7 +753,7 @@ def verify(token):
         if existing_gen:
             with _jobs_lock:
                 _jobs[lead.public_id] = {"status": "done", "html": existing_gen.html_content}
-            return redirect(f"/preview.html?id={lead.public_id}")
+            return redirect(f"/api/generate/{lead.public_id}/html")
 
         lead.status = "verified"
         db.commit()
@@ -1783,24 +1783,25 @@ def job_status(job_id):
 
 @app.route("/api/generate/<job_id>/html")
 def job_html(job_id):
+    show_toast = request.args.get("new") == "1"
     with _jobs_lock:
         job = _jobs.get(job_id)
     if job:
         if job["status"] != "done":
             return jsonify({"error": "not ready", "status": job["status"]}), 409
-        return _inject_watermark(job["html"], job_id), 200, {"Content-Type": "text/html; charset=utf-8"}
+        return _inject_watermark(job["html"], job_id, show_toast=show_toast), 200, {"Content-Type": "text/html; charset=utf-8"}
 
     db = SessionLocal()
     try:
         gen = db.query(Generation).join(Lead).filter(Lead.public_id == job_id).first()
         if gen:
-            return _inject_watermark(gen.html_content, job_id), 200, {"Content-Type": "text/html; charset=utf-8"}
+            return _inject_watermark(gen.html_content, job_id, show_toast=show_toast), 200, {"Content-Type": "text/html; charset=utf-8"}
     finally:
         db.close()
     return jsonify({"error": "not found"}), 404
 
 
-def _inject_watermark(html: str, job_id: str) -> str:
+def _inject_watermark(html: str, job_id: str, *, show_toast: bool = False) -> str:
     checkout_url = f"/checkout.html?id={job_id}"
 
     watermark_bar = f"""<div id="gw-preview-bar" style="position:fixed;top:0;left:0;right:0;z-index:99999;background:#1C2630;color:#fff;font-family:sans-serif;font-size:13px;display:flex;align-items:center;justify-content:space-between;padding:10px 20px;box-shadow:0 2px 8px rgba(0,0,0,0.3);">
@@ -1809,12 +1810,34 @@ def _inject_watermark(html: str, job_id: str) -> str:
 </div>
 <div style="height:44px;"></div>"""
 
+    toast_html = ""
+    if show_toast:
+        toast_key = f"gw_toast_{job_id}"
+        toast_html = f"""<div id="gw-saved-toast" style="position:fixed;bottom:20px;right:20px;z-index:100000;background:#1C1C1C;color:#fff;font-family:sans-serif;font-size:14px;line-height:1.5;padding:14px 16px 14px 18px;border-radius:10px;box-shadow:0 4px 24px rgba(0,0,0,.45);display:flex;align-items:flex-start;gap:14px;max-width:300px;animation:gw-toast-in .35s ease;">
+  <span style="flex:1;">We&#39;ve saved this to your account — <a href="/account/login" style="color:#93C5FD;font-weight:600;text-decoration:none;">sign in anytime</a> to find it.</span>
+  <button onclick="gwDismissToast()" aria-label="Dismiss" style="background:none;border:none;color:#807E79;cursor:pointer;font-size:20px;line-height:1;padding:0;flex-shrink:0;margin-top:-1px;">&#215;</button>
+</div>
+<style>@keyframes gw-toast-in{{from{{opacity:0;transform:translateY(8px)}}to{{opacity:1;transform:translateY(0)}}}}</style>
+<script>
+(function(){{
+  var KEY='{toast_key}';
+  function gwDismissToast(){{
+    var t=document.getElementById('gw-saved-toast');
+    if(t){{t.style.transition='opacity .3s ease';t.style.opacity='0';setTimeout(function(){{t.remove();}},300);}}
+    try{{localStorage.setItem(KEY,'1');}}catch(e){{}}
+  }}
+  window.gwDismissToast=gwDismissToast;
+  try{{if(localStorage.getItem(KEY)){{var t=document.getElementById('gw-saved-toast');if(t)t.remove();return;}}}}catch(e){{}}
+  setTimeout(function(){{gwDismissToast();}},7000);
+}})();
+</script>"""
+
     robots_meta = '<meta name="robots" content="noindex, nofollow">'
 
     body_open = re.search(r"<body[^>]*>", html, re.IGNORECASE)
     if body_open:
         insert_at = body_open.end()
-        html = html[:insert_at] + watermark_bar + html[insert_at:]
+        html = html[:insert_at] + watermark_bar + toast_html + html[insert_at:]
 
     head_open = re.search(r"<head[^>]*>", html, re.IGNORECASE)
     if head_open:

@@ -93,7 +93,7 @@ async function poll() {
       clearInterval(fakeTimer);
       bar.style.width = '100%';
       msg.textContent = 'Your website is ready!';
-      setTimeout(() => { window.location.href = `preview.html?id=${jobId}`; }, 600);
+      setTimeout(() => { window.location.href = `/api/generate/${jobId}/html?new=1`; }, 600);
     } else if(data.status === 'error') {
       done = true;
       clearInterval(fakeTimer);
