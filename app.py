@@ -1856,10 +1856,10 @@ def stripe_webhook():
     except (ValueError, stripe.error.SignatureVerificationError):
         return "", 400
 
-    if event["type"] == "checkout.session.completed":
-        cs = event["data"]["object"]
-        job_id = cs.get("client_reference_id")
-        customer_id = cs.get("customer")
+    if event.type == "checkout.session.completed":
+        cs = event.data.object
+        job_id = cs.client_reference_id
+        customer_id = cs.customer
         if job_id:
             db = SessionLocal()
             try:
