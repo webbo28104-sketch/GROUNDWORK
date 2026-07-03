@@ -1,8 +1,10 @@
 import os
 import io
 import re
+import json
 import uuid
 import base64
+import shutil
 import threading
 from datetime import datetime, timedelta
 from functools import wraps
@@ -1123,11 +1125,13 @@ def admin_generations():
         for g in gens:
             test_badge = '<span class="badge-test">TEST</span>' if (g.lead and g.lead.is_test) else ""
             row_parts.append(
-                '<tr id="gen-row-' + str(g.id) + '"><td>' + (g.business_name or "") + test_badge + "</td><td>" + g.email + "</td>"
+                '<tr id="gen-row-' + str(g.id) + '" data-email="' + escape(g.email) + '">'
+                '<td>' + (g.business_name or "") + test_badge + "</td><td>" + g.email + "</td>"
                 "<td>" + g.created_at.strftime("%d %b %Y %H:%M") + "</td><td>" + g.status + "</td>"
                 '<td><a href="/admin/generations/' + str(g.id) + '/html" target="_blank" rel="noopener">View HTML</a> · '
                 '<a href="/admin/generations/' + str(g.id) + '/form-data" target="_blank" rel="noopener">Form data</a></td>'
-                '<td><a href="#" title="Delete this generation" onclick="return gwDeleteGeneration(' + str(g.id) + ', this)" '
+                '<td><a href="#" title="Delete this ENTIRE account" '
+                'onclick="return gwDeleteAccount(' + escape(json.dumps(g.email)) + ')" '
                 'style="color:#9B2B1A;font-weight:800;text-decoration:none;">×</a></td></tr>'
             )
         rows = "".join(row_parts)
@@ -1137,15 +1141,16 @@ def admin_generations():
 <h1>All generations ({len(gens)})
 <a href="/admin/generate-test" style="float:right;font-size:13px;margin-left:18px;">+ Generate test site</a>
 <a href="/admin/logout" style="float:right;font-size:13px;">Log out</a></h1>
+<p class="muted">× deletes the entire account for that email — login, every lead, and every generated site — as if they'd never signed up.</p>
 <table><thead><tr><th>Business</th><th>Email</th><th>Created</th><th>Status</th><th>Links</th><th></th></tr></thead>
 <tbody>{rows}</tbody></table></div>
 <script>
-async function gwDeleteGeneration(genId, link) {{
-  if (!confirm('Delete this generation? This cannot be undone.')) return false;
+async function gwDeleteAccount(email) {{
+  if (!confirm(`Delete the ENTIRE account for ${{email}}? This removes their login, every lead, and every generated site for this email — cannot be undone.`)) return false;
   try {{
-    const r = await fetch(`/admin/generations/${{genId}}`, {{method: 'DELETE', credentials: 'same-origin'}});
+    const r = await fetch(`/admin/accounts/${{encodeURIComponent(email)}}`, {{method: 'DELETE', credentials: 'same-origin'}});
     if (!r.ok) throw new Error('Delete failed (' + r.status + ')');
-    document.getElementById(`gen-row-${{genId}}`).remove();
+    document.querySelectorAll(`tr[data-email="${{CSS.escape(email)}}"]`).forEach(tr => tr.remove());
   }} catch (err) {{
     alert(err.message);
   }}
@@ -1251,20 +1256,39 @@ def admin_generate_test():
         db.close()
 
 
-@app.route("/admin/generations/<int:gen_id>", methods=["DELETE"])
+@app.route("/admin/accounts/<path:email>", methods=["DELETE"])
 @admin_required
-def admin_delete_generation(gen_id):
+def admin_delete_account(email):
+    """
+    Wipes everything tied to this email — Account (login), every Lead, every
+    Generation and GenerationImage row, and their upload directories — so the
+    email is free to sign up and generate again as if it were brand new.
+    """
+    email = email.strip().lower()
     db = SessionLocal()
     try:
-        gen = db.get(Generation, gen_id)
-        if not gen:
-            return jsonify({"error": "not_found"}), 404
-        db.query(GenerationImage).filter(GenerationImage.generation_id == gen_id).delete()
-        db.delete(gen)
+        leads = db.query(Lead).filter(Lead.email == email).all()
+        lead_ids = [lead.id for lead in leads]
+
+        if lead_ids:
+            gen_ids = [
+                row[0] for row in
+                db.query(Generation.id).filter(Generation.lead_id.in_(lead_ids)).all()
+            ]
+            if gen_ids:
+                db.query(GenerationImage).filter(GenerationImage.generation_id.in_(gen_ids)).delete(synchronize_session=False)
+                db.query(Generation).filter(Generation.id.in_(gen_ids)).delete(synchronize_session=False)
+            db.query(Lead).filter(Lead.id.in_(lead_ids)).delete(synchronize_session=False)
+
+        db.query(Account).filter(Account.email == email).delete(synchronize_session=False)
         db.commit()
-        return jsonify({"status": "deleted"})
     finally:
         db.close()
+
+    for lead in leads:
+        shutil.rmtree(os.path.join(UPLOAD_DIR, lead.public_id), ignore_errors=True)
+
+    return jsonify({"status": "deleted", "email": email})
 
 
 @app.route("/admin/generations/<int:gen_id>/html")
