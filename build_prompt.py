@@ -25,7 +25,7 @@ def build_prompt(form_data: dict) -> str:
     photo_src_tokens (list[str]) — literal placeholder strings, one per
         portfolio photo, in display order; substituted the same way.
     """
-    MEDIA_KEYS = {"logo_src_token", "photo_src_tokens", "logo_bg_hex"}
+    MEDIA_KEYS = {"logo_src_token", "photo_src_tokens", "logo_bg_hex", "logo_accent_hex"}
 
     facts = "\n".join(f"- {k}: {v}" for k, v in form_data.items() if v and k not in MEDIA_KEYS)
     current_year = datetime.now().year
@@ -33,6 +33,7 @@ def build_prompt(form_data: dict) -> str:
     logo_src_token = form_data.get("logo_src_token")
     photo_src_tokens = form_data.get("photo_src_tokens") or []
     logo_bg_hex = form_data.get("logo_bg_hex")
+    logo_accent_hex = form_data.get("logo_accent_hex")
 
     media_lines = []
     if logo_src_token:
@@ -49,6 +50,12 @@ def build_prompt(form_data: dict) -> str:
             f'so the logo\'s background blends invisibly into the nav rather than appearing as a mismatched box. '
             f'Build the rest of the palette to work with {logo_bg_hex} as the nav surface colour — do not pick a '
             f'different nav background just because it seems like a better palette fit.'
+        )
+    if logo_accent_hex:
+        media_lines.append(
+            f'- The logo also contains a distinct secondary colour, exactly {logo_accent_hex}. Use this exact hex '
+            f'as the site\'s accent colour (link/button hover states, small UI highlights, secondary CTAs) rather '
+            f'than choosing your own accent — it should read as pulled directly from the brand\'s own logo.'
         )
     if photo_src_tokens:
         tokens_list = ", ".join(photo_src_tokens)

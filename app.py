@@ -6,6 +6,7 @@ import uuid
 import base64
 import shutil
 import threading
+from collections import Counter
 from datetime import datetime, timedelta
 from functools import wraps
 
@@ -78,6 +79,14 @@ _FLOODFILL_THRESH = 18       # per-channel tolerance for the flood-fill match it
 _MIN_LOGO_DIMENSION = 24     # below this, don't attempt background processing at all
 _MAX_TRANSPARENT_FRACTION = 0.97  # if flood-fill eats almost the whole image, bail out — likely misdetection
 
+# Dominant/secondary colour extraction (_extract_logo_colors) tuning — kept as
+# named, tunable constants rather than hardcoded literals, since "what counts
+# as a genuinely distinct secondary colour vs. anti-aliasing noise" is a
+# judgment call, not something with one objectively correct value.
+_QUANTIZE_BUCKET = 10             # RGB bucket size when histogramming — merges near-identical (anti-aliasing/compression) colours into one bucket
+_MIN_SECONDARY_DISTANCE = 60      # min Euclidean RGB distance from the primary colour before a colour counts as a distinct secondary accent
+_NEAR_WHITE_BLACK_THRESHOLD = 25  # channel distance from pure white/black before a colour still counts as "just text/background", not a brand accent
+
 
 def _sample_border_points(img_rgb):
     """Corners plus edge midpoints — enough to catch a busy/gradient background
@@ -98,9 +107,59 @@ def _channelwise_spread(samples):
     return spread
 
 
-def _average_colour(samples):
-    n = len(samples)
-    return tuple(sum(s[c] for s in samples) // n for c in range(3))
+def _quantize_pixel(pixel, bucket_size: int = _QUANTIZE_BUCKET) -> tuple:
+    return tuple((c // bucket_size) * bucket_size for c in pixel)
+
+
+def _color_distance(c1, c2) -> float:
+    return sum((a - b) ** 2 for a, b in zip(c1, c2)) ** 0.5
+
+
+def _is_near_white_or_black(color, threshold: int = _NEAR_WHITE_BLACK_THRESHOLD) -> bool:
+    r, g, b = color
+    return (r > 255 - threshold and g > 255 - threshold and b > 255 - threshold) or \
+           (r < threshold and g < threshold and b < threshold)
+
+
+def _extract_logo_colors(img_rgb, min_secondary_distance: int = _MIN_SECONDARY_DISTANCE):
+    """
+    Histogram-based colour extraction over the *whole* logo image, not just
+    border/corner samples: primary is the single most common quantized
+    colour bucket — the actual dominant colour, not an average/blend of a
+    handful of sample points. Secondary is the next most common bucket that
+    is both far enough from primary (min_secondary_distance) to be a
+    genuinely distinct colour rather than anti-aliasing/compression noise,
+    and not itself near-white/near-black — the 2nd-most-frequent colour in a
+    logo is very often just body text or a plain background tint, not a
+    brand accent, so those are explicitly excluded rather than picked by
+    frequency rank alone. Returns (primary_hex, secondary_hex_or_None); both
+    hexes are exact values taken straight from the image, never blended.
+    """
+    # NEAREST, not the default interpolating filter — this is flat-colour
+    # logo art, not a photo. Bicubic/Lanczos resizing blends adjacent flat
+    # colours together at every edge, manufacturing intermediate shades that
+    # don't actually exist in the logo and can outrank (or masquerade as) a
+    # genuine distinct colour in the histogram. Nearest-neighbour preserves
+    # only colours that were literally present in the source image.
+    img_small = img_rgb.resize((150, 150), Image.NEAREST)
+    counts = Counter(_quantize_pixel(p) for p in img_small.getdata())
+    ranked = counts.most_common()
+    if not ranked:
+        return None, None
+
+    primary = ranked[0][0]
+    primary_hex = "#{:02x}{:02x}{:02x}".format(*primary)
+
+    secondary_hex = None
+    for color, _count in ranked[1:]:
+        if _color_distance(color, primary) < min_secondary_distance:
+            continue
+        if _is_near_white_or_black(color):
+            continue
+        secondary_hex = "#{:02x}{:02x}{:02x}".format(*color)
+        break
+
+    return primary_hex, secondary_hex
 
 
 def _process_logo(path: str, max_dimension: int):
@@ -113,18 +172,23 @@ def _process_logo(path: str, max_dimension: int):
       with a light blur on the alpha edge to avoid a harsh cutout ring.
     - If the border isn't uniform (photo/gradient/busy background), don't
       attempt removal — instead bake the logo into a small rounded-rect chip
-      filled with the dominant border colour. That colour is also returned
-      (as bg_hex) so the caller can force the generated site's nav background
-      to the exact same hex — at that point the chip's fill and the nav
-      behind it are identical, so the rounded-rect edge is invisible and the
-      logo reads as part of the page rather than a pasted-in badge.
+      filled with the image's true dominant colour (via _extract_logo_colors'
+      whole-image histogram, not a border-sample average/blend). That colour
+      is also returned (as bg_hex) so the caller can force the generated
+      site's nav background to the exact same hex — at that point the chip's
+      fill and the nav behind it are identical, so the rounded-rect edge is
+      invisible and the logo reads as part of the page rather than a
+      pasted-in badge. A distinct secondary colour, when the logo has one
+      (accent_hex), is also extracted for the caller to force as the site's
+      accent colour, the same way.
     - Any failure, or an image too small/ambiguous to trust, falls back to
       today's plain behaviour (resize + encode as-is) rather than risking a
       mangled result.
 
-    Returns (mode, PIL.Image, bg_hex) where mode is "as_is", "transparent", or
-    "chip", and bg_hex is the chip's fill colour as "#rrggbb" (only set when
-    mode == "chip", otherwise None).
+    Returns (mode, PIL.Image, bg_hex, accent_hex) where mode is "as_is",
+    "transparent", or "chip"; bg_hex/accent_hex are only set when
+    mode == "chip" (accent_hex may still be None even then, if the logo has
+    no colour distinct enough from bg_hex and from white/black to count).
     """
     try:
         with Image.open(path) as raw:
@@ -132,24 +196,39 @@ def _process_logo(path: str, max_dimension: int):
 
         w, h = img.size
         if min(w, h) < _MIN_LOGO_DIMENSION:
-            return "as_is", img, None
+            return "as_is", img, None, None
 
         already_transparent = img.mode == "RGBA" and img.getchannel("A").getextrema()[0] < 255
         if already_transparent:
-            return "as_is", img, None
+            return "as_is", img, None, None
 
         img_rgb = img.convert("RGB")
         samples = _sample_border_points(img_rgb)
         spread = _channelwise_spread(samples)
-        bg_colour = _average_colour(samples)
 
         if spread > _BG_UNIFORM_TOLERANCE:
             # Busy/gradient background — badge it instead of cutting it out.
-            bg_hex = "#{:02x}{:02x}{:02x}".format(*bg_colour)
-            return "chip", _make_logo_chip(img, bg_colour, max_dimension), bg_hex
+            bg_hex, accent_hex = _extract_logo_colors(img_rgb)
+            if bg_hex is None:
+                bg_hex = "#{:02x}{:02x}{:02x}".format(*_sample_border_points(img_rgb)[0])  # pathological empty-histogram fallback
+            bg_colour = _hex_to_rgb(bg_hex)
+            return "chip", _make_logo_chip(img, bg_colour, max_dimension), bg_hex, accent_hex
 
         # Uniform background — flood-fill it away from all four corners.
-        marker = (1, 2, 3)
+        # The marker colour must be far from the background colour: Pillow's
+        # ImageDraw.floodfill(..., thresh=N) silently fills nothing at all if
+        # the fill value is within `thresh` of the pixels being replaced (it
+        # treats them as "already done"). A fixed near-black marker like
+        # (1, 2, 3) works for light backgrounds but is a no-op for dark ones —
+        # exactly the case here (a black/near-black logo background), which
+        # is why floodfill removal was silently never happening for logos
+        # like this and they were falling through to the "as_is" bailout with
+        # no chip/nav-matching applied at all. Pick an obscure marker value
+        # (never pure 0/0/0 or 255/255/255 — those are common real foreground
+        # colours, e.g. white lettering, and would be wrongly erased too) on
+        # whichever extreme is far from the background's own brightness.
+        bg_sample_avg = tuple(sum(s[c] for s in samples) // len(samples) for c in range(3))
+        marker = (254, 253, 252) if sum(bg_sample_avg) < 384 else (1, 2, 3)
         filled = img_rgb.copy()
         draw = ImageDraw.Draw(filled)
         for seed in [(0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1)]:
@@ -170,17 +249,17 @@ def _process_logo(path: str, max_dimension: int):
 
         if transparent_count == 0 or (transparent_count / (w * h)) > _MAX_TRANSPARENT_FRACTION:
             # Nothing removed, or removal ate almost the whole logo — misdetection, bail out safely.
-            return "as_is", img, None
+            return "as_is", img, None, None
 
         alpha = alpha.filter(ImageFilter.GaussianBlur(radius=1.0))
         out = img.convert("RGBA")
         out.putalpha(alpha)
-        return "transparent", out, None
+        return "transparent", out, None, None
 
     except Exception:
         with Image.open(path) as raw:
             img = raw.convert("RGBA") if raw.mode in ("RGBA", "LA", "P") else raw.convert("RGB")
-            return "as_is", img, None
+            return "as_is", img, None, None
 
 
 def _make_logo_chip(img, bg_colour: tuple, max_dimension: int) -> "Image.Image":
@@ -238,12 +317,13 @@ def _image_file_to_data_uri(path: str, max_dimension: int, jpeg_quality: int = 8
 def _logo_file_to_data_uri(path: str, max_dimension: int):
     """
     Logo-specific: runs background detection/removal (_process_logo) before
-    encoding, then encodes the result. Returns (data_uri, mode, bg_hex) where
-    mode is "as_is" / "transparent" / "chip", and bg_hex is the chip's fill
-    colour (only set when mode == "chip", see _process_logo).
+    encoding, then encodes the result. Returns (data_uri, mode, bg_hex,
+    accent_hex) where mode is "as_is" / "transparent" / "chip", and
+    bg_hex/accent_hex are the chip's dominant/secondary colours (only set
+    when mode == "chip", see _process_logo).
     """
-    mode, img, bg_hex = _process_logo(path, max_dimension)
-    return _encode_pil_image_to_data_uri(img, max_dimension, jpeg_quality=90), mode, bg_hex
+    mode, img, bg_hex, accent_hex = _process_logo(path, max_dimension)
+    return _encode_pil_image_to_data_uri(img, max_dimension, jpeg_quality=90), mode, bg_hex, accent_hex
 
 
 def _build_media_placeholders(job_dir, logo_path):
@@ -262,7 +342,7 @@ def _build_media_placeholders(job_dir, logo_path):
         logo_file = os.path.join(job_dir, logo_path)
         if os.path.exists(logo_file):
             token = "GW_LOGO_SRC"
-            data_uri, mode, bg_hex = _logo_file_to_data_uri(logo_file, max_dimension=480)
+            data_uri, mode, bg_hex, accent_hex = _logo_file_to_data_uri(logo_file, max_dimension=480)
             image_placeholders[token] = data_uri
             build_overrides["logo_src_token"] = token
             if mode == "chip" and bg_hex:
@@ -270,6 +350,12 @@ def _build_media_placeholders(job_dir, logo_path):
                 # original background) — force the nav to that exact hex so
                 # the chip's edge is invisible against it, not a mismatched box.
                 build_overrides["logo_bg_hex"] = bg_hex
+                if accent_hex:
+                    # A genuinely distinct secondary colour was found in the
+                    # logo (not near-white/black, not a near-duplicate of the
+                    # dominant colour) — force it as the site's accent colour
+                    # too, rather than letting Claude pick its own.
+                    build_overrides["logo_accent_hex"] = accent_hex
 
     if os.path.isdir(job_dir):
         photo_files = sorted(f for f in os.listdir(job_dir) if f.startswith("photo_"))
@@ -1167,7 +1253,7 @@ def api_update_generation_image(gen_id, slot):
         file.save(tmp_path)
         try:
             if slot == "logo":
-                new_data_uri, _mode, _bg_hex = _logo_file_to_data_uri(tmp_path, max_dimension=480)
+                new_data_uri, _mode, _bg_hex, _accent_hex = _logo_file_to_data_uri(tmp_path, max_dimension=480)
             else:
                 new_data_uri = _image_file_to_data_uri(tmp_path, max_dimension=1600)
         finally:
