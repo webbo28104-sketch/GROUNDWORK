@@ -148,7 +148,15 @@ try {
 } catch(e){}
 
 function save() {
-  try { sessionStorage.setItem('groundwork_build', JSON.stringify(st)); } catch(e){}
+  try {
+    // Account-derived email is re-fetched from the server on every load via
+    // checkAccountSession() — never persist it, so a stale logged-out email
+    // can't survive in sessionStorage even if some other path forgets to
+    // clear it. Anonymous/pre-login drafts (accountLocked === false) keep
+    // persisting email as normal, since that's genuinely user-typed draft data.
+    const toStore = st.accountLocked ? {...st, email:''} : st;
+    sessionStorage.setItem('groundwork_build', JSON.stringify(toStore));
+  } catch(e){}
 }
 
 function h(s){ return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
@@ -503,6 +511,13 @@ async function checkAccountSession() {
     if (data.logged_in && data.email) {
       st.email = data.email;
       st.accountLocked = true;
+      render();
+    } else if (st.accountLocked) {
+      // st.accountLocked was restored true from a previous (now stale) logged-in
+      // session — e.g. the user just logged out. Clear the leftover account
+      // email rather than leaving it displayed in the form.
+      st.email = '';
+      st.accountLocked = false;
       render();
     }
   } catch(e) {
