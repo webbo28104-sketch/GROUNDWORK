@@ -1659,7 +1659,7 @@ def admin_wait(public_id):
 <title>Admin — generating…</title><link rel="icon" type="image/x-icon" href="/favicon.ico"><link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png"><style>{_PAGE_STYLE}</style></head>
 <body><div class="wrap" style="max-width:640px;text-align:center;">
 <h1>Generating…</h1>
-<p class="muted" id="status-msg">Building the test site — this usually takes under a minute.</p>
+<p class="muted" id="status-msg">Building the test site — this usually takes under 3 minutes.</p>
 </div>
 <script>
 async function poll() {{

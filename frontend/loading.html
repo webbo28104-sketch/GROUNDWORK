@@ -68,10 +68,12 @@ let done = false;
 const bar = document.getElementById('progress-bar');
 const msg = document.getElementById('status-msg');
 
-// Animate fake progress until done (capped at 95%)
+// Animate fake progress until done (capped at 95%). Paced to reach 95%
+// around 2:40 (160s) — the actual average generation time — so the bar
+// isn't sitting stalled at 95% for a long tail waiting on the real result.
 const fakeTimer = setInterval(() => {
   if(done) return;
-  fakeProgress = Math.min(fakeProgress + (fakeProgress < 50 ? 0.8 : fakeProgress < 80 ? 0.4 : 0.1), 95);
+  fakeProgress = Math.min(fakeProgress + (fakeProgress < 50 ? 0.25 : fakeProgress < 80 ? 0.1 : 0.05), 95);
   bar.style.width = fakeProgress + '%';
   bar.parentElement.setAttribute('aria-valuenow', Math.round(fakeProgress));
   const step = [...STEPS].reverse().find(s => fakeProgress >= s.at);
