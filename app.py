@@ -117,6 +117,46 @@ def _migrate_legacy_subdomains():
 _migrate_legacy_subdomains()
 
 
+def _migrate_favicons():
+    """Backfill favicon into html_content for generations that have a logo in
+    GenerationImage but no <link rel="icon"> yet. Idempotent — skips rows that
+    already have any favicon tag. Runs on every startup but is a no-op once
+    all rows are covered."""
+    db = SessionLocal()
+    try:
+        logo_rows = (
+            db.query(GenerationImage)
+            .filter(GenerationImage.slot == "logo")
+            .all()
+        )
+        patched = 0
+        for img_row in logo_rows:
+            gen = db.query(Generation).get(img_row.generation_id)
+            if not gen or not gen.html_content:
+                continue
+            if 'rel="icon"' in gen.html_content:
+                continue
+            favicon_uri = _logo_to_favicon(img_row.data_uri)
+            if not favicon_uri:
+                app.logger.warning(f"Favicon migration: could not generate favicon for gen {gen.id}")
+                continue
+            favicon_tag = f'<link rel="icon" type="image/png" sizes="32x32" href="{favicon_uri}">'
+            head_close = gen.html_content.find("</head>")
+            if head_close != -1:
+                gen.html_content = gen.html_content[:head_close] + favicon_tag + gen.html_content[head_close:]
+            else:
+                gen.html_content = favicon_tag + gen.html_content
+            patched += 1
+        db.commit()
+        if patched:
+            app.logger.info(f"Favicon migration: patched {patched} generation(s)")
+    finally:
+        db.close()
+
+
+_migrate_favicons()
+
+
 @app.before_request
 def handle_subdomain_request():
     """Serve a live customer's site when the request arrives on their subdomain."""
