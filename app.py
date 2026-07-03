@@ -50,6 +50,12 @@ def _map_form(form, logo_present, has_photos):
     urgency_map = {"emergency": "high", "ahead": "low"}
     commercial = int(form.get("commercial_split", 50))
     domestic = 100 - commercial
+    if commercial >= 60:
+        commercial_lean = "commercial-majority"
+    elif commercial <= 40:
+        commercial_lean = "domestic-majority"
+    else:
+        commercial_lean = "balanced"
 
     data = {
         "business_name": form.get("business_name", ""),
@@ -61,6 +67,7 @@ def _map_form(form, logo_present, has_photos):
         "logo_uploaded": bool(logo_present),
         "portfolio_uploaded": bool(has_photos),
         "work_split": f"{domestic}% domestic / {commercial}% commercial",
+        "commercial_lean": commercial_lean,
         "craft_prestige": prestige_map.get(form.get("work_type", ""), "standard"),
         "team_size": team_map.get(form.get("team_size", ""), "sole trader"),
         "large_commercial_contracts": form.get("large_contracts") == "yes",
@@ -1357,48 +1364,176 @@ async function gwDeleteAccount(email) {{
         db.close()
 
 
-_ADMIN_TEST_FORM_FIELDS = [
-    ("email", "Email", "email", True),
-    ("business_name", "Business name", "text", True),
-    ("trade", "Trade", "text", True),
-    ("location", "Location", "text", True),
-    ("coverage_area", "Coverage area", "text", False),
-    ("phone", "Phone", "text", False),
-    ("commercial_split", "Commercial split (0-100)", "number", False),
-    ("work_type", "Work type (standard/mix/bespoke)", "text", False),
-    ("team_size", "Team size (sole/small/company)", "text", False),
-    ("large_contracts", "Large contracts (yes/no)", "text", False),
-    ("urgency", "Urgency (ahead/emergency)", "text", False),
-    ("years_trading", "Years trading", "text", False),
-    ("accreditations", "Accreditations", "text", False),
-    ("past_clients", "Past clients / projects", "text", False),
-    ("notes", "Notes", "text", False),
-]
+def _admin_test_form_page() -> str:
+    """
+    Single-page admin equivalent of the live 8-step frontend/build.html form.
+    Reuses that form's actual CSS classes (.field, .option-card, .toggle-btn,
+    the range-slider gradient) and the same choice-button/slider components,
+    just laid out flat with no step gating — the live form's step validation
+    is entirely client-side JS (see build.html's validate()/advance()) and
+    the server has never seen per-step state; it only ever receives one
+    fully-assembled submission at the end. A flat page changes nothing about
+    that contract: this form POSTs the exact same field names
+    (business_name, trade, location, coverage_area, phone, email,
+    commercial_split, work_type, team_size, large_contracts, urgency,
+    years_trading, accreditations, past_clients, notes, logo, photos)
+    straight to this same route's POST handler below — unchanged, no
+    special-casing needed for the admin path.
+    """
+    return """<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>Admin — generate test site</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@700;800&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;}
+h1,h2,h3,h4{font-family:'Plus Jakarta Sans','Inter',sans-serif;}
+body{margin:0;background:#F5F3EE;font-family:Inter,sans-serif;color:#1C1C1C;}
+input,select,textarea,button{font-family:Inter,sans-serif;}
+input[type=range]{accent-color:#3B82F6;width:100%;height:8px;cursor:pointer;}
+.field{display:flex;flex-direction:column;gap:7px;margin-bottom:16px;}
+.field label{font-size:14px;font-weight:600;color:#3A3A38;}
+.field input,.field textarea{padding:13px 15px;border-radius:10px;font-size:15.5px;color:#1C1C1C;background:#fff;width:100%;border:1px solid #D9D7D0;}
+.field input:focus,.field textarea:focus{outline:none;border-color:#3B82F6;}
+.section{background:#fff;border:1px solid #E6E3DC;border-radius:16px;padding:26px;margin-bottom:20px;}
+.section h2{margin:0 0 16px;font-size:15px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#2257CC;}
+.option-row{display:flex;flex-direction:column;gap:12px;margin-bottom:16px;}
+.option-card{display:flex;align-items:flex-start;gap:14px;width:100%;text-align:left;cursor:pointer;padding:17px 18px;border-radius:13px;transition:all .12s;border:1.5px solid #E0DDD5;background:#fff;}
+.option-card.sel{border:2px solid #3B82F6;background:#F2F6FF;box-shadow:0 6px 18px -10px rgba(59,130,246,.5);}
+.option-dot{flex-shrink:0;width:24px;height:24px;border-radius:50%;margin-top:1px;display:flex;align-items:center;justify-content:center;border:2px solid #CFCCC4;background:transparent;}
+.option-card.sel .option-dot{border:0;background:#3B82F6;}
+.option-dot svg{opacity:0;}
+.option-card.sel .option-dot svg{opacity:1;}
+.option-label{font-weight:700;font-size:16.5px;color:#1C1C1C;display:block;}
+.option-desc{font-size:13.5px;color:#5C5A56;margin-top:2px;display:block;}
+.toggle-row{display:flex;gap:12px;}
+.toggle-btn{flex:1;cursor:pointer;padding:14px 18px;border-radius:11px;font-size:15.5px;font-weight:700;transition:all .12s;border:1.5px solid #E0DDD5;background:#fff;color:#5C5A56;}
+.toggle-btn.sel{border:2px solid #3B82F6;background:#F2F6FF;color:#1D4FB5;}
+.btn-submit{width:100%;background:#3B82F6;color:#fff;font-weight:700;font-size:16.5px;border:0;padding:16px 22px;border-radius:11px;cursor:pointer;}
+.btn-submit:hover{background:#2563EB;}
+</style></head>
+<body>
+<div style="max-width:680px;margin:0 auto;padding:clamp(28px,4vw,48px) 24px clamp(40px,6vw,72px);">
+<h1 style="font-weight:800;font-size:26px;letter-spacing:-.02em;margin:0 0 6px;">Generate a test site</h1>
+<p style="margin:0 0 24px;color:#5C5A56;font-size:14.5px;">Admin-only — skips email verification and the one-generation-per-email limit. Flagged TEST in the generations list. Same inputs as the live form, all on one page.</p>
+
+<form method="post" enctype="multipart/form-data">
+
+<div class="section">
+<h2>Business basics</h2>
+<div class="field"><label>Business name *</label><input type="text" name="business_name" required></div>
+<div class="field"><label>Trade *</label><input type="text" name="trade" required></div>
+<div class="field"><label>Town *</label><input type="text" name="location" required></div>
+<div class="field"><label>Coverage area</label><input type="text" name="coverage_area"></div>
+<div class="field"><label>Phone</label><input type="tel" name="phone"></div>
+<div class="field"><label>Email *</label><input type="email" name="email" required></div>
+</div>
+
+<div class="section">
+<h2>Logo &amp; photos</h2>
+<div class="field"><label>Logo</label><input type="file" name="logo" accept="image/*"></div>
+<div class="field"><label>Portfolio photos</label><input type="file" name="photos" accept="image/*" multiple></div>
+</div>
+
+<div class="section">
+<h2>Work split</h2>
+<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;">
+  <div style="font-size:34px;font-weight:800;letter-spacing:-.03em;" id="com-pct">50%</div>
+  <div style="font-size:13.5px;font-weight:600;color:#5C5A56;">Commercial</div>
+</div>
+<input id="split-slider" type="range" min="0" max="100" step="5" value="50" name="commercial_split" oninput="gwSplitInput(this.value)">
+<div style="display:flex;justify-content:space-between;margin-top:9px;font-size:12.5px;color:#807E79;"><span>100% domestic</span><span>50 / 50</span><span>100% commercial</span></div>
+</div>
+
+<div class="section">
+<h2>Type of work</h2>
+<div class="option-row" id="work-type-row"></div>
+<input type="hidden" name="work_type" id="work_type" value="standard">
+</div>
+
+<div class="section">
+<h2>Your team</h2>
+<div class="option-row" id="team-size-row"></div>
+<input type="hidden" name="team_size" id="team_size" value="sole">
+<div style="font-size:14px;font-weight:600;color:#3A3A38;margin-bottom:8px;">Take on large commercial contracts?</div>
+<div class="toggle-row">
+  <button type="button" class="toggle-btn sel" id="lc-no" onclick="gwPick('large_contracts','no')">No</button>
+  <button type="button" class="toggle-btn" id="lc-yes" onclick="gwPick('large_contracts','yes')">Yes</button>
+</div>
+<input type="hidden" name="large_contracts" id="large_contracts" value="no">
+</div>
+
+<div class="section">
+<h2>Reaching you</h2>
+<div class="option-row" id="booking-row"></div>
+<input type="hidden" name="urgency" id="urgency" value="ahead">
+</div>
+
+<div class="section">
+<h2>Extras</h2>
+<div class="field"><label>Years trading / founded</label><input type="text" name="years_trading"></div>
+<div class="field"><label>Accreditations</label><input type="text" name="accreditations"></div>
+<div class="field"><label>Past clients / projects</label><input type="text" name="past_clients"></div>
+<div class="field"><label>Notes</label><textarea name="notes" rows="3"></textarea></div>
+</div>
+
+<button type="submit" class="btn-submit">Generate test site</button>
+</form>
+</div>
+
+<script>
+const WORK_TYPES = [
+  {key:'standard',label:'Mostly standard / routine jobs',desc:'Repairs, installs and everyday work — the bread and butter.'},
+  {key:'mix',label:'A mix of routine and specialist',desc:'Routine work plus the occasional bigger or one-off project.'},
+  {key:'bespoke',label:'Mostly bespoke, listed or specialist work',desc:'Heritage, conservation, high-end or one-of-a-kind jobs.'},
+];
+const TEAM_SIZES = [
+  {key:'sole',label:'Just me',desc:'A sole trader, out on the tools day to day.'},
+  {key:'small',label:'Small team',desc:'A handful of us, hands-on day to day.'},
+  {key:'company',label:'Established company',desc:'A settled team with office and field staff.'},
+];
+const BOOKINGS = [
+  {key:'ahead',label:'Customers usually book ahead',desc:'Planned jobs, quotes and scheduled work.'},
+  {key:'emergency',label:'Often same-day or emergency',desc:'Callouts, urgent repairs, fast response matters.'},
+];
+const DOT_SVG = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+function renderOptionRow(containerId, hiddenId, options, selected) {
+  const el = document.getElementById(containerId);
+  el.innerHTML = options.map(o => `
+    <button type="button" class="option-card${o.key===selected?' sel':''}" onclick="gwPick('${hiddenId}','${o.key}')">
+      <span class="option-dot">${DOT_SVG}</span>
+      <span><span class="option-label">${o.label}</span><span class="option-desc">${o.desc}</span></span>
+    </button>`).join('');
+}
+
+function gwPick(hiddenId, key) {
+  document.getElementById(hiddenId).value = key;
+  if (hiddenId === 'work_type') renderOptionRow('work-type-row', 'work_type', WORK_TYPES, key);
+  if (hiddenId === 'team_size') renderOptionRow('team-size-row', 'team_size', TEAM_SIZES, key);
+  if (hiddenId === 'urgency') renderOptionRow('booking-row', 'urgency', BOOKINGS, key);
+  if (hiddenId === 'large_contracts') {
+    document.getElementById('lc-no').classList.toggle('sel', key === 'no');
+    document.getElementById('lc-yes').classList.toggle('sel', key === 'yes');
+  }
+}
+
+function gwSplitInput(v) {
+  document.getElementById('com-pct').textContent = v + '%';
+}
+
+renderOptionRow('work-type-row', 'work_type', WORK_TYPES, 'standard');
+renderOptionRow('team-size-row', 'team_size', TEAM_SIZES, 'sole');
+renderOptionRow('booking-row', 'urgency', BOOKINGS, 'ahead');
+</script>
+</body></html>"""
 
 
 @app.route("/admin/generate-test", methods=["GET", "POST"])
 @admin_required
 def admin_generate_test():
     if request.method == "GET":
-        field_rows = "".join(
-            f'<label style="display:block;font-size:13.5px;font-weight:600;margin-bottom:5px;">{label}{" *" if required else ""}</label>'
-            f'<input type="{itype}" name="{name}" {"required" if required else ""} style="width:100%;padding:10px 12px;border:1px solid #D8D5CE;border-radius:8px;font-size:14.5px;margin-bottom:14px;">'
-            for name, label, itype, required in _ADMIN_TEST_FORM_FIELDS
-        )
-        return render_template_string(f"""<!DOCTYPE html><html><head><meta charset="utf-8">
-<title>Admin — generate test site</title><style>{_PAGE_STYLE}</style></head>
-<body><div class="wrap" style="max-width:640px;">
-<h1>Generate a test site</h1>
-<p class="muted">Admin-only: skips email verification and the one-generation-per-email limit. Flagged as TEST in the generations list.</p>
-<form method="post" enctype="multipart/form-data">
-{field_rows}
-<label style="display:block;font-size:13.5px;font-weight:600;margin-bottom:5px;">Logo</label>
-<input type="file" name="logo" accept="image/*" style="margin-bottom:14px;">
-<label style="display:block;font-size:13.5px;font-weight:600;margin-bottom:5px;">Photos</label>
-<input type="file" name="photos" accept="image/*" multiple style="margin-bottom:18px;">
-<button type="submit">Generate test site</button>
-</form>
-</div></body></html>""")
+        return render_template_string(_admin_test_form_page())
 
     # POST — build and kick off a generation immediately, bypassing verification
     # and the repeat-generation block. Admin-only route; never exposed publicly.

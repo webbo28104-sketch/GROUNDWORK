@@ -25,7 +25,7 @@ def build_prompt(form_data: dict) -> str:
     photo_src_tokens (list[str]) — literal placeholder strings, one per
         portfolio photo, in display order; substituted the same way.
     """
-    MEDIA_KEYS = {"logo_src_token", "photo_src_tokens", "logo_bg_hex", "logo_accent_hex"}
+    MEDIA_KEYS = {"logo_src_token", "photo_src_tokens", "logo_bg_hex", "logo_accent_hex", "commercial_lean"}
 
     facts = "\n".join(f"- {k}: {v}" for k, v in form_data.items() if v and k not in MEDIA_KEYS)
     current_year = datetime.now().year
@@ -34,6 +34,7 @@ def build_prompt(form_data: dict) -> str:
     photo_src_tokens = form_data.get("photo_src_tokens") or []
     logo_bg_hex = form_data.get("logo_bg_hex")
     logo_accent_hex = form_data.get("logo_accent_hex")
+    commercial_lean = form_data.get("commercial_lean")
 
     media_lines = []
     if logo_src_token:
@@ -91,6 +92,7 @@ Three dials come directly from the form — do not re-derive them:
 - SCALE (from team_size + large_commercial_contracts) — controls layout density and how much "evidence" structure (stat bars, capability grids) is shown.
 - URGENCY (from urgency field) — controls CTA aggressiveness and contact form complexity.
 These are independent — a low-prestige business can still be large-scale (dense layout, plain type); a high-prestige business can still be small (simple layout, distinctive type).
+PRESTIGE NUDGE — a commercial-majority client should read as a touch more polished/premium *within its PRESTIGE tier* than an otherwise-identical domestic-majority client (e.g. the crisper/more restrained option among that tier's type pairings, tighter grid, slightly more restrained saturation) — commercial clients are typically more design-conscious. This never moves the PRESTIGE tier itself (that's fixed by craft_prestige, not by this) — it's a same-tier lean only, and never overrides craft_prestige. Current lean: {commercial_lean}.
 {media_references_section}
 TYPE — pick one pairing matching the PRESTIGE level, rotate, don't reuse the same pairing as last time:
 - High prestige, heritage/institutional register: Cinzel + EB Garamond + Barlow Condensed
