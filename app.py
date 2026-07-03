@@ -450,6 +450,22 @@ def _logo_file_to_data_uri(path: str, max_dimension: int):
     return _encode_pil_image_to_data_uri(img, max_dimension, jpeg_quality=90), mode, bg_hex, accent_hex
 
 
+def _logo_to_favicon(data_uri: str) -> str | None:
+    """Generate a 32x32 PNG favicon from a logo data URI (center-crop then resize)."""
+    try:
+        _, b64 = data_uri.split(",", 1)
+        img = Image.open(io.BytesIO(base64.b64decode(b64))).convert("RGBA")
+        w, h = img.size
+        side = min(w, h)
+        img = img.crop(((w - side) // 2, (h - side) // 2, (w + side) // 2, (h + side) // 2))
+        img = img.resize((32, 32), Image.LANCZOS)
+        buf = io.BytesIO()
+        img.save(buf, format="PNG", optimize=True)
+        return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+    except Exception:
+        return None
+
+
 def _build_media_placeholders(job_dir, logo_path):
     """
     Scans a lead's upload directory and builds:
@@ -672,6 +688,16 @@ def _run_and_persist(job_id, lead_id, email, business_name, prompt, logo_b64, lo
     if image_placeholders:
         for token, data_uri in image_placeholders.items():
             html = html.replace(token, data_uri)
+        logo_uri = image_placeholders.get("GW_LOGO_SRC")
+        if logo_uri:
+            favicon_uri = _logo_to_favicon(logo_uri)
+            if favicon_uri:
+                head_close = html.find("</head>")
+                favicon_tag = f'<link rel="icon" type="image/png" sizes="32x32" href="{favicon_uri}">'
+                if head_close != -1:
+                    html = html[:head_close] + favicon_tag + html[head_close:]
+                else:
+                    html = favicon_tag + html
     with _jobs_lock:
         _jobs[job_id]["html"] = html
 
