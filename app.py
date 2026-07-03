@@ -1234,13 +1234,13 @@ def admin_generations():
         for g in gens:
             test_badge = '<span class="badge-test">TEST</span>' if (g.lead and g.lead.is_test) else ""
             row_parts.append(
-                '<tr id="gen-row-' + str(g.id) + '" data-email="' + escape(g.email) + '">'
-                '<td>' + (g.business_name or "") + test_badge + "</td><td>" + g.email + "</td>"
-                "<td>" + g.created_at.strftime("%d %b %Y %H:%M") + "</td><td>" + g.status + "</td>"
+                '<tr id="gen-row-' + str(g.id) + '" data-email="' + str(escape(g.email)) + '">'
+                '<td>' + str(escape(g.business_name or "")) + test_badge + "</td><td>" + str(escape(g.email)) + "</td>"
+                "<td>" + g.created_at.strftime("%d %b %Y %H:%M") + "</td><td>" + str(escape(g.status)) + "</td>"
                 '<td><a href="/admin/generations/' + str(g.id) + '/html" target="_blank" rel="noopener">View HTML</a> · '
                 '<a href="/admin/generations/' + str(g.id) + '/form-data" target="_blank" rel="noopener">Form data</a></td>'
                 '<td><a href="#" title="Delete this ENTIRE account" '
-                'onclick="return gwDeleteAccount(' + escape(json.dumps(g.email)) + ')" '
+                'onclick="return gwDeleteAccount(' + str(escape(json.dumps(g.email))) + ')" '
                 'style="color:#9B2B1A;font-weight:800;text-decoration:none;">×</a></td></tr>'
             )
         rows = "".join(row_parts)
