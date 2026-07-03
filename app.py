@@ -1160,7 +1160,9 @@ def job_photo(job_id, filename):
     return send_from_directory(job_dir, filename)
 
 
-# Serve frontend static files (fallback for local dev)
+# Serve frontend static files. Explicit routes above (api/verify/account/admin)
+# take priority over this catch-all regardless of declaration order, since
+# Werkzeug ranks static path segments above the <path:path> converter.
 @app.route("/", defaults={"path": "index.html"})
 @app.route("/<path:path>")
 def frontend(path):
