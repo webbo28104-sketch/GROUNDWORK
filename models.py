@@ -15,11 +15,24 @@ Three tables:
   email string with no uniqueness guarantee — Account is the one place email
   is unique, since a password is an account-level concept, not a per-
   submission one.
+- GenerationImage: one row per embedded image slot (the logo, or one
+  portfolio photo) for a Generation, keyed by `slot` ("logo", "photo_0",
+  "photo_1", ...). Generation.html_content only ever stores the *final*
+  HTML with each image's data URI already substituted in — there's no
+  token marker left afterwards, so nothing in html_content says which
+  embedded data URI belongs to which slot. This table is what makes an
+  image swap possible without parsing/guessing at the HTML: replacing an
+  image is an UPDATE on this row's data_uri, followed by a single
+  known-exact-string replace() of the *old* data_uri (read from this same
+  row) for the new one in html_content — never a blind regex over the HTML.
+  Only populated for generations created after this table was added; older
+  generations have no rows here (see CLAUDE.md) and aren't retroactively
+  editable — the original uploaded files no longer exist to backfill from.
 """
 import os
 from datetime import datetime
 
-from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, ForeignKey, JSON, Boolean, inspect, text
+from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, ForeignKey, JSON, Boolean, UniqueConstraint, inspect, text
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker
 
 Base = declarative_base()
@@ -64,6 +77,24 @@ class Account(Base):
     email = Column(String(255), unique=True, nullable=False, index=True)
     password_hash = Column(String(255))  # nullable until the user sets a password
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class GenerationImage(Base):
+    __tablename__ = "generation_images"
+
+    id = Column(Integer, primary_key=True)
+    generation_id = Column(Integer, ForeignKey("generations.id"), nullable=False, index=True)
+    slot = Column(String(30), nullable=False)  # "logo", "photo_0", "photo_1", ...
+    data_uri = Column(Text, nullable=False)
+    mime = Column(String(100))
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    generation = relationship("Generation", back_populates="images")
+
+    __table_args__ = (UniqueConstraint("generation_id", "slot", name="uq_generation_images_generation_slot"),)
+
+
+Generation.images = relationship("GenerationImage", back_populates="generation", order_by="GenerationImage.slot")
 
 
 def _database_url() -> str:

@@ -16,7 +16,7 @@ from markupsafe import escape
 from werkzeug.security import generate_password_hash, check_password_hash
 
 from build_prompt import build_prompt
-from models import SessionLocal, Lead, Generation, Account, init_db
+from models import SessionLocal, Lead, Generation, Account, GenerationImage, init_db
 from emails import send_verification_email, send_resend_email, send_password_reset_email
 
 app = Flask(__name__, static_folder="frontend", static_url_path="")
@@ -327,6 +327,19 @@ def _run(job_id, prompt, logo_b64, logo_mime):
             _jobs[job_id] = {"status": "error", "error": str(exc)}
 
 
+def _token_to_slot(token: str) -> str:
+    """GW_LOGO_SRC -> "logo", GW_PHOTO_SRC_0 -> "photo_0" — the GenerationImage.slot value."""
+    if token == "GW_LOGO_SRC":
+        return "logo"
+    if token.startswith("GW_PHOTO_SRC_"):
+        return "photo_" + token[len("GW_PHOTO_SRC_"):]
+    return token
+
+
+def _data_uri_mime(data_uri: str) -> str:
+    return data_uri.split(";", 1)[0].removeprefix("data:") if data_uri.startswith("data:") else ""
+
+
 def _run_and_persist(job_id, lead_id, email, business_name, prompt, logo_b64, logo_mime, image_placeholders=None):
     _run(job_id, prompt, logo_b64, logo_mime)
     with _jobs_lock:
@@ -343,13 +356,24 @@ def _run_and_persist(job_id, lead_id, email, business_name, prompt, logo_b64, lo
 
     db = SessionLocal()
     try:
-        db.add(Generation(
+        gen = Generation(
             lead_id=lead_id,
             email=email,
             business_name=business_name,
             html_content=html,
             status="draft",
-        ))
+        )
+        db.add(gen)
+        db.flush()  # assigns gen.id for the GenerationImage rows below
+
+        for token, data_uri in (image_placeholders or {}).items():
+            db.add(GenerationImage(
+                generation_id=gen.id,
+                slot=_token_to_slot(token),
+                data_uri=data_uri,
+                mime=_data_uri_mime(data_uri),
+            ))
+
         db.commit()
     finally:
         db.close()
@@ -605,8 +629,69 @@ function gwTogglePw(id, btn){{
   el.type = showing ? 'password' : 'text';
   btn.textContent = showing ? 'Show' : 'Hide';
 }}
+
+async function gwUploadImage(genId, slot, input){{
+  const file = input.files[0];
+  if (!file) return;
+  const statusEl = document.getElementById(`gw-img-${{genId}}-${{slot}}-status`);
+  const previewEl = document.getElementById(`gw-img-${{genId}}-${{slot}}-preview`);
+  statusEl.textContent = 'Uploading…';
+  const fd = new FormData();
+  fd.append('image', file);
+  try {{
+    const r = await fetch(`/api/account/generations/${{genId}}/images/${{slot}}`, {{
+      method: 'POST', body: fd, credentials: 'same-origin'
+    }});
+    const data = await r.json().catch(() => ({{}}));
+    if (!r.ok) throw new Error(data.error || ('Upload failed (' + r.status + ')'));
+    previewEl.src = data.data_uri;
+    statusEl.textContent = 'Updated ✓';
+    setTimeout(() => {{ statusEl.textContent = ''; }}, 2500);
+  }} catch (err) {{
+    statusEl.textContent = 'Failed — try again';
+  }} finally {{
+    input.value = '';
+  }}
+}}
 </script>
 </body></html>"""
+
+
+_SLOT_LABELS = {"logo": "Logo"}
+
+
+def _slot_label(slot: str) -> str:
+    if slot in _SLOT_LABELS:
+        return _SLOT_LABELS[slot]
+    if slot.startswith("photo_"):
+        return "Photo " + str(int(slot[len("photo_"):]) + 1)
+    return slot
+
+
+def _render_image_manager(gen_id: int, images) -> str:
+    if not images:
+        return (
+            '<p style="margin:12px 0 0;font-size:13px;color:#807E79;">'
+            'Logo/photo editing isn\'t available for this site — regenerate it to enable it.</p>'
+        )
+    tiles = []
+    for img in images:
+        input_id = f"gw-img-{gen_id}-{img.slot}"
+        tiles.append(f"""<div style="text-align:center;">
+          <img id="{input_id}-preview" src="{img.data_uri}" alt="{escape(_slot_label(img.slot))}"
+               style="width:72px;height:72px;object-fit:cover;border-radius:8px;border:1px solid #E6E3DC;background:#fff;display:block;margin:0 auto 6px;">
+          <div style="font-size:12px;color:#807E79;margin-bottom:6px;">{escape(_slot_label(img.slot))}</div>
+          <label style="display:inline-block;font-size:12.5px;font-weight:600;color:#3B82F6;cursor:pointer;">
+            Change
+            <input id="{input_id}" type="file" accept="image/*" style="display:none;"
+                   onchange="gwUploadImage({gen_id},'{img.slot}',this)">
+          </label>
+          <div id="{input_id}-status" style="font-size:11.5px;color:#807E79;margin-top:2px;"></div>
+        </div>""")
+    return (
+        '<div style="display:flex;gap:18px;flex-wrap:wrap;margin-top:14px;padding-top:14px;border-top:1px solid #EDEBE5;">'
+        + "".join(tiles) + "</div>"
+    )
 
 
 def _render_dashboard(email: str) -> str:
@@ -626,8 +711,11 @@ def _render_dashboard(email: str) -> str:
                         'style="display:inline-block;background:#3B82F6;color:#fff;font-weight:700;font-size:14.5px;'
                         'text-decoration:none;padding:11px 18px;border-radius:9px;">Go live →</a>'
                     )
+                images = db.query(GenerationImage).filter(GenerationImage.generation_id == g.id).all()
+                image_manager = _render_image_manager(g.id, images)
                 card_parts.append(
-                    '<div class="acct-card" style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;">'
+                    '<div class="acct-card">'
+                    '<div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;">'
                     '<div>'
                     '<div style="font-weight:700;font-size:17px;">' + business_label + '</div>'
                     '<div style="font-size:13.5px;color:#807E79;margin-top:3px;">Generated '
@@ -639,6 +727,8 @@ def _render_dashboard(email: str) -> str:
                     'text-decoration:none;border:1px solid #D9D7D0;padding:11px 18px;border-radius:9px;">View site →</a>'
                     + go_live_link +
                     '</div>'
+                    '</div>'
+                    + image_manager +
                     '</div>'
                 )
             cards = "".join(card_parts)
@@ -903,6 +993,86 @@ def account_logout():
 def api_account_session():
     email = session.get("account_email")
     return jsonify({"logged_in": bool(email), "email": email})
+
+
+def account_required(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if not session.get("account_email"):
+            return jsonify({"error": "not_authenticated"}), 401
+        return view(*args, **kwargs)
+    return wrapped
+
+
+@app.route("/api/account/generations/<int:gen_id>/images")
+@account_required
+def api_generation_images(gen_id):
+    """Current logo/photo slots for a generation the signed-in account owns —
+    lets the dashboard show what's live without parsing html_content."""
+    email = session["account_email"]
+    db = SessionLocal()
+    try:
+        gen = db.query(Generation).filter(Generation.id == gen_id, Generation.email == email).first()
+        if not gen:
+            return jsonify({"error": "not_found"}), 404
+        images = db.query(GenerationImage).filter(GenerationImage.generation_id == gen_id).all()
+        return jsonify({"images": [{"slot": img.slot, "data_uri": img.data_uri} for img in images]})
+    finally:
+        db.close()
+
+
+@app.route("/api/account/generations/<int:gen_id>/images/<slot>", methods=["POST"])
+@account_required
+def api_update_generation_image(gen_id, slot):
+    """
+    Replaces one image slot (logo / photo_N) on a generation the signed-in
+    account owns. Reuses the exact same Pillow processing used at generation
+    time (_logo_file_to_data_uri / _image_file_to_data_uri), then swaps the
+    old data URI for the new one in html_content via a single exact-string
+    replace() — safe because GenerationImage.data_uri is the literal string
+    that was substituted into html_content in the first place, so we know
+    precisely what to look for. No HTML parsing/regex involved.
+    """
+    email = session["account_email"]
+    file = request.files.get("image")
+    if not file or not file.filename:
+        return jsonify({"error": "no_file"}), 400
+
+    db = SessionLocal()
+    try:
+        gen = db.query(Generation).filter(Generation.id == gen_id, Generation.email == email).first()
+        if not gen:
+            return jsonify({"error": "not_found"}), 404
+
+        img_row = db.query(GenerationImage).filter(
+            GenerationImage.generation_id == gen_id, GenerationImage.slot == slot
+        ).first()
+        if not img_row:
+            # No tracked row for this slot — either an old generation predating
+            # this feature, or an unrecognised slot name. Nothing safe to swap.
+            return jsonify({"error": "slot_not_editable"}), 404
+
+        tmp_path = os.path.join(UPLOAD_DIR, f"_edit_{uuid.uuid4().hex}_{file.filename}")
+        file.save(tmp_path)
+        try:
+            if slot == "logo":
+                new_data_uri, _mode = _logo_file_to_data_uri(tmp_path, max_dimension=480)
+            else:
+                new_data_uri = _image_file_to_data_uri(tmp_path, max_dimension=1600)
+        finally:
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+
+        gen.html_content = gen.html_content.replace(img_row.data_uri, new_data_uri)
+        img_row.data_uri = new_data_uri
+        img_row.mime = _data_uri_mime(new_data_uri)
+        db.commit()
+
+        return jsonify({"status": "ok", "slot": slot, "data_uri": new_data_uri})
+    finally:
+        db.close()
 
 
 def admin_required(view):
