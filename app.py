@@ -1123,10 +1123,12 @@ def admin_generations():
         for g in gens:
             test_badge = '<span class="badge-test">TEST</span>' if (g.lead and g.lead.is_test) else ""
             row_parts.append(
-                "<tr><td>" + (g.business_name or "") + test_badge + "</td><td>" + g.email + "</td>"
+                '<tr id="gen-row-' + str(g.id) + '"><td>' + (g.business_name or "") + test_badge + "</td><td>" + g.email + "</td>"
                 "<td>" + g.created_at.strftime("%d %b %Y %H:%M") + "</td><td>" + g.status + "</td>"
                 '<td><a href="/admin/generations/' + str(g.id) + '/html" target="_blank" rel="noopener">View HTML</a> · '
-                '<a href="/admin/generations/' + str(g.id) + '/form-data" target="_blank" rel="noopener">Form data</a></td></tr>'
+                '<a href="/admin/generations/' + str(g.id) + '/form-data" target="_blank" rel="noopener">Form data</a></td>'
+                '<td><a href="#" title="Delete this generation" onclick="return gwDeleteGeneration(' + str(g.id) + ', this)" '
+                'style="color:#9B2B1A;font-weight:800;text-decoration:none;">×</a></td></tr>'
             )
         rows = "".join(row_parts)
         return render_template_string(f"""<!DOCTYPE html><html><head><meta charset="utf-8">
@@ -1135,8 +1137,22 @@ def admin_generations():
 <h1>All generations ({len(gens)})
 <a href="/admin/generate-test" style="float:right;font-size:13px;margin-left:18px;">+ Generate test site</a>
 <a href="/admin/logout" style="float:right;font-size:13px;">Log out</a></h1>
-<table><thead><tr><th>Business</th><th>Email</th><th>Created</th><th>Status</th><th>Links</th></tr></thead>
-<tbody>{rows}</tbody></table></div></body></html>""")
+<table><thead><tr><th>Business</th><th>Email</th><th>Created</th><th>Status</th><th>Links</th><th></th></tr></thead>
+<tbody>{rows}</tbody></table></div>
+<script>
+async function gwDeleteGeneration(genId, link) {{
+  if (!confirm('Delete this generation? This cannot be undone.')) return false;
+  try {{
+    const r = await fetch(`/admin/generations/${{genId}}`, {{method: 'DELETE', credentials: 'same-origin'}});
+    if (!r.ok) throw new Error('Delete failed (' + r.status + ')');
+    document.getElementById(`gen-row-${{genId}}`).remove();
+  }} catch (err) {{
+    alert(err.message);
+  }}
+  return false;
+}}
+</script>
+</body></html>""")
     finally:
         db.close()
 
@@ -1231,6 +1247,22 @@ def admin_generate_test():
         _kickoff_generation(lead)
 
         return redirect(f"/loading.html?id={lead.public_id}")
+    finally:
+        db.close()
+
+
+@app.route("/admin/generations/<int:gen_id>", methods=["DELETE"])
+@admin_required
+def admin_delete_generation(gen_id):
+    db = SessionLocal()
+    try:
+        gen = db.get(Generation, gen_id)
+        if not gen:
+            return jsonify({"error": "not_found"}), 404
+        db.query(GenerationImage).filter(GenerationImage.generation_id == gen_id).delete()
+        db.delete(gen)
+        db.commit()
+        return jsonify({"status": "deleted"})
     finally:
         db.close()
 
