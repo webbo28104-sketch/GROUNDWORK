@@ -25,13 +25,14 @@ def build_prompt(form_data: dict) -> str:
     photo_src_tokens (list[str]) — literal placeholder strings, one per
         portfolio photo, in display order; substituted the same way.
     """
-    MEDIA_KEYS = {"logo_src_token", "photo_src_tokens"}
+    MEDIA_KEYS = {"logo_src_token", "photo_src_tokens", "logo_bg_hex"}
 
     facts = "\n".join(f"- {k}: {v}" for k, v in form_data.items() if v and k not in MEDIA_KEYS)
     current_year = datetime.now().year
 
     logo_src_token = form_data.get("logo_src_token")
     photo_src_tokens = form_data.get("photo_src_tokens") or []
+    logo_bg_hex = form_data.get("logo_bg_hex")
 
     media_lines = []
     if logo_src_token:
@@ -39,6 +40,15 @@ def build_prompt(form_data: dict) -> str:
             f'- Logo: use exactly this literal string as the logo <img> src attribute: {logo_src_token} '
             f'— copy it verbatim, character for character. Do not modify it, do not invent a different path, '
             f'filename, or data URI of your own.'
+        )
+    if logo_bg_hex:
+        media_lines.append(
+            f'- The logo image already has a solid background baked in at exactly {logo_bg_hex} (it could not be '
+            f'cleanly cut out — the original had a busy/gradient backdrop, so it was placed on a matching flat '
+            f'chip instead). You MUST set the nav bar\'s own background colour to this exact hex, {logo_bg_hex}, '
+            f'so the logo\'s background blends invisibly into the nav rather than appearing as a mismatched box. '
+            f'Build the rest of the palette to work with {logo_bg_hex} as the nav surface colour — do not pick a '
+            f'different nav background just because it seems like a better palette fit.'
         )
     if photo_src_tokens:
         tokens_list = ", ".join(photo_src_tokens)
@@ -88,6 +98,7 @@ PALETTE:
 - Modulate saturation by PRESTIGE (high=restrained/near-monochrome with one sparing accent; low=bolder, more saturated, accent used often).
 - Modulate structural colour count by SCALE (sole trader=one accent only; large=accent + secondary category colour + neutral structural greys).
 - Before finalizing, ask: "is this palette specific to this business, or would it be my generic answer for any business like this?" If generic, revise.
+- Every body/paragraph text colour must reach at least a 4.5:1 contrast ratio against the surface it sits on (WCAG AA). Never use a light/pastel tone for readable body copy on a white or light surface — reserve light tints for large decorative elements (backgrounds, dividers, icons), not text meant to be read.
 
 LAYOUT DENSITY (by SCALE):
 - Sole trader: 1-2 column grids, generous whitespace, no stat bar.

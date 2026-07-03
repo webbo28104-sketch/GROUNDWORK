@@ -113,15 +113,18 @@ def _process_logo(path: str, max_dimension: int):
       with a light blur on the alpha edge to avoid a harsh cutout ring.
     - If the border isn't uniform (photo/gradient/busy background), don't
       attempt removal — instead bake the logo into a small rounded-rect chip
-      filled with the dominant border colour, so a deliberately different
-      background reads as an intentional badge rather than a mismatched
-      rectangle.
+      filled with the dominant border colour. That colour is also returned
+      (as bg_hex) so the caller can force the generated site's nav background
+      to the exact same hex — at that point the chip's fill and the nav
+      behind it are identical, so the rounded-rect edge is invisible and the
+      logo reads as part of the page rather than a pasted-in badge.
     - Any failure, or an image too small/ambiguous to trust, falls back to
       today's plain behaviour (resize + encode as-is) rather than risking a
       mangled result.
 
-    Returns (mode, PIL.Image) where mode is "as_is", "transparent", or "chip",
-    purely for the caller/tests to report which path was taken.
+    Returns (mode, PIL.Image, bg_hex) where mode is "as_is", "transparent", or
+    "chip", and bg_hex is the chip's fill colour as "#rrggbb" (only set when
+    mode == "chip", otherwise None).
     """
     try:
         with Image.open(path) as raw:
@@ -129,11 +132,11 @@ def _process_logo(path: str, max_dimension: int):
 
         w, h = img.size
         if min(w, h) < _MIN_LOGO_DIMENSION:
-            return "as_is", img
+            return "as_is", img, None
 
         already_transparent = img.mode == "RGBA" and img.getchannel("A").getextrema()[0] < 255
         if already_transparent:
-            return "as_is", img
+            return "as_is", img, None
 
         img_rgb = img.convert("RGB")
         samples = _sample_border_points(img_rgb)
@@ -142,7 +145,8 @@ def _process_logo(path: str, max_dimension: int):
 
         if spread > _BG_UNIFORM_TOLERANCE:
             # Busy/gradient background — badge it instead of cutting it out.
-            return "chip", _make_logo_chip(img, bg_colour, max_dimension)
+            bg_hex = "#{:02x}{:02x}{:02x}".format(*bg_colour)
+            return "chip", _make_logo_chip(img, bg_colour, max_dimension), bg_hex
 
         # Uniform background — flood-fill it away from all four corners.
         marker = (1, 2, 3)
@@ -166,16 +170,17 @@ def _process_logo(path: str, max_dimension: int):
 
         if transparent_count == 0 or (transparent_count / (w * h)) > _MAX_TRANSPARENT_FRACTION:
             # Nothing removed, or removal ate almost the whole logo — misdetection, bail out safely.
-            return "as_is", img
+            return "as_is", img, None
 
         alpha = alpha.filter(ImageFilter.GaussianBlur(radius=1.0))
         out = img.convert("RGBA")
         out.putalpha(alpha)
-        return "transparent", out
+        return "transparent", out, None
 
     except Exception:
         with Image.open(path) as raw:
-            return "as_is", raw.convert("RGBA") if raw.mode in ("RGBA", "LA", "P") else raw.convert("RGB")
+            img = raw.convert("RGBA") if raw.mode in ("RGBA", "LA", "P") else raw.convert("RGB")
+            return "as_is", img, None
 
 
 def _make_logo_chip(img, bg_colour: tuple, max_dimension: int) -> "Image.Image":
@@ -233,12 +238,12 @@ def _image_file_to_data_uri(path: str, max_dimension: int, jpeg_quality: int = 8
 def _logo_file_to_data_uri(path: str, max_dimension: int):
     """
     Logo-specific: runs background detection/removal (_process_logo) before
-    encoding, then encodes the result. Returns (data_uri, mode) where mode is
-    "as_is" / "transparent" / "chip" — useful for logging/testing which path
-    was taken; callers that don't care can just use the data_uri.
+    encoding, then encodes the result. Returns (data_uri, mode, bg_hex) where
+    mode is "as_is" / "transparent" / "chip", and bg_hex is the chip's fill
+    colour (only set when mode == "chip", see _process_logo).
     """
-    mode, img = _process_logo(path, max_dimension)
-    return _encode_pil_image_to_data_uri(img, max_dimension, jpeg_quality=90), mode
+    mode, img, bg_hex = _process_logo(path, max_dimension)
+    return _encode_pil_image_to_data_uri(img, max_dimension, jpeg_quality=90), mode, bg_hex
 
 
 def _build_media_placeholders(job_dir, logo_path):
@@ -257,9 +262,14 @@ def _build_media_placeholders(job_dir, logo_path):
         logo_file = os.path.join(job_dir, logo_path)
         if os.path.exists(logo_file):
             token = "GW_LOGO_SRC"
-            data_uri, _mode = _logo_file_to_data_uri(logo_file, max_dimension=480)
+            data_uri, mode, bg_hex = _logo_file_to_data_uri(logo_file, max_dimension=480)
             image_placeholders[token] = data_uri
             build_overrides["logo_src_token"] = token
+            if mode == "chip" and bg_hex:
+                # The logo was baked onto a solid-colour chip (busy/gradient
+                # original background) — force the nav to that exact hex so
+                # the chip's edge is invisible against it, not a mismatched box.
+                build_overrides["logo_bg_hex"] = bg_hex
 
     if os.path.isdir(job_dir):
         photo_files = sorted(f for f in os.listdir(job_dir) if f.startswith("photo_"))
@@ -329,6 +339,105 @@ def _run(job_id, prompt, logo_b64, logo_mime):
             _jobs[job_id] = {"status": "error", "error": str(exc)}
 
 
+def _hex_to_rgb(hex_color: str):
+    h = hex_color.lstrip("#")
+    if len(h) == 3:
+        h = "".join(c * 2 for c in h)
+    return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
+
+
+def _relative_luminance(rgb) -> float:
+    def chan(c):
+        c = c / 255
+        return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+    r, g, b = rgb
+    return 0.2126 * chan(r) + 0.7152 * chan(g) + 0.0722 * chan(b)
+
+
+def _contrast_ratio(hex_a: str, hex_b: str) -> float:
+    lum_a = _relative_luminance(_hex_to_rgb(hex_a))
+    lum_b = _relative_luminance(_hex_to_rgb(hex_b))
+    lighter, darker = max(lum_a, lum_b), min(lum_a, lum_b)
+    return (lighter + 0.05) / (darker + 0.05)
+
+
+def _adjust_to_contrast(hex_color: str, bg_hex: str, min_ratio: float = 4.5) -> str:
+    """Darkens hex_color (or lightens it, against a dark bg) in HSL space,
+    one step at a time, until it clears min_ratio against bg_hex. Gives up
+    and returns the last value tried if it can't get there (near-black vs
+    near-white text should always converge well before that)."""
+    import colorsys
+    r, g, b = _hex_to_rgb(hex_color)
+    h, l, s = colorsys.rgb_to_hls(r / 255, g / 255, b / 255)
+    darken = _relative_luminance(_hex_to_rgb(bg_hex)) > 0.5
+
+    for _ in range(48):
+        if _contrast_ratio(hex_color, bg_hex) >= min_ratio:
+            break
+        l = max(0.0, l - 0.02) if darken else min(1.0, l + 0.02)
+        r2, g2, b2 = colorsys.hls_to_rgb(h, l, s)
+        hex_color = "#{:02x}{:02x}{:02x}".format(round(r2 * 255), round(g2 * 255), round(b2 * 255))
+        if l <= 0.0 or l >= 1.0:
+            break
+    return hex_color
+
+
+_TEXT_COLOR_RE = re.compile(r"(?<![\w-])color:\s*(#[0-9a-fA-F]{6}|#[0-9a-fA-F]{3})\b", re.IGNORECASE)
+_BODY_BG_RE = re.compile(r"<body[^>]*style=\"[^\"]*?background(?:-color)?:\s*(#[0-9a-fA-F]{6}|#[0-9a-fA-F]{3})", re.IGNORECASE)
+_BODY_RULE_BG_RE = re.compile(r"body\s*\{[^}]*?background(?:-color)?:\s*(#[0-9a-fA-F]{6}|#[0-9a-fA-F]{3})", re.IGNORECASE)
+_BACKGROUND_PROP_RE = re.compile(r"background(-color)?:", re.IGNORECASE)
+_STYLE_ATTR_RE = re.compile(r'style="([^"]*)"')
+_CSS_RULE_RE = re.compile(r"\{([^{}]*)\}")
+
+
+def _fix_low_contrast_text(html: str, min_ratio: float = 4.5) -> str:
+    """
+    Best-effort WCAG AA contrast pass over the generated HTML. There's no
+    contrast validation anywhere else in the pipeline — colours are otherwise
+    entirely trusted from the model's output. This is not a full CSS cascade
+    resolver: it assumes one dominant page background (true for these
+    single-file, single-surface generated sites — no dark-mode toggle, no
+    per-section theme switching per the design spec).
+
+    To avoid "fixing" a colour pair that's actually fine — e.g. white nav
+    text that's only low-contrast against the *page* background because it's
+    actually sitting on the nav's own, different, deliberately-set
+    background — a `color:` declaration is only checked/adjusted when the
+    same inline style attribute or CSS rule block does NOT also set its own
+    background. A rule with both is self-contained (its own local backdrop)
+    and can't be safely judged against the page background at all, so it's
+    left untouched rather than risk making it worse.
+
+    Every failing `color:` found in an eligible (no local background) block
+    is replaced with an adjusted hex (darkened/lightened in HSL space,
+    preserving hue) that clears min_ratio, scoped to just that declaration —
+    never a document-wide string replace of the hex value, since the same
+    hex could legitimately appear elsewhere in an unrelated background/border.
+    """
+    bg_match = _BODY_BG_RE.search(html) or _BODY_RULE_BG_RE.search(html)
+    bg_hex = bg_match.group(1) if bg_match else "#ffffff"
+
+    def _fix_block(block: str) -> str:
+        if _BACKGROUND_PROP_RE.search(block):
+            return block
+
+        def repl(m):
+            hex_color = m.group(1)
+            try:
+                if _contrast_ratio(hex_color, bg_hex) >= min_ratio:
+                    return m.group(0)
+                fixed = _adjust_to_contrast(hex_color, bg_hex, min_ratio)
+            except Exception:
+                return m.group(0)
+            return m.group(0).replace(hex_color, fixed)
+
+        return _TEXT_COLOR_RE.sub(repl, block)
+
+    html = _STYLE_ATTR_RE.sub(lambda m: 'style="' + _fix_block(m.group(1)) + '"', html)
+    html = _CSS_RULE_RE.sub(lambda m: "{" + _fix_block(m.group(1)) + "}", html)
+    return html
+
+
 def _token_to_slot(token: str) -> str:
     """GW_LOGO_SRC -> "logo", GW_PHOTO_SRC_0 -> "photo_0" — the GenerationImage.slot value."""
     if token == "GW_LOGO_SRC":
@@ -349,12 +458,12 @@ def _run_and_persist(job_id, lead_id, email, business_name, prompt, logo_b64, lo
     if not job or job.get("status") != "done":
         return
 
-    html = job["html"]
+    html = _fix_low_contrast_text(job["html"])
     if image_placeholders:
         for token, data_uri in image_placeholders.items():
             html = html.replace(token, data_uri)
-        with _jobs_lock:
-            _jobs[job_id]["html"] = html
+    with _jobs_lock:
+        _jobs[job_id]["html"] = html
 
     db = SessionLocal()
     try:
@@ -1058,7 +1167,7 @@ def api_update_generation_image(gen_id, slot):
         file.save(tmp_path)
         try:
             if slot == "logo":
-                new_data_uri, _mode = _logo_file_to_data_uri(tmp_path, max_dimension=480)
+                new_data_uri, _mode, _bg_hex = _logo_file_to_data_uri(tmp_path, max_dimension=480)
             else:
                 new_data_uri = _image_file_to_data_uri(tmp_path, max_dimension=1600)
         finally:
@@ -1251,9 +1360,65 @@ def admin_generate_test():
 
         _kickoff_generation(lead)
 
-        return redirect(f"/loading.html?id={lead.public_id}")
+        return redirect(f"/admin/wait/{lead.public_id}")
     finally:
         db.close()
+
+
+@app.route("/admin/wait/<public_id>")
+@admin_required
+def admin_wait(public_id):
+    """
+    Admin-only equivalent of frontend/loading.html — polls until the
+    generation is done, then goes straight to the unwatermarked HTML view
+    (/admin/generations/<gen_id>/html), skipping the "your preview is ready"
+    landing page real signups see before their Go-live decision. That page is
+    intentional conversion scaffolding for real users; admin testing has no
+    purchase decision to make, so it's pure friction here.
+    """
+    return render_template_string(f"""<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>Admin — generating…</title><style>{_PAGE_STYLE}</style></head>
+<body><div class="wrap" style="max-width:640px;text-align:center;">
+<h1>Generating…</h1>
+<p class="muted" id="status-msg">Building the test site — this usually takes under a minute.</p>
+</div>
+<script>
+async function poll() {{
+  try {{
+    const r = await fetch('/admin/generate-test/status/{public_id}');
+    const data = await r.json();
+    if (data.status === 'done' && data.gen_id) {{
+      window.location.href = `/admin/generations/${{data.gen_id}}/html`;
+      return;
+    }}
+    if (data.status === 'error') {{
+      document.getElementById('status-msg').textContent = 'Generation failed: ' + (data.error || 'unknown error');
+      return;
+    }}
+  }} catch (e) {{}}
+  setTimeout(poll, 2000);
+}}
+poll();
+</script>
+</body></html>""")
+
+
+@app.route("/admin/generate-test/status/<public_id>")
+@admin_required
+def admin_generate_test_status(public_id):
+    with _jobs_lock:
+        job = _jobs.get(public_id)
+    if job and job["status"] == "error":
+        return jsonify({"status": "error", "error": job.get("error", "Unknown error")})
+
+    db = SessionLocal()
+    try:
+        gen = db.query(Generation).join(Lead).filter(Lead.public_id == public_id).first()
+        if gen:
+            return jsonify({"status": "done", "gen_id": gen.id})
+    finally:
+        db.close()
+    return jsonify({"status": "pending"})
 
 
 @app.route("/admin/accounts/<path:email>", methods=["DELETE"])
