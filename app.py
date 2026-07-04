@@ -1989,6 +1989,30 @@ def admin_generate_test_status(public_id):
     return jsonify({"status": "pending"})
 
 
+@app.route("/admin/generations/<int:gen_id>/email", methods=["POST"])
+@admin_required
+def admin_update_generation_email(gen_id):
+    """Update the destination email for a generation's contact form — used when
+    the site was set up with a test/wrong email and needs correcting without
+    regenerating the whole site."""
+    new_email = (request.json or {}).get("email", "").strip().lower()
+    if not new_email or "@" not in new_email:
+        return jsonify({"error": "valid email required"}), 400
+    db = SessionLocal()
+    try:
+        gen = db.get(Generation, gen_id)
+        if not gen:
+            return jsonify({"error": "not found"}), 404
+        old_email = gen.email
+        gen.email = new_email
+        gen.lead.email = new_email
+        db.commit()
+        app.logger.info(f"Admin updated gen {gen_id} email: {old_email!r} → {new_email!r}")
+        return jsonify({"ok": True, "old_email": old_email, "new_email": new_email})
+    finally:
+        db.close()
+
+
 @app.route("/admin/accounts/<path:email>", methods=["DELETE"])
 @admin_required
 def admin_delete_account(email):
