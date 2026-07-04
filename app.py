@@ -1380,18 +1380,17 @@ def _render_dashboard(email: str) -> str:
                 business_label = g.business_name or "Untitled site"
                 status_label = "Live" if g.status == "live" else "Draft — not yet published"
                 go_live_link = ""
-                edit_text_link = ""
                 if g.status != "live":
                     go_live_link = (
                         '<a href="/checkout.html?id=' + g.lead.public_id + '" '
                         'style="display:inline-block;background:#3B82F6;color:#fff;font-weight:700;font-size:14.5px;'
                         'text-decoration:none;padding:11px 18px;border-radius:9px;">Go live →</a>'
                     )
-                    edit_text_link = (
-                        '<a href="/editor.html?id=' + g.lead.public_id + '" '
-                        'style="display:inline-block;background:#fff;color:#1C1C1C;font-weight:600;font-size:14px;'
-                        'text-decoration:none;border:1px solid #D9D7D0;padding:11px 18px;border-radius:9px;">Edit text</a>'
-                    )
+                edit_text_link = (
+                    '<a href="/editor.html?id=' + g.lead.public_id + '" '
+                    'style="display:inline-block;background:#fff;color:#1C1C1C;font-weight:600;font-size:14px;'
+                    'text-decoration:none;border:1px solid #D9D7D0;padding:11px 18px;border-radius:9px;">Edit text</a>'
+                )
                 images = db.query(GenerationImage).filter(GenerationImage.generation_id == g.id).all()
                 image_manager = _render_image_manager(g.id, images)
                 card_parts.append(
