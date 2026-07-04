@@ -13,12 +13,16 @@ import resend
 ACCENT = "#3B82F6"
 
 
-def _send(to_email: str, subject: str, html_content: str, reply_to: str = None) -> None:
+def _send(to_email: str, subject: str, html_content: str, reply_to: str = None,
+          raise_on_error: bool = False) -> None:
     api_key = os.environ.get("RESEND_API_KEY")
     from_email = os.environ.get("RESEND_FROM_EMAIL", "groundwork-build@outlook.com")
 
     if not api_key:
-        print(f"[emails] RESEND_API_KEY not set — skipping send of '{subject}' to {to_email}")
+        msg = f"[emails] RESEND_API_KEY not set — skipping send of '{subject}' to {to_email}"
+        print(msg)
+        if raise_on_error:
+            raise RuntimeError(msg)
         return
 
     resend.api_key = api_key
@@ -34,6 +38,8 @@ def _send(to_email: str, subject: str, html_content: str, reply_to: str = None) 
         resend.Emails.send(payload)
     except Exception as exc:
         print(f"[emails] failed to send '{subject}' to {to_email}: {exc}")
+        if raise_on_error:
+            raise
 
 
 def _wrapper(preheader: str, heading: str, body_html: str, cta_url: str, cta_label: str) -> str:
@@ -119,7 +125,8 @@ def send_enquiry_email(to_email: str, business_name: str, visitor_name: str,
     </div>
   </div>
 </div>"""
-    _send(to_email, f"New enquiry from {visitor_name} — {biz_esc}", html, reply_to=visitor_email)
+    _send(to_email, f"New enquiry from {visitor_name} — {biz_esc}", html,
+          reply_to=visitor_email, raise_on_error=True)
 
 
 def send_support_message_email(from_email: str, message: str) -> None:

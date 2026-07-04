@@ -2165,11 +2165,13 @@ def contact_form():
     finally:
         db.close()
 
+    app.logger.info(f"Contact form: site={site_id} to={to_email} from_visitor={email_addr}")
     try:
         send_enquiry_email(to_email, business_name, name, email_addr, phone, message)
+        app.logger.info(f"Contact form: sent successfully to {to_email}")
         return jsonify({"ok": True})
     except Exception as exc:
-        app.logger.error(f"Contact form send failed for site {site_id}: {exc}")
+        app.logger.error(f"Contact form send failed for site {site_id} to {to_email}: {exc}")
         return jsonify({"ok": False, "error": "Sorry, we couldn't send your message. Please call or email us directly."}), 500
 
 
