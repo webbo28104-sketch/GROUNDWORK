@@ -100,7 +100,13 @@ a:focus-visible,button:focus-visible{outline:3px solid #3B82F6;outline-offset:2p
     <div class="sidebar" id="sidebar">
       <div class="sidebar-scroll" id="sidebar-scroll">
 
-        <p style="margin:0 0 14px;font-size:13px;color:#807E79;line-height:1.5;">Click any text in the preview to jump to it here, or edit directly. Changes save automatically.</p>
+        <p id="sidebar-intro" style="margin:0 0 14px;font-size:13px;color:#807E79;line-height:1.5;">Click any text in the preview to jump to it here, or edit directly. Changes save automatically.</p>
+
+        <!-- Shown for live sites only -->
+        <div id="live-notice" style="display:none;background:#FEF3C7;border:1px solid #FCD34D;border-radius:9px;padding:13px 14px;margin-bottom:14px;">
+          <div style="font-size:12.5px;font-weight:700;color:#92400E;margin-bottom:4px;">Your site is live</div>
+          <p style="margin:0;font-size:12.5px;color:#78350F;line-height:1.5;">Changes you make here are saved to your account. We'll apply them to your live site within <strong>3 working days</strong> and email you when they're done.</p>
+        </div>
 
         <div id="loading-state" style="text-align:center;padding:32px 0;color:#807E79;font-size:14px;">Loading…</div>
 
@@ -146,11 +152,12 @@ if (jobId) {
 // ── Sidebar toggle ────────────────────────────────────────────────────────────
 
 let sidebarOpen = false;
+let baseToggleLabel = 'Edit text'; // updated to 'Edit requests' for live sites
 
 function toggleSidebar() {
   sidebarOpen = !sidebarOpen;
   document.getElementById('sidebar').classList.toggle('open', sidebarOpen);
-  document.getElementById('edit-toggle-label').textContent = sidebarOpen ? 'Close editor' : 'Edit text';
+  document.getElementById('edit-toggle-label').textContent = sidebarOpen ? 'Close editor' : baseToggleLabel;
 }
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
@@ -290,8 +297,19 @@ async function load() {
     return;
   }
 
+  const isLive = d.status === 'live';
+
+  if (isLive) {
+    document.getElementById('live-notice').style.display = 'block';
+    // Live site: hide "Go live" buttons (already live)
+    document.getElementById('checkout-link').style.display = 'none';
+    // Rename the toggle button so it's clear this is a change-request flow
+    baseToggleLabel = 'Edit requests';
+    document.getElementById('edit-toggle-label').textContent = 'Edit requests';
+  }
+
   render(d.fields);
-  document.getElementById('sidebar-footer').style.display = 'block';
+  if (!isLive) document.getElementById('sidebar-footer').style.display = 'block';
 }
 
 // ── Render sidebar fields ─────────────────────────────────────────────────────

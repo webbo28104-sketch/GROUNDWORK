@@ -129,6 +129,23 @@ def send_enquiry_email(to_email: str, business_name: str, visitor_name: str,
           reply_to=visitor_email, raise_on_error=True)
 
 
+def send_changes_live_email(to_email: str, business_name: str) -> None:
+    """Notify a customer that their requested text edits have been applied to their live site."""
+    biz = business_name or "your website"
+    html = _wrapper(
+        preheader="Your requested changes are now live on your Groundwork website.",
+        heading="Your changes are live",
+        body_html=(
+            f"Good news — the text changes you requested for <strong>{escape(biz)}</strong> "
+            f"have been applied and are now showing on your live website. "
+            f"If you'd like to make any further changes, just visit your account and use the editor."
+        ),
+        cta_url="https://groundworkbuild.com/account",
+        cta_label="View your account →",
+    )
+    _send(to_email, f"Your changes are live — {escape(biz)}", html)
+
+
 def send_support_message_email(from_email: str, message: str) -> None:
     """
     Forwards a message submitted from the account dashboard straight to the

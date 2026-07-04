@@ -63,6 +63,7 @@ class Generation(Base):
     email = Column(String(255), nullable=False, index=True)
     business_name = Column(String(255))
     html_content = Column(Text, nullable=False)
+    html_pending = Column(Text, nullable=True)   # pending edits from a live site's customer
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     status = Column(String(30), nullable=False, default="draft")
     stripe_customer_id = Column(String(255))
@@ -116,6 +117,7 @@ def init_db():
     _ensure_column(Lead.__tablename__, "is_test", "BOOLEAN NOT NULL DEFAULT FALSE")
     _ensure_column(Generation.__tablename__, "stripe_customer_id", "VARCHAR(255)")
     _ensure_column(Generation.__tablename__, "subdomain", "VARCHAR(100)")
+    _ensure_column(Generation.__tablename__, "html_pending", "TEXT")
 
 
 def _ensure_column(table_name: str, column_name: str, ddl_type: str) -> None:

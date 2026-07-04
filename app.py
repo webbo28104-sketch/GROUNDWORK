@@ -1842,11 +1842,19 @@ def admin_generations():
         row_parts = []
         for g in gens:
             test_badge = '<span class="badge-test">TEST</span>' if (g.lead and g.lead.is_test) else ""
+            pending_badge = ('<span style="background:#F59E0B;color:#fff;font-size:10px;font-weight:700;'
+                             'padding:2px 6px;border-radius:4px;margin-left:6px;vertical-align:middle;">PENDING</span>'
+                             if getattr(g, 'html_pending', None) else "")
+            apply_link = ('<a href="#" onclick="return gwApplyPending(' + str(g.id) + ')" '
+                          'style="color:#16A34A;font-weight:700;">Apply changes</a> · '
+                          if getattr(g, 'html_pending', None) else "")
             row_parts.append(
                 '<tr id="gen-row-' + str(g.id) + '" data-email="' + str(escape(g.email)) + '">'
                 '<td>' + str(escape(g.business_name or "")) + test_badge + "</td><td>" + str(escape(g.email)) + "</td>"
-                "<td>" + g.created_at.strftime("%d %b %Y %H:%M") + "</td><td>" + str(escape(g.status)) + "</td>"
-                '<td><a href="/admin/generations/' + str(g.id) + '/html" target="_blank" rel="noopener">View HTML</a> · '
+                "<td>" + g.created_at.strftime("%d %b %Y %H:%M") + "</td>"
+                "<td>" + str(escape(g.status)) + pending_badge + "</td>"
+                '<td>' + apply_link +
+                '<a href="/admin/generations/' + str(g.id) + '/html" target="_blank" rel="noopener">View HTML</a> · '
                 '<a href="/admin/generations/' + str(g.id) + '/form-data" target="_blank" rel="noopener">Form data</a> · '
                 + ('<a href="/preview.html?id=' + str(g.lead.public_id) + '" target="_blank" rel="noopener">Preview</a> · '
                    '<a href="/editor.html?id=' + str(g.lead.public_id) + '" target="_blank" rel="noopener">Edit text</a>'
@@ -1873,6 +1881,23 @@ async function gwDeleteAccount(email) {{
     const r = await fetch(`/admin/accounts/${{encodeURIComponent(email)}}`, {{method: 'DELETE', credentials: 'same-origin'}});
     if (!r.ok) throw new Error('Delete failed (' + r.status + ')');
     document.querySelectorAll(`tr[data-email="${{CSS.escape(email)}}"]`).forEach(tr => tr.remove());
+  }} catch (err) {{
+    alert(err.message);
+  }}
+  return false;
+}}
+async function gwApplyPending(genId) {{
+  if (!confirm('Apply the customer\\'s pending text changes to the live site and notify them by email?')) return false;
+  try {{
+    const r = await fetch(`/admin/generations/${{genId}}/apply-pending`, {{method: 'POST', credentials: 'same-origin'}});
+    if (!r.ok) throw new Error('Apply failed (' + r.status + ')');
+    const row = document.getElementById(`gen-row-${{genId}}`);
+    if (row) {{
+      row.querySelectorAll('.pending-badge').forEach(el => el.remove());
+      const td = row.querySelector('td:nth-child(5)');
+      if (td) td.innerHTML = td.innerHTML.replace(/Apply changes · /, '');
+      alert('Changes applied and customer notified.');
+    }}
   }} catch (err) {{
     alert(err.message);
   }}
@@ -2186,6 +2211,32 @@ def admin_update_generation_email(gen_id):
         db.close()
 
 
+@app.route("/admin/generations/<int:gen_id>/apply-pending", methods=["POST"])
+@admin_required
+def admin_apply_pending(gen_id):
+    """Promote html_pending → html_content for a live generation, then notify
+    the customer that their requested changes are now live."""
+    db = SessionLocal()
+    try:
+        gen = db.get(Generation, gen_id)
+        if not gen:
+            return jsonify({"error": "not found"}), 404
+        if not gen.html_pending:
+            return jsonify({"error": "No pending changes to apply"}), 400
+        gen.html_content = gen.html_pending
+        gen.html_pending = None
+        db.commit()
+        try:
+            from emails import send_changes_live_email
+            send_changes_live_email(gen.email, gen.business_name)
+        except Exception:
+            app.logger.exception(f"Failed to send changes-live email to {gen.email}")
+        app.logger.info(f"Admin applied pending changes for gen {gen_id} ({gen.business_name!r})")
+        return jsonify({"ok": True})
+    finally:
+        db.close()
+
+
 @app.route("/admin/accounts/<path:email>", methods=["DELETE"])
 @admin_required
 def admin_delete_account(email):
@@ -2281,7 +2332,10 @@ def job_html(job_id):
     try:
         gen = db.query(Generation).join(Lead).filter(Lead.public_id == job_id).first()
         if gen:
-            return _inject_watermark(gen.html_content, job_id, show_toast=show_toast), 200, {"Content-Type": "text/html; charset=utf-8"}
+            # For live sites, show the pending version in the editor preview so
+            # the customer can see their accumulated change requests reflected.
+            html = (gen.html_pending or gen.html_content) if gen.status == "live" else gen.html_content
+            return _inject_watermark(html, job_id, show_toast=show_toast), 200, {"Content-Type": "text/html; charset=utf-8"}
     finally:
         db.close()
     return jsonify({"error": "not found"}), 404
@@ -2334,22 +2388,31 @@ def get_text_fields(job_id):
         gen = db.query(Generation).join(Lead).filter(Lead.public_id == job_id).first()
         if not gen:
             return jsonify({"error": "not found"}), 404
-        fields = _extract_gw_text_fields(gen.html_content or "")
-        return jsonify({"fields": fields, "editable": bool(fields)})
+        # For live sites, extract from pending state if any so the editor reflects
+        # the customer's already-requested edits rather than the current live HTML.
+        html = (gen.html_pending or gen.html_content) if gen.status == "live" else gen.html_content
+        fields = _extract_gw_text_fields(html or "")
+        return jsonify({
+            "fields": fields,
+            "editable": bool(fields),
+            "status": gen.status,
+            "has_pending": bool(gen.html_pending),
+        })
     finally:
         db.close()
 
 
 @app.route("/api/generate/<job_id>/text", methods=["PATCH"])
 def update_text_field(job_id):
-    """Replace the text content of a single data-gw-text element in a draft generation."""
+    """Replace the text content of a single data-gw-text element.
+    Draft sites: saves directly to html_content (immediately visible in preview).
+    Live sites: saves to html_pending so the live subdomain is unchanged until
+    admin reviews and applies the changes."""
     db = SessionLocal()
     try:
         gen = db.query(Generation).join(Lead).filter(Lead.public_id == job_id).first()
         if not gen:
             return jsonify({"error": "not found"}), 404
-        if gen.status != "draft":
-            return jsonify({"error": "Editing is only available before going live."}), 403
         data = request.get_json() or {}
         field_id = (data.get("id") or "").strip()
         new_text = (data.get("content") or "").strip()
@@ -2357,14 +2420,24 @@ def update_text_field(job_id):
             return jsonify({"error": "id required"}), 400
         if len(new_text) > 1000:
             return jsonify({"error": "Text too long (max 1000 characters)."}), 400
-        new_html, ok = _update_gw_text_field(gen.html_content or "", field_id, new_text)
-        if not ok:
-            return jsonify({"error": "Field not found in this generation."}), 404
-        gen.html_content = new_html
+
+        if gen.status == "live":
+            # Accumulate change requests in html_pending; live HTML is untouched.
+            base_html = gen.html_pending or gen.html_content or ""
+            new_html, ok = _update_gw_text_field(base_html, field_id, new_text)
+            if not ok:
+                return jsonify({"error": "Field not found in this generation."}), 404
+            gen.html_pending = new_html
+        else:
+            new_html, ok = _update_gw_text_field(gen.html_content or "", field_id, new_text)
+            if not ok:
+                return jsonify({"error": "Field not found in this generation."}), 404
+            gen.html_content = new_html
+            with _jobs_lock:
+                if job_id in _jobs and _jobs[job_id].get("status") == "done":
+                    _jobs[job_id]["html"] = new_html
+
         db.commit()
-        with _jobs_lock:
-            if job_id in _jobs and _jobs[job_id].get("status") == "done":
-                _jobs[job_id]["html"] = new_html
         return jsonify({"ok": True})
     finally:
         db.close()
