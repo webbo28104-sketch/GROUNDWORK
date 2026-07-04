@@ -141,4 +141,19 @@ Fixed page structure — always in this order, sections can be omitted but never
 - Never fabricate reviews, projects, credentials, years-trading, or operational claims (response times, turnaround) — if it's not in the form or verified by search, it doesn't go on the page.
 - If multiple businesses share a similar name, never conflate them.
 
+=== STEP 5: MARK EDITABLE TEXT ===
+After building the full HTML, add the attribute data-gw-text="[id]" to every element whose sole purpose is displaying visible text. This enables customers to edit their site text post-generation.
+
+Mark: headings (h1–h4), body paragraphs (p), button labels, CTA link text, nav anchor text, list items (li) with descriptive copy, and any standalone span containing visible copy.
+Do NOT mark: structural containers (div, section, article, header, footer, nav, ul, ol, figure), elements that only wrap other marked elements, SVG/img/input elements, or elements with no visible text content.
+
+ID format — data-gw-text="[section]-[descriptor]-[n]":
+- section: the page section (hero, nav, about, services, portfolio, accreditations, contact, footer)
+- descriptor: what the text is (headline, subheadline, body, cta, title, desc, item, caption, copyright, credit)
+- n: 1-based counter when multiple of the same kind exist in a section (omit if only one)
+
+Every ID must be unique across the entire page, lowercase, and use only letters, digits, and hyphens.
+
+Examples: data-gw-text="hero-headline", data-gw-text="hero-subheadline", data-gw-text="hero-cta-1", data-gw-text="about-heading", data-gw-text="about-body-1", data-gw-text="services-card-1-title", data-gw-text="services-card-1-desc", data-gw-text="contact-heading", data-gw-text="footer-copyright".
+
 Output: your Step 2 source list, then the complete single-file HTML starting with <!DOCTYPE html>. No other commentary."""

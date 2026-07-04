@@ -2202,6 +2202,50 @@ def job_info(job_id):
         db.close()
 
 
+@app.route("/api/generate/<job_id>/text-fields")
+def get_text_fields(job_id):
+    """Return all data-gw-text fields from a generation's stored HTML as JSON."""
+    db = SessionLocal()
+    try:
+        gen = db.query(Generation).join(Lead).filter(Lead.public_id == job_id).first()
+        if not gen:
+            return jsonify({"error": "not found"}), 404
+        fields = _extract_gw_text_fields(gen.html_content or "")
+        return jsonify({"fields": fields, "editable": bool(fields)})
+    finally:
+        db.close()
+
+
+@app.route("/api/generate/<job_id>/text", methods=["PATCH"])
+def update_text_field(job_id):
+    """Replace the text content of a single data-gw-text element in a draft generation."""
+    db = SessionLocal()
+    try:
+        gen = db.query(Generation).join(Lead).filter(Lead.public_id == job_id).first()
+        if not gen:
+            return jsonify({"error": "not found"}), 404
+        if gen.status != "draft":
+            return jsonify({"error": "Editing is only available before going live."}), 403
+        data = request.get_json() or {}
+        field_id = (data.get("id") or "").strip()
+        new_text = (data.get("content") or "").strip()
+        if not field_id:
+            return jsonify({"error": "id required"}), 400
+        if len(new_text) > 1000:
+            return jsonify({"error": "Text too long (max 1000 characters)."}), 400
+        new_html, ok = _update_gw_text_field(gen.html_content or "", field_id, new_text)
+        if not ok:
+            return jsonify({"error": "Field not found in this generation."}), 404
+        gen.html_content = new_html
+        db.commit()
+        with _jobs_lock:
+            if job_id in _jobs and _jobs[job_id].get("status") == "done":
+                _jobs[job_id]["html"] = new_html
+        return jsonify({"ok": True})
+    finally:
+        db.close()
+
+
 @app.route("/api/contact", methods=["POST"])
 def contact_form():
     """Receive a contact form submission from a generated site and forward it
@@ -2338,6 +2382,56 @@ def stripe_webhook():
                 db.close()
 
     return "", 200
+
+
+def _extract_gw_text_fields(html: str) -> list:
+    """Return [{id, tag, content}] for every data-gw-text element in html."""
+    from html import unescape as _unescape
+    fields = []
+    seen = set()
+    for m in re.finditer(r'\bdata-gw-text="([^"]+)"', html):
+        field_id = m.group(1)
+        if field_id in seen:
+            continue
+        seen.add(field_id)
+        tag_start = html.rfind('<', 0, m.start())
+        tag_match = re.match(r'<([a-zA-Z][a-zA-Z0-9]*)', html[tag_start:])
+        if not tag_match:
+            continue
+        tag_name = tag_match.group(1)
+        open_end = html.find('>', m.end()) + 1
+        if open_end == 0:
+            continue
+        close_pos = html.lower().find(f'</{tag_name.lower()}>', open_end)
+        if close_pos == -1:
+            continue
+        inner = html[open_end:close_pos]
+        plain = re.sub(r'<[^>]+>', '', inner).strip()
+        plain = _unescape(plain)
+        if plain:
+            fields.append({'id': field_id, 'tag': tag_name.lower(), 'content': plain})
+    return fields
+
+
+def _update_gw_text_field(html: str, field_id: str, new_text: str):
+    """Replace text content of data-gw-text="field_id". Returns (new_html, success)."""
+    from html import escape as _escape
+    attr = f'data-gw-text="{field_id}"'
+    attr_pos = html.find(attr)
+    if attr_pos == -1:
+        return html, False
+    tag_start = html.rfind('<', 0, attr_pos)
+    tag_match = re.match(r'<([a-zA-Z][a-zA-Z0-9]*)', html[tag_start:])
+    if not tag_match:
+        return html, False
+    tag_name = tag_match.group(1)
+    open_end = html.find('>', attr_pos) + 1
+    if open_end == 0:
+        return html, False
+    close_pos = html.lower().find(f'</{tag_name.lower()}>', open_end)
+    if close_pos == -1:
+        return html, False
+    return html[:open_end] + _escape(new_text) + html[close_pos:], True
 
 
 def _inject_badge(html: str) -> str:

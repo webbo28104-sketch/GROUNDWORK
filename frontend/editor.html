@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Edit your site — Groundwork</title>
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
+<link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@700;800&display=swap" rel="stylesheet">
+<script src="./config.js"></script>
+<style>
+*{box-sizing:border-box;}
+body{margin:0;background:#F5F3EE;font-family:Inter,sans-serif;color:#1C1C1C;}
+h1,h2,h3,h4{font-family:'Plus Jakarta Sans','Inter',sans-serif;}
+.section-label{font-size:11.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#2257CC;margin:32px 0 10px;}
+.field-card{background:#fff;border:1px solid #E2E0DA;border-radius:12px;padding:18px 20px;margin-bottom:10px;}
+.field-label{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#9A9893;margin-bottom:7px;}
+textarea{width:100%;border:1.5px solid #D9D7D1;border-radius:8px;padding:9px 12px;font-size:15px;font-family:inherit;color:#1C1C1C;resize:vertical;line-height:1.55;transition:border-color .15s;}
+textarea:focus{outline:none;border-color:#3B82F6;}
+.save-row{display:flex;align-items:center;justify-content:space-between;margin-top:6px;min-height:20px;}
+.save-note{font-size:12px;color:#9A9893;}
+.status{font-size:12px;font-weight:500;}
+.s-saved{color:#16A34A;}
+.s-saving{color:#2257CC;}
+.s-unsaved{color:#B45309;}
+.s-error{color:#B91C1C;}
+</style>
+</head>
+<body>
+
+<div style="background:#1C1C1C;border-bottom:1px solid #2C2C2C;position:sticky;top:0;z-index:50;">
+  <div style="max-width:760px;margin:0 auto;padding:0 20px;height:60px;display:flex;align-items:center;justify-content:space-between;">
+    <a href="index.html" style="display:flex;align-items:center;gap:9px;text-decoration:none;">
+      <svg viewBox="0 0 48 48" width="26" height="26" fill="none"><path d="M 37 13.1 A 17 17 0 1 0 41 24 L 27 24" stroke="#3B82F6" stroke-width="4.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M 30.9 18.2 A 9 9 0 1 0 30.9 29.8" stroke="#3B82F6" stroke-width="4.6" stroke-linecap="round"/></svg>
+      <span style="color:#fff;font-weight:800;font-size:17px;letter-spacing:-.03em;">Groundwork</span>
+    </a>
+    <a id="back-link" href="preview.html" style="color:#9A9893;font-size:14px;font-weight:600;text-decoration:none;">← Back to preview</a>
+  </div>
+</div>
+
+<div style="max-width:760px;margin:0 auto;padding:clamp(32px,5vw,52px) 20px clamp(48px,6vw,72px);">
+
+  <div style="margin-bottom:28px;">
+    <h1 style="margin:0 0 8px;font-weight:800;font-size:clamp(24px,3.5vw,34px);letter-spacing:-.03em;">Edit your site</h1>
+    <p style="margin:0;font-size:16px;color:#5C5A56;line-height:1.5;">Change any text below — layout, colours, and styling stay exactly as they are. Changes save automatically as you type.</p>
+  </div>
+
+  <div id="loading-state" style="text-align:center;padding:56px 0;color:#807E79;font-size:16px;">Loading your site…</div>
+
+  <div id="no-fields-state" style="display:none;background:#fff;border:1px solid #E2E0DA;border-radius:14px;padding:40px 32px;text-align:center;">
+    <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="#D1CFC9" stroke-width="1.4" style="display:block;margin:0 auto 18px;"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+    <p style="margin:0 0 8px;font-weight:700;font-size:18px;">Text editing isn't available for this site</p>
+    <p style="margin:0;font-size:15px;color:#5C5A56;line-height:1.6;max-width:380px;margin-left:auto;margin-right:auto;">This site was generated before text editing was introduced. Starting a new generation will include full editing support.</p>
+  </div>
+
+  <div id="fields-container" style="display:none;"></div>
+
+  <div id="go-live-strip" style="display:none;margin-top:40px;background:#fff;border:1px solid #E2E0DA;border-radius:14px;padding:28px 28px;">
+    <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:16px;">
+      <div>
+        <p style="margin:0 0 4px;font-weight:700;font-size:17px;">Happy with your changes?</p>
+        <p style="margin:0;font-size:14.5px;color:#5C5A56;">Go live and we'll publish your site within 24 hours.</p>
+      </div>
+      <a id="checkout-link" href="checkout.html" style="background:#3B82F6;color:#fff;font-weight:700;font-size:15px;text-decoration:none;padding:14px 24px;border-radius:9px;white-space:nowrap;box-shadow:0 8px 20px -8px rgba(59,130,246,.55);">Go live →</a>
+    </div>
+    <p style="margin:18px 0 0;font-size:13.5px;color:#9A9893;border-top:1px solid #F0EEE9;padding-top:16px;">
+      Want to see your changes? <a id="preview-link" href="#" target="_blank" rel="noopener" style="color:#2257CC;font-weight:600;text-decoration:none;">Open preview →</a>
+    </p>
+  </div>
+
+</div>
+
+<script>
+const params = new URLSearchParams(location.search);
+const jobId = params.get('id');
+const apiBase = window.GROUNDWORK_API || '';
+
+if (jobId) {
+  document.getElementById('back-link').href = 'preview.html?id=' + jobId;
+  document.getElementById('checkout-link').href = 'checkout.html?id=' + jobId;
+  document.getElementById('preview-link').href = (apiBase || '') + '/api/generate/' + jobId + '/html';
+}
+
+// "hero-headline" → { section: "Hero", label: "Headline" }
+// "services-card-1-title" → { section: "Services", label: "Card 1 — Title" }
+function parseId(id) {
+  const parts = id.split('-');
+  const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
+  const section = cap(parts[0]);
+  const rest = parts.slice(1).map(cap).join(' — ');
+  return { section, label: rest || 'Text' };
+}
+
+function debounce(fn, ms) {
+  let t;
+  return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+}
+
+function esc(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+async function load() {
+  if (!jobId) {
+    document.getElementById('loading-state').textContent = 'No site ID found.';
+    return;
+  }
+  try {
+    const r = await fetch(`${apiBase}/api/generate/${jobId}/text-fields`);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const d = await r.json();
+    document.getElementById('loading-state').style.display = 'none';
+
+    if (!d.editable) {
+      document.getElementById('no-fields-state').style.display = 'block';
+      return;
+    }
+    render(d.fields);
+    document.getElementById('fields-container').style.display = 'block';
+    document.getElementById('go-live-strip').style.display = 'block';
+  } catch (e) {
+    document.getElementById('loading-state').textContent = 'Failed to load: ' + e.message;
+  }
+}
+
+function render(fields) {
+  const container = document.getElementById('fields-container');
+  const sections = {};
+  fields.forEach(f => {
+    const { section, label } = parseId(f.id);
+    (sections[section] = sections[section] || []).push({ ...f, label });
+  });
+
+  let html = '';
+  for (const [sec, items] of Object.entries(sections)) {
+    html += `<div class="section-label">${esc(sec)}</div>`;
+    items.forEach(f => {
+      const rows = f.content.length > 120 ? 4 : f.content.length > 55 ? 3 : 2;
+      html += `<div class="field-card">
+        <div class="field-label">${esc(f.label)}</div>
+        <textarea id="ta-${esc(f.id)}" rows="${rows}" data-gw-id="${esc(f.id)}">${esc(f.content)}</textarea>
+        <div class="save-row">
+          <span class="save-note">Auto-saves as you type</span>
+          <span class="status" id="st-${esc(f.id)}"></span>
+        </div>
+      </div>`;
+    });
+  }
+  container.innerHTML = html;
+
+  container.querySelectorAll('textarea').forEach(ta => {
+    const id = ta.dataset.gwId;
+    const st = document.getElementById('st-' + id);
+
+    const save = debounce(async val => {
+      st.textContent = 'Saving…';
+      st.className = 'status s-saving';
+      try {
+        const r = await fetch(`${apiBase}/api/generate/${jobId}/text`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id, content: val }),
+        });
+        const d = await r.json();
+        if (d.ok) {
+          st.textContent = '✓ Saved';
+          st.className = 'status s-saved';
+          setTimeout(() => { st.textContent = ''; }, 3000);
+        } else {
+          st.textContent = d.error || 'Save failed';
+          st.className = 'status s-error';
+        }
+      } catch {
+        st.textContent = 'Network error';
+        st.className = 'status s-error';
+      }
+    }, 1200);
+
+    ta.addEventListener('input', () => {
+      st.textContent = 'Unsaved';
+      st.className = 'status s-unsaved';
+      save(ta.value);
+    });
+  });
+}
+
+load();
+</script>
+</body>
+</html>
