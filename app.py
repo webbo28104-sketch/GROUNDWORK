@@ -1845,8 +1845,8 @@ def admin_generations():
             pending_badge = ('<span style="background:#F59E0B;color:#fff;font-size:10px;font-weight:700;'
                              'padding:2px 6px;border-radius:4px;margin-left:6px;vertical-align:middle;">PENDING</span>'
                              if getattr(g, 'html_pending', None) else "")
-            apply_link = ('<a href="#" onclick="return gwApplyPending(' + str(g.id) + ')" '
-                          'style="color:#16A34A;font-weight:700;">Apply changes</a> · '
+            apply_link = ('<a href="/admin/generations/' + str(g.id) + '/pending-changes" '
+                          'style="color:#D97706;font-weight:700;">Review changes →</a> · '
                           if getattr(g, 'html_pending', None) else "")
             row_parts.append(
                 '<tr id="gen-row-' + str(g.id) + '" data-email="' + str(escape(g.email)) + '">'
@@ -1881,23 +1881,6 @@ async function gwDeleteAccount(email) {{
     const r = await fetch(`/admin/accounts/${{encodeURIComponent(email)}}`, {{method: 'DELETE', credentials: 'same-origin'}});
     if (!r.ok) throw new Error('Delete failed (' + r.status + ')');
     document.querySelectorAll(`tr[data-email="${{CSS.escape(email)}}"]`).forEach(tr => tr.remove());
-  }} catch (err) {{
-    alert(err.message);
-  }}
-  return false;
-}}
-async function gwApplyPending(genId) {{
-  if (!confirm('Apply the customer\\'s pending text changes to the live site and notify them by email?')) return false;
-  try {{
-    const r = await fetch(`/admin/generations/${{genId}}/apply-pending`, {{method: 'POST', credentials: 'same-origin'}});
-    if (!r.ok) throw new Error('Apply failed (' + r.status + ')');
-    const row = document.getElementById(`gen-row-${{genId}}`);
-    if (row) {{
-      row.querySelectorAll('.pending-badge').forEach(el => el.remove());
-      const td = row.querySelector('td:nth-child(5)');
-      if (td) td.innerHTML = td.innerHTML.replace(/Apply changes · /, '');
-      alert('Changes applied and customer notified.');
-    }}
   }} catch (err) {{
     alert(err.message);
   }}
@@ -2211,6 +2194,113 @@ def admin_update_generation_email(gen_id):
         db.close()
 
 
+@app.route("/admin/generations/<int:gen_id>/pending-changes")
+@admin_required
+def admin_pending_changes(gen_id):
+    """Show a side-by-side diff of current live text vs customer's requested
+    changes, with Apply and Discard actions."""
+    db = SessionLocal()
+    try:
+        gen = db.get(Generation, gen_id)
+        if not gen:
+            return "Not found", 404
+        if not gen.html_pending:
+            return redirect(url_for("admin_generations"))
+
+        live_fields = {f["id"]: f["content"] for f in _extract_gw_text_fields(gen.html_content or "")}
+        pending_fields = {f["id"]: f["content"] for f in _extract_gw_text_fields(gen.html_pending or "")}
+
+        # Only show fields that actually changed
+        changed = []
+        for fid, new_val in pending_fields.items():
+            old_val = live_fields.get(fid, "")
+            if new_val != old_val:
+                changed.append({"id": fid, "old": old_val, "new": new_val})
+
+        rows_html = ""
+        if changed:
+            for c in changed:
+                label = c["id"].replace("-", " ").title()
+                rows_html += (
+                    '<tr>'
+                    '<td style="width:180px;font-size:13px;color:#5C5A56;vertical-align:top;padding:14px 12px;">'
+                    + escape(label) +
+                    '</td>'
+                    '<td style="vertical-align:top;padding:14px 12px;border-left:1px solid #E6E3DC;">'
+                    '<div style="font-size:12px;font-weight:700;color:#9A9893;letter-spacing:.05em;text-transform:uppercase;margin-bottom:4px;">Current (live)</div>'
+                    '<div style="font-size:14px;color:#1C1C1C;line-height:1.5;">' + escape(c["old"] or "(empty)") + '</div>'
+                    '</td>'
+                    '<td style="vertical-align:top;padding:14px 12px;border-left:1px solid #E6E3DC;background:#F0FDF4;">'
+                    '<div style="font-size:12px;font-weight:700;color:#16A34A;letter-spacing:.05em;text-transform:uppercase;margin-bottom:4px;">Requested change</div>'
+                    '<div style="font-size:14px;color:#1C1C1C;line-height:1.5;font-weight:500;">' + escape(c["new"]) + '</div>'
+                    '</td>'
+                    '</tr>'
+                )
+        else:
+            rows_html = '<tr><td colspan="3" style="padding:24px;color:#807E79;font-size:14px;">No text differences detected — the content may be structurally identical.</td></tr>'
+
+        biz = escape(gen.business_name or "Untitled")
+        pub_id = gen.lead.public_id if gen.lead else ""
+        return render_template_string(f"""<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>Pending changes — {biz}</title>
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
+<style>{_PAGE_STYLE}
+.diff-table{{width:100%;border-collapse:collapse;background:#fff;border:1px solid #E6E3DC;border-radius:10px;overflow:hidden;}}
+.diff-table tr+tr{{border-top:1px solid #E6E3DC;}}
+.action-bar{{display:flex;gap:12px;align-items:center;margin-top:24px;}}
+.btn{{padding:11px 22px;border-radius:8px;font-size:14px;font-weight:700;border:none;cursor:pointer;text-decoration:none;display:inline-block;}}
+.btn-green{{background:#16A34A;color:#fff;}}
+.btn-red{{background:#fff;color:#B91C1C;border:1px solid #FECACA;}}
+.btn:hover{{opacity:.88;}}
+#status-msg{{font-size:14px;color:#5C5A56;}}
+</style></head>
+<body><div class="wrap" style="max-width:980px;">
+<p style="margin:0 0 6px;"><a href="/admin/generations" style="color:#807E79;font-size:13px;text-decoration:none;">← All generations</a></p>
+<h1 style="margin:0 0 4px;">{biz} — pending changes</h1>
+<p class="muted" style="margin:0 0 24px;">Customer: {escape(gen.email)} &nbsp;·&nbsp; {len(changed)} field(s) changed
+{(' &nbsp;·&nbsp; <a href="/editor.html?id=' + pub_id + '" target="_blank" style="color:#2257CC;">Open in editor →</a>') if pub_id else ''}</p>
+
+<table class="diff-table">
+<thead><tr style="background:#F5F3EE;">
+  <th style="text-align:left;padding:10px 12px;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:#9A9893;font-weight:700;">Field</th>
+  <th style="text-align:left;padding:10px 12px;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:#9A9893;font-weight:700;border-left:1px solid #E6E3DC;">Current (live)</th>
+  <th style="text-align:left;padding:10px 12px;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:#16A34A;font-weight:700;border-left:1px solid #E6E3DC;">Requested change</th>
+</tr></thead>
+<tbody>{rows_html}</tbody>
+</table>
+
+<div class="action-bar">
+  <button class="btn btn-green" onclick="gwApply()">Apply all changes &amp; notify customer</button>
+  <button class="btn btn-red" onclick="gwDiscard()">Discard pending changes</button>
+  <span id="status-msg"></span>
+</div>
+
+<script>
+async function gwApply() {{
+  if (!confirm('Apply all changes to the live site and email the customer?')) return;
+  document.getElementById('status-msg').textContent = 'Applying…';
+  try {{
+    const r = await fetch('/admin/generations/{gen_id}/apply-pending', {{method:'POST',credentials:'same-origin'}});
+    if (!r.ok) throw new Error(await r.text());
+    document.getElementById('status-msg').textContent = '✓ Applied and customer notified.';
+    document.querySelectorAll('.btn').forEach(b => b.disabled = true);
+  }} catch(e) {{ document.getElementById('status-msg').textContent = 'Error: ' + e.message; }}
+}}
+async function gwDiscard() {{
+  if (!confirm('Discard all pending changes? The customer will not be notified.')) return;
+  document.getElementById('status-msg').textContent = 'Discarding…';
+  try {{
+    const r = await fetch('/admin/generations/{gen_id}/discard-pending', {{method:'POST',credentials:'same-origin'}});
+    if (!r.ok) throw new Error(await r.text());
+    window.location.href = '/admin/generations';
+  }} catch(e) {{ document.getElementById('status-msg').textContent = 'Error: ' + e.message; }}
+}}
+</script>
+</body></html>""")
+    finally:
+        db.close()
+
+
 @app.route("/admin/generations/<int:gen_id>/apply-pending", methods=["POST"])
 @admin_required
 def admin_apply_pending(gen_id):
@@ -2232,6 +2322,24 @@ def admin_apply_pending(gen_id):
         except Exception:
             app.logger.exception(f"Failed to send changes-live email to {gen.email}")
         app.logger.info(f"Admin applied pending changes for gen {gen_id} ({gen.business_name!r})")
+        return jsonify({"ok": True})
+    finally:
+        db.close()
+
+
+@app.route("/admin/generations/<int:gen_id>/discard-pending", methods=["POST"])
+@admin_required
+def admin_discard_pending(gen_id):
+    """Clear html_pending without applying it — used when the requested changes
+    should not go live (e.g. wrong content, spam, or admin will apply manually)."""
+    db = SessionLocal()
+    try:
+        gen = db.get(Generation, gen_id)
+        if not gen:
+            return jsonify({"error": "not found"}), 404
+        gen.html_pending = None
+        db.commit()
+        app.logger.info(f"Admin discarded pending changes for gen {gen_id} ({gen.business_name!r})")
         return jsonify({"ok": True})
     finally:
         db.close()
