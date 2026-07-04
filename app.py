@@ -1848,12 +1848,14 @@ def admin_generations():
             apply_link = ('<a href="/admin/generations/' + str(g.id) + '/pending-changes" '
                           'style="color:#D97706;font-weight:700;">Review changes →</a> · '
                           if getattr(g, 'html_pending', None) else "")
+            live_link = ('<a href="https://' + str(g.subdomain) + '.' + _SUBDOMAIN_BASE + '" target="_blank" rel="noopener">Live site ↗</a> · '
+                         if g.status == "live" and g.subdomain else "")
             row_parts.append(
                 '<tr id="gen-row-' + str(g.id) + '" data-email="' + str(escape(g.email)) + '">'
                 '<td>' + str(escape(g.business_name or "")) + test_badge + "</td><td>" + str(escape(g.email)) + "</td>"
                 "<td>" + g.created_at.strftime("%d %b %Y %H:%M") + "</td>"
                 "<td>" + str(escape(g.status)) + pending_badge + "</td>"
-                '<td>' + apply_link +
+                '<td>' + apply_link + live_link +
                 '<a href="/admin/generations/' + str(g.id) + '/html" target="_blank" rel="noopener">View HTML</a> · '
                 '<a href="/admin/generations/' + str(g.id) + '/form-data" target="_blank" rel="noopener">Form data</a> · '
                 + ('<a href="/preview.html?id=' + str(g.lead.public_id) + '" target="_blank" rel="noopener">Preview</a> · '
