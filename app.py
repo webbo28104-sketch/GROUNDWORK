@@ -314,6 +314,119 @@ def _migrate_truncated_html():
 _migrate_truncated_html()
 
 
+def _retrofit_gw_text_markers(html: str) -> str:
+    """Inject data-gw-text markers into legacy HTML that has none.
+    Splits out script/style/svg blocks to avoid false matches, detects section
+    context from id= attributes and structural tags, then marks h1-h4, p, li,
+    and button elements with unique IDs following the standard scheme."""
+    if not html or 'data-gw-text=' in html:
+        return html
+
+    SECTION_IDS = {
+        'hero': 'hero', 'about': 'about', 'services': 'services',
+        'service': 'services', 'accreditations': 'accreditations',
+        'credentials': 'accreditations', 'portfolio': 'portfolio',
+        'gallery': 'gallery', 'contact': 'contact', 'footer': 'footer',
+    }
+    MARK_TAGS = {'h1', 'h2', 'h3', 'h4', 'p', 'li', 'button'}
+    DESCRIPTORS = {
+        'h1': 'heading', 'h2': 'heading', 'h3': 'heading', 'h4': 'heading',
+        'p': 'body', 'li': 'item', 'button': 'cta',
+    }
+
+    counters: dict = {}
+    current_section = ['main']  # mutable so nested fn can update it
+
+    def next_id(section: str, descriptor: str) -> str:
+        key = (section, descriptor)
+        counters[key] = counters.get(key, 0) + 1
+        return f'{section}-{descriptor}-{counters[key]}'
+
+    skip_re = re.compile(
+        r'(<(?:script|style|svg)(?:\s[^>]*)?>.*?</(?:script|style|svg)>)',
+        re.DOTALL | re.IGNORECASE,
+    )
+    segments = skip_re.split(html)
+
+    def process_seg(seg: str) -> str:
+        result = []
+        pos = 0
+        while pos < len(seg):
+            lt = seg.find('<', pos)
+            if lt == -1:
+                result.append(seg[pos:])
+                break
+            result.append(seg[pos:lt])
+            gt = seg.find('>', lt)
+            if gt == -1:
+                result.append(seg[lt:])
+                break
+            tag_str = seg[lt:gt + 1]
+
+            # Update section context from id= attribute
+            id_m = re.search(r'\bid=["\']([^"\']+)["\']', tag_str)
+            if id_m:
+                eid = id_m.group(1).lower().strip()
+                if eid in SECTION_IDS:
+                    current_section[0] = SECTION_IDS[eid]
+
+            tag_m = re.match(r'<([a-zA-Z][a-zA-Z0-9]*)', tag_str)
+            tag_name = tag_m.group(1).lower() if tag_m else ''
+            is_closing = tag_str.startswith('</')
+            is_self_closing = tag_str.endswith('/>')
+
+            if not is_closing:
+                if tag_name == 'nav':
+                    current_section[0] = 'nav'
+                elif tag_name == 'footer':
+                    current_section[0] = 'footer'
+
+            if (not is_closing and not is_self_closing
+                    and tag_name in MARK_TAGS
+                    and 'data-gw-text=' not in tag_str):
+                descriptor = DESCRIPTORS.get(tag_name, 'text')
+                field_id = next_id(current_section[0], descriptor)
+                tag_str = tag_str[:-1] + f' data-gw-text="{field_id}">'
+
+            result.append(tag_str)
+            pos = gt + 1
+        return ''.join(result)
+
+    out = []
+    for i, seg in enumerate(segments):
+        out.append(seg if i % 2 == 1 else process_seg(seg))
+    return ''.join(out)
+
+
+def _migrate_text_markers():
+    """Retrofit data-gw-text markers into any generation that has none yet.
+    Idempotent — _retrofit_gw_text_markers() skips HTML that already has them."""
+    db = SessionLocal()
+    try:
+        gens = [g for g in db.query(Generation).filter(
+            Generation.html_content.isnot(None)
+        ).all() if 'data-gw-text=' not in (g.html_content or '')]
+        if not gens:
+            return
+        updated = 0
+        for g in gens:
+            new_html = _retrofit_gw_text_markers(g.html_content)
+            if new_html != g.html_content:
+                g.html_content = new_html
+                updated += 1
+        if updated:
+            db.commit()
+            app.logger.info(f'[migrate_text_markers] retrofitted {updated} generation(s)')
+    except Exception:
+        app.logger.exception('[migrate_text_markers] failed')
+        db.rollback()
+    finally:
+        db.close()
+
+
+_migrate_text_markers()
+
+
 @app.before_request
 def handle_subdomain_request():
     """Serve a live customer's site when the request arrives on their subdomain."""

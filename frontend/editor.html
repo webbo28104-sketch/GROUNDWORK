@@ -18,19 +18,28 @@ h1,h2,h3,h4{font-family:'Plus Jakarta Sans','Inter',sans-serif;}
 /* Root layout */
 .app{display:flex;flex-direction:column;height:100vh;}
 .app-header{flex-shrink:0;background:#1C1C1C;border-bottom:1px solid #2C2C2C;z-index:50;}
-.app-body{flex:1;display:flex;overflow:hidden;}
+.app-body{flex:1;display:flex;overflow:hidden;position:relative;}
 
-/* Sidebar */
-.sidebar{width:340px;flex-shrink:0;display:flex;flex-direction:column;background:#F5F3EE;border-right:1px solid #E2E0DA;overflow:hidden;}
+/* Sidebar — hidden by default, slides in */
+.sidebar{
+  width:340px;flex-shrink:0;
+  display:flex;flex-direction:column;
+  background:#F5F3EE;border-right:1px solid #E2E0DA;
+  overflow:hidden;
+  /* slide-in transition */
+  margin-left:-340px;
+  transition:margin-left .28s cubic-bezier(.4,0,.2,1);
+}
+.sidebar.open{margin-left:0;}
 .sidebar-scroll{flex:1;overflow-y:auto;padding:16px 16px 32px;}
 .sidebar-footer{flex-shrink:0;padding:13px 16px;border-top:1px solid #E2E0DA;background:#F5F3EE;}
 
-/* Preview pane */
+/* Preview pane — always fills available space */
 .preview-pane{flex:1;background:#DDDBD5;position:relative;overflow:hidden;}
 .preview-overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#807E79;font-size:15px;font-family:Inter,sans-serif;pointer-events:none;z-index:5;}
 iframe{width:100%;height:100%;border:none;display:block;transition:opacity .25s;}
 
-/* Sidebar: section/field */
+/* Sidebar elements */
 .section-label{font-size:10.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#2257CC;margin:20px 0 7px;padding-bottom:5px;border-bottom:1px solid #E2E0DA;}
 .section-label:first-child{margin-top:0;}
 .field-card{background:#fff;border:1.5px solid #E2E0DA;border-radius:9px;padding:12px 14px;margin-bottom:7px;cursor:pointer;transition:border-color .12s,background .12s;}
@@ -46,18 +55,17 @@ textarea:focus{outline:none;border-color:#3B82F6;background:#fff;}
 .s-unsaved{color:#B45309;}
 .s-error{color:#B91C1C;}
 
-/* Focus ring for accessibility */
 a:focus-visible,button:focus-visible{outline:3px solid #3B82F6;outline-offset:2px;}
 
-/* Mobile: stack vertically, hide preview */
+/* Mobile: sidebar always full-width, no preview */
 @media(max-width:700px){
   .preview-pane{display:none;}
-  .sidebar{width:100%;}
+  .sidebar{width:100%;margin-left:0;}
   html,body{overflow:auto;}
   .app{height:auto;}
   .app-body{overflow:visible;}
-  .sidebar{overflow:visible;}
   .sidebar-scroll{overflow:visible;padding-bottom:20px;}
+  #edit-toggle{display:none!important;}
 }
 </style>
 </head>
@@ -73,6 +81,14 @@ a:focus-visible,button:focus-visible{outline:3px solid #3B82F6;outline-offset:2p
       </a>
       <div style="display:flex;align-items:center;gap:10px;">
         <a id="back-link" href="preview.html" style="color:#9A9893;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap;">← Back</a>
+
+        <!-- Edit toggle button -->
+        <button id="edit-toggle" onclick="toggleSidebar()"
+          style="display:flex;align-items:center;gap:7px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.18);color:#fff;font-weight:700;font-size:13px;padding:8px 14px;border-radius:7px;cursor:pointer;white-space:nowrap;transition:background .15s;">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+          <span id="edit-toggle-label">Edit text</span>
+        </button>
+
         <a id="checkout-link" href="checkout.html" style="background:#3B82F6;color:#fff;font-weight:700;font-size:13px;text-decoration:none;padding:8px 14px;border-radius:7px;white-space:nowrap;">Go live →</a>
       </div>
     </div>
@@ -80,11 +96,11 @@ a:focus-visible,button:focus-visible{outline:3px solid #3B82F6;outline-offset:2p
 
   <div class="app-body">
 
-    <!-- Left sidebar: editable fields -->
-    <div class="sidebar">
+    <!-- Sidebar (hidden until toggle) -->
+    <div class="sidebar" id="sidebar">
       <div class="sidebar-scroll" id="sidebar-scroll">
 
-        <p style="margin:0 0 14px;font-size:13px;color:#807E79;line-height:1.5;">Click any text in the preview to jump to it here, or edit fields directly. Changes save automatically.</p>
+        <p style="margin:0 0 14px;font-size:13px;color:#807E79;line-height:1.5;">Click any text in the preview to jump to it here, or edit directly. Changes save automatically.</p>
 
         <div id="loading-state" style="text-align:center;padding:32px 0;color:#807E79;font-size:14px;">Loading…</div>
 
@@ -102,7 +118,7 @@ a:focus-visible,button:focus-visible{outline:3px solid #3B82F6;outline-offset:2p
       </div>
     </div>
 
-    <!-- Right: live preview -->
+    <!-- Preview pane -->
     <div class="preview-pane">
       <div class="preview-overlay" id="preview-overlay">Loading preview…</div>
       <iframe
@@ -125,6 +141,16 @@ if (jobId) {
   document.getElementById('back-link').href = 'preview.html?id=' + jobId;
   document.getElementById('checkout-link').href = 'checkout.html?id=' + jobId;
   document.getElementById('checkout-link-2').href = 'checkout.html?id=' + jobId;
+}
+
+// ── Sidebar toggle ────────────────────────────────────────────────────────────
+
+let sidebarOpen = false;
+
+function toggleSidebar() {
+  sidebarOpen = !sidebarOpen;
+  document.getElementById('sidebar').classList.toggle('open', sidebarOpen);
+  document.getElementById('edit-toggle-label').textContent = sidebarOpen ? 'Close editor' : 'Edit text';
 }
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
@@ -164,8 +190,7 @@ function getIframeEl(fieldId) {
 
 function clearIframeActive() {
   const doc = iframeDoc();
-  if (!doc) return;
-  doc.querySelectorAll('[data-gw-text].gw-active').forEach(el => el.classList.remove('gw-active'));
+  if (doc) doc.querySelectorAll('[data-gw-text].gw-active').forEach(el => el.classList.remove('gw-active'));
 }
 
 function highlightInPreview(fieldId) {
@@ -196,26 +221,26 @@ function setupIframeInteractivity(doc) {
   ].join('');
   doc.head.appendChild(style);
 
-  // Remove Groundwork watermark bar from editor view
+  // Remove Groundwork watermark bar (doesn't belong in the editor view)
   doc.getElementById('gw-preview-bar')?.remove();
-  // Undo any top-padding the watermark injected
   if (doc.body) doc.body.style.paddingTop = '';
 
-  // Prevent link navigation and form submission inside the preview
+  // Prevent navigation and form submissions inside the preview
   doc.querySelectorAll('a').forEach(a =>
     a.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); }, true));
   doc.querySelectorAll('form').forEach(f =>
     f.addEventListener('submit', e => e.preventDefault(), true));
 
-  // Click on a marked element → select it in sidebar
+  // Click on a marked element → open sidebar and select the field
   doc.querySelectorAll('[data-gw-text]').forEach(el => {
     el.addEventListener('click', e => {
       e.preventDefault();
       e.stopPropagation();
       const id = el.getAttribute('data-gw-text');
-      highlightInSidebar(id);
+      if (!sidebarOpen) toggleSidebar();
       clearIframeActive();
       el.classList.add('gw-active');
+      highlightInSidebar(id);
     }, true);
   });
 
@@ -230,13 +255,12 @@ async function load() {
     return;
   }
 
-  // Kick off both fetches in parallel
   const [fieldsRes, htmlRes] = await Promise.all([
     fetch(`${apiBase}/api/generate/${jobId}/text-fields`).catch(() => null),
     fetch(`${apiBase}/api/generate/${jobId}/html`).catch(() => null),
   ]);
 
-  // ── Preview iframe ──
+  // Load preview iframe
   const frame = document.getElementById('preview-frame');
   if (htmlRes && htmlRes.ok) {
     const html = await htmlRes.text();
@@ -251,7 +275,7 @@ async function load() {
     document.getElementById('preview-overlay').textContent = 'Preview unavailable';
   }
 
-  // ── Fields ──
+  // Render fields sidebar
   document.getElementById('loading-state').style.display = 'none';
   if (!fieldsRes || !fieldsRes.ok) {
     document.getElementById('loading-state').style.display = 'block';
@@ -261,7 +285,8 @@ async function load() {
   const d = await fieldsRes.json();
 
   if (!d.editable) {
-    document.getElementById('no-fields-state').style.display = 'block';
+    // Hide the edit toggle — nothing to edit
+    document.getElementById('edit-toggle').style.display = 'none';
     return;
   }
 
@@ -269,7 +294,7 @@ async function load() {
   document.getElementById('sidebar-footer').style.display = 'block';
 }
 
-// ── Render fields ─────────────────────────────────────────────────────────────
+// ── Render sidebar fields ─────────────────────────────────────────────────────
 
 function render(fields) {
   const container = document.getElementById('fields-container');
@@ -322,14 +347,12 @@ function render(fields) {
       }
     }, 1200);
 
-    // Focusing a textarea → highlight matching element in preview
     ta.addEventListener('focus', () => {
       document.querySelectorAll('.field-card').forEach(c => c.classList.remove('active'));
       card.classList.add('active');
       highlightInPreview(id);
     });
 
-    // Typing → live update in preview DOM + debounced server save
     ta.addEventListener('input', () => {
       st.textContent = 'Unsaved';
       st.className = 'status s-unsaved';
@@ -339,7 +362,6 @@ function render(fields) {
     });
   });
 
-  // Clicking a field-card (not directly on the textarea) focuses the textarea
   container.querySelectorAll('.field-card').forEach(card => {
     card.addEventListener('click', e => {
       if (e.target.tagName !== 'TEXTAREA') card.querySelector('textarea')?.focus();
