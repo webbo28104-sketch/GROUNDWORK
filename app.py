@@ -275,6 +275,45 @@ def _migrate_contact_forms():
 _migrate_contact_forms()
 
 
+def _migrate_truncated_html():
+    """Fix generations whose HTML was cut off mid-output (max_tokens hit during
+    generation). Symptoms: missing </html>, sections invisible due to fade-in
+    JS never initialising. Injects a CSS override to make fade-in elements
+    immediately visible, closes any dangling <script>, and appends </body></html>.
+    Idempotent — skips any generation whose HTML already ends with </html>."""
+    db = SessionLocal()
+    try:
+        gens = db.query(Generation).filter(
+            Generation.html_content.isnot(None)
+        ).all()
+        patched = 0
+        for gen in gens:
+            html = gen.html_content
+            if html.rstrip().lower().endswith("</html>"):
+                continue
+            # Determine whether there's an unclosed <script> tag
+            open_scripts = html.lower().count("<script") - html.lower().count("</script>")
+            closer = ""
+            if open_scripts > 0:
+                closer += "</script>"
+            # Override fade-in invisibility and close the document properly
+            closer += (
+                '<style>.fade-in{opacity:1!important;transform:none!important}</style>'
+                '</body></html>'
+            )
+            gen.html_content = html + closer
+            patched += 1
+            app.logger.info(f"Truncation fix applied to gen {gen.id} ({gen.business_name!r})")
+        db.commit()
+        if patched:
+            app.logger.info(f"Truncation migration: fixed {patched} generation(s)")
+    finally:
+        db.close()
+
+
+_migrate_truncated_html()
+
+
 @app.before_request
 def handle_subdomain_request():
     """Serve a live customer's site when the request arrives on their subdomain."""
@@ -682,8 +721,18 @@ def _run(job_id, prompt, logo_b64, logo_mime):
             if resp.stop_reason == "end_turn":
                 break
 
-            # Continue conversation for tool_use turns
             messages.append({"role": "assistant", "content": resp.content})
+
+            if resp.stop_reason == "max_tokens":
+                # Output was cut off — ask Claude to continue from exactly where
+                # it stopped. This handles long site generations that exceed the
+                # per-turn token limit; the loop will keep asking until the HTML
+                # is complete (end_turn) or the 15-turn ceiling is hit.
+                app.logger.warning(f"Generation {job_id}: max_tokens hit, requesting continuation")
+                messages.append({"role": "user", "content": [{"type": "text", "text": "The response was cut off by the token limit. Please continue the HTML from exactly where you stopped — complete all remaining open tags and sections without repeating any content already written."}]})
+                continue
+
+            # Continue conversation for tool_use turns
             tool_results = [
                 {"type": "tool_result", "tool_use_id": b.id, "content": ""}
                 for b in resp.content
