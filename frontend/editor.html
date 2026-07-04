@@ -12,64 +12,108 @@
 <script src="./config.js"></script>
 <style>
 *{box-sizing:border-box;}
-body{margin:0;background:#F5F3EE;font-family:Inter,sans-serif;color:#1C1C1C;}
+html,body{height:100%;margin:0;font-family:Inter,sans-serif;color:#1C1C1C;background:#F5F3EE;overflow:hidden;}
 h1,h2,h3,h4{font-family:'Plus Jakarta Sans','Inter',sans-serif;}
-.section-label{font-size:11.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#2257CC;margin:32px 0 10px;}
-.field-card{background:#fff;border:1px solid #E2E0DA;border-radius:12px;padding:18px 20px;margin-bottom:10px;}
-.field-label{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#9A9893;margin-bottom:7px;}
-textarea{width:100%;border:1.5px solid #D9D7D1;border-radius:8px;padding:9px 12px;font-size:15px;font-family:inherit;color:#1C1C1C;resize:vertical;line-height:1.55;transition:border-color .15s;}
-textarea:focus{outline:none;border-color:#3B82F6;}
-.save-row{display:flex;align-items:center;justify-content:space-between;margin-top:6px;min-height:20px;}
-.save-note{font-size:12px;color:#9A9893;}
-.status{font-size:12px;font-weight:500;}
+
+/* Root layout */
+.app{display:flex;flex-direction:column;height:100vh;}
+.app-header{flex-shrink:0;background:#1C1C1C;border-bottom:1px solid #2C2C2C;z-index:50;}
+.app-body{flex:1;display:flex;overflow:hidden;}
+
+/* Sidebar */
+.sidebar{width:340px;flex-shrink:0;display:flex;flex-direction:column;background:#F5F3EE;border-right:1px solid #E2E0DA;overflow:hidden;}
+.sidebar-scroll{flex:1;overflow-y:auto;padding:16px 16px 32px;}
+.sidebar-footer{flex-shrink:0;padding:13px 16px;border-top:1px solid #E2E0DA;background:#F5F3EE;}
+
+/* Preview pane */
+.preview-pane{flex:1;background:#DDDBD5;position:relative;overflow:hidden;}
+.preview-overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#807E79;font-size:15px;font-family:Inter,sans-serif;pointer-events:none;z-index:5;}
+iframe{width:100%;height:100%;border:none;display:block;transition:opacity .25s;}
+
+/* Sidebar: section/field */
+.section-label{font-size:10.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#2257CC;margin:20px 0 7px;padding-bottom:5px;border-bottom:1px solid #E2E0DA;}
+.section-label:first-child{margin-top:0;}
+.field-card{background:#fff;border:1.5px solid #E2E0DA;border-radius:9px;padding:12px 14px;margin-bottom:7px;cursor:pointer;transition:border-color .12s,background .12s;}
+.field-card:hover{border-color:#93B4F5;}
+.field-card.active{border-color:#3B82F6;background:#F0F6FF;}
+.field-label{font-size:10px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:#9A9893;margin-bottom:5px;}
+textarea{width:100%;border:1.5px solid #D9D7D1;border-radius:7px;padding:7px 10px;font-size:13.5px;font-family:inherit;color:#1C1C1C;resize:vertical;line-height:1.5;transition:border-color .12s;background:#FAFAF8;}
+textarea:focus{outline:none;border-color:#3B82F6;background:#fff;}
+.save-row{display:flex;align-items:center;justify-content:flex-end;margin-top:3px;min-height:16px;}
+.status{font-size:10.5px;font-weight:500;}
 .s-saved{color:#16A34A;}
 .s-saving{color:#2257CC;}
 .s-unsaved{color:#B45309;}
 .s-error{color:#B91C1C;}
+
+/* Focus ring for accessibility */
+a:focus-visible,button:focus-visible{outline:3px solid #3B82F6;outline-offset:2px;}
+
+/* Mobile: stack vertically, hide preview */
+@media(max-width:700px){
+  .preview-pane{display:none;}
+  .sidebar{width:100%;}
+  html,body{overflow:auto;}
+  .app{height:auto;}
+  .app-body{overflow:visible;}
+  .sidebar{overflow:visible;}
+  .sidebar-scroll{overflow:visible;padding-bottom:20px;}
+}
 </style>
 </head>
 <body>
 
-<div style="background:#1C1C1C;border-bottom:1px solid #2C2C2C;position:sticky;top:0;z-index:50;">
-  <div style="max-width:760px;margin:0 auto;padding:0 20px;height:60px;display:flex;align-items:center;justify-content:space-between;">
-    <a href="index.html" style="display:flex;align-items:center;gap:9px;text-decoration:none;">
-      <svg viewBox="0 0 48 48" width="26" height="26" fill="none"><path d="M 37 13.1 A 17 17 0 1 0 41 24 L 27 24" stroke="#3B82F6" stroke-width="4.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M 30.9 18.2 A 9 9 0 1 0 30.9 29.8" stroke="#3B82F6" stroke-width="4.6" stroke-linecap="round"/></svg>
-      <span style="color:#fff;font-weight:800;font-size:17px;letter-spacing:-.03em;">Groundwork</span>
-    </a>
-    <a id="back-link" href="preview.html" style="color:#9A9893;font-size:14px;font-weight:600;text-decoration:none;">← Back to preview</a>
-  </div>
-</div>
+<div class="app">
 
-<div style="max-width:760px;margin:0 auto;padding:clamp(32px,5vw,52px) 20px clamp(48px,6vw,72px);">
-
-  <div style="margin-bottom:28px;">
-    <h1 style="margin:0 0 8px;font-weight:800;font-size:clamp(24px,3.5vw,34px);letter-spacing:-.03em;">Edit your site</h1>
-    <p style="margin:0;font-size:16px;color:#5C5A56;line-height:1.5;">Change any text below — layout, colours, and styling stay exactly as they are. Changes save automatically as you type.</p>
-  </div>
-
-  <div id="loading-state" style="text-align:center;padding:56px 0;color:#807E79;font-size:16px;">Loading your site…</div>
-
-  <div id="no-fields-state" style="display:none;background:#fff;border:1px solid #E2E0DA;border-radius:14px;padding:40px 32px;text-align:center;">
-    <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="#D1CFC9" stroke-width="1.4" style="display:block;margin:0 auto 18px;"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-    <p style="margin:0 0 8px;font-weight:700;font-size:18px;">Text editing isn't available for this site</p>
-    <p style="margin:0;font-size:15px;color:#5C5A56;line-height:1.6;max-width:380px;margin-left:auto;margin-right:auto;">This site was generated before text editing was introduced. Starting a new generation will include full editing support.</p>
-  </div>
-
-  <div id="fields-container" style="display:none;"></div>
-
-  <div id="go-live-strip" style="display:none;margin-top:40px;background:#fff;border:1px solid #E2E0DA;border-radius:14px;padding:28px 28px;">
-    <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:16px;">
-      <div>
-        <p style="margin:0 0 4px;font-weight:700;font-size:17px;">Happy with your changes?</p>
-        <p style="margin:0;font-size:14.5px;color:#5C5A56;">Go live and we'll publish your site within 24 hours.</p>
+  <div class="app-header">
+    <div style="padding:0 18px;height:54px;display:flex;align-items:center;justify-content:space-between;gap:12px;">
+      <a href="index.html" style="display:flex;align-items:center;gap:8px;text-decoration:none;flex-shrink:0;">
+        <svg viewBox="0 0 48 48" width="22" height="22" fill="none"><path d="M 37 13.1 A 17 17 0 1 0 41 24 L 27 24" stroke="#3B82F6" stroke-width="4.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M 30.9 18.2 A 9 9 0 1 0 30.9 29.8" stroke="#3B82F6" stroke-width="4.6" stroke-linecap="round"/></svg>
+        <span style="color:#fff;font-weight:800;font-size:16px;letter-spacing:-.03em;">Groundwork</span>
+      </a>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <a id="back-link" href="preview.html" style="color:#9A9893;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap;">← Back</a>
+        <a id="checkout-link" href="checkout.html" style="background:#3B82F6;color:#fff;font-weight:700;font-size:13px;text-decoration:none;padding:8px 14px;border-radius:7px;white-space:nowrap;">Go live →</a>
       </div>
-      <a id="checkout-link" href="checkout.html" style="background:#3B82F6;color:#fff;font-weight:700;font-size:15px;text-decoration:none;padding:14px 24px;border-radius:9px;white-space:nowrap;box-shadow:0 8px 20px -8px rgba(59,130,246,.55);">Go live →</a>
     </div>
-    <p style="margin:18px 0 0;font-size:13.5px;color:#9A9893;border-top:1px solid #F0EEE9;padding-top:16px;">
-      Want to see your changes? <a id="preview-link" href="#" target="_blank" rel="noopener" style="color:#2257CC;font-weight:600;text-decoration:none;">Open preview →</a>
-    </p>
   </div>
 
+  <div class="app-body">
+
+    <!-- Left sidebar: editable fields -->
+    <div class="sidebar">
+      <div class="sidebar-scroll" id="sidebar-scroll">
+
+        <p style="margin:0 0 14px;font-size:13px;color:#807E79;line-height:1.5;">Click any text in the preview to jump to it here, or edit fields directly. Changes save automatically.</p>
+
+        <div id="loading-state" style="text-align:center;padding:32px 0;color:#807E79;font-size:14px;">Loading…</div>
+
+        <div id="no-fields-state" style="display:none;text-align:center;padding:32px 0;">
+          <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#D1CFC9" stroke-width="1.4" style="display:block;margin:0 auto 12px;"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+          <p style="margin:0 0 6px;font-weight:700;font-size:15px;">Text editing not available</p>
+          <p style="margin:0;font-size:13px;color:#5C5A56;line-height:1.5;">This site was generated before text editing was introduced. Start a new generation to enable it.</p>
+        </div>
+
+        <div id="fields-container"></div>
+
+      </div>
+      <div class="sidebar-footer" id="sidebar-footer" style="display:none;">
+        <a id="checkout-link-2" href="checkout.html" style="display:block;text-align:center;background:#3B82F6;color:#fff;font-weight:700;font-size:14px;text-decoration:none;padding:12px 0;border-radius:8px;box-shadow:0 6px 16px -6px rgba(59,130,246,.5);">Go live →</a>
+      </div>
+    </div>
+
+    <!-- Right: live preview -->
+    <div class="preview-pane">
+      <div class="preview-overlay" id="preview-overlay">Loading preview…</div>
+      <iframe
+        id="preview-frame"
+        title="Live site preview"
+        sandbox="allow-same-origin allow-scripts allow-forms"
+        style="opacity:0;"
+      ></iframe>
+    </div>
+
+  </div>
 </div>
 
 <script>
@@ -80,14 +124,15 @@ const apiBase = window.GROUNDWORK_API || '';
 if (jobId) {
   document.getElementById('back-link').href = 'preview.html?id=' + jobId;
   document.getElementById('checkout-link').href = 'checkout.html?id=' + jobId;
-  document.getElementById('preview-link').href = (apiBase || '') + '/api/generate/' + jobId + '/html';
+  document.getElementById('checkout-link-2').href = 'checkout.html?id=' + jobId;
 }
 
-// "hero-headline" → { section: "Hero", label: "Headline" }
-// "services-card-1-title" → { section: "Services", label: "Card 1 — Title" }
+// ── Utilities ─────────────────────────────────────────────────────────────────
+
+function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+
 function parseId(id) {
   const parts = id.split('-');
-  const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
   const section = cap(parts[0]);
   const rest = parts.slice(1).map(cap).join(' — ');
   return { section, label: rest || 'Text' };
@@ -99,31 +144,132 @@ function debounce(fn, ms) {
 }
 
 function esc(s) {
-  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
+
+// ── iframe interaction ────────────────────────────────────────────────────────
+
+let iframeReady = false;
+
+function iframeDoc() {
+  try { return document.getElementById('preview-frame').contentDocument; }
+  catch { return null; }
+}
+
+function getIframeEl(fieldId) {
+  if (!iframeReady) return null;
+  const doc = iframeDoc();
+  return doc ? doc.querySelector(`[data-gw-text="${CSS.escape(fieldId)}"]`) : null;
+}
+
+function clearIframeActive() {
+  const doc = iframeDoc();
+  if (!doc) return;
+  doc.querySelectorAll('[data-gw-text].gw-active').forEach(el => el.classList.remove('gw-active'));
+}
+
+function highlightInPreview(fieldId) {
+  clearIframeActive();
+  const el = getIframeEl(fieldId);
+  if (!el) return;
+  el.classList.add('gw-active');
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+function highlightInSidebar(fieldId) {
+  document.querySelectorAll('.field-card').forEach(c => c.classList.remove('active'));
+  const card = document.querySelector(`.field-card[data-gw-id="${CSS.escape(fieldId)}"]`);
+  if (!card) return;
+  card.classList.add('active');
+  card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  card.querySelector('textarea')?.focus({ preventScroll: true });
+}
+
+function setupIframeInteractivity(doc) {
+  // Inject hover/active styles
+  const style = doc.createElement('style');
+  style.textContent = [
+    '[data-gw-text]{cursor:pointer!important;transition:outline .1s;}',
+    '[data-gw-text]:hover{outline:2px solid #3B82F6!important;outline-offset:3px!important;border-radius:2px;}',
+    '[data-gw-text].gw-active{outline:2.5px solid #3B82F6!important;outline-offset:3px!important;',
+    'background:rgba(59,130,246,.07)!important;border-radius:2px;}',
+  ].join('');
+  doc.head.appendChild(style);
+
+  // Remove Groundwork watermark bar from editor view
+  doc.getElementById('gw-preview-bar')?.remove();
+  // Undo any top-padding the watermark injected
+  if (doc.body) doc.body.style.paddingTop = '';
+
+  // Prevent link navigation and form submission inside the preview
+  doc.querySelectorAll('a').forEach(a =>
+    a.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); }, true));
+  doc.querySelectorAll('form').forEach(f =>
+    f.addEventListener('submit', e => e.preventDefault(), true));
+
+  // Click on a marked element → select it in sidebar
+  doc.querySelectorAll('[data-gw-text]').forEach(el => {
+    el.addEventListener('click', e => {
+      e.preventDefault();
+      e.stopPropagation();
+      const id = el.getAttribute('data-gw-text');
+      highlightInSidebar(id);
+      clearIframeActive();
+      el.classList.add('gw-active');
+    }, true);
+  });
+
+  iframeReady = true;
+}
+
+// ── Main load ─────────────────────────────────────────────────────────────────
 
 async function load() {
   if (!jobId) {
     document.getElementById('loading-state').textContent = 'No site ID found.';
     return;
   }
-  try {
-    const r = await fetch(`${apiBase}/api/generate/${jobId}/text-fields`);
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    const d = await r.json();
-    document.getElementById('loading-state').style.display = 'none';
 
-    if (!d.editable) {
-      document.getElementById('no-fields-state').style.display = 'block';
-      return;
-    }
-    render(d.fields);
-    document.getElementById('fields-container').style.display = 'block';
-    document.getElementById('go-live-strip').style.display = 'block';
-  } catch (e) {
-    document.getElementById('loading-state').textContent = 'Failed to load: ' + e.message;
+  // Kick off both fetches in parallel
+  const [fieldsRes, htmlRes] = await Promise.all([
+    fetch(`${apiBase}/api/generate/${jobId}/text-fields`).catch(() => null),
+    fetch(`${apiBase}/api/generate/${jobId}/html`).catch(() => null),
+  ]);
+
+  // ── Preview iframe ──
+  const frame = document.getElementById('preview-frame');
+  if (htmlRes && htmlRes.ok) {
+    const html = await htmlRes.text();
+    frame.addEventListener('load', () => {
+      const doc = iframeDoc();
+      if (doc) setupIframeInteractivity(doc);
+      document.getElementById('preview-overlay').style.display = 'none';
+      frame.style.opacity = '1';
+    }, { once: true });
+    frame.srcdoc = html;
+  } else {
+    document.getElementById('preview-overlay').textContent = 'Preview unavailable';
   }
+
+  // ── Fields ──
+  document.getElementById('loading-state').style.display = 'none';
+  if (!fieldsRes || !fieldsRes.ok) {
+    document.getElementById('loading-state').style.display = 'block';
+    document.getElementById('loading-state').textContent = 'Failed to load fields.';
+    return;
+  }
+  const d = await fieldsRes.json();
+
+  if (!d.editable) {
+    document.getElementById('no-fields-state').style.display = 'block';
+    return;
+  }
+
+  render(d.fields);
+  document.getElementById('sidebar-footer').style.display = 'block';
 }
+
+// ── Render fields ─────────────────────────────────────────────────────────────
 
 function render(fields) {
   const container = document.getElementById('fields-container');
@@ -138,13 +284,10 @@ function render(fields) {
     html += `<div class="section-label">${esc(sec)}</div>`;
     items.forEach(f => {
       const rows = f.content.length > 120 ? 4 : f.content.length > 55 ? 3 : 2;
-      html += `<div class="field-card">
+      html += `<div class="field-card" data-gw-id="${esc(f.id)}">
         <div class="field-label">${esc(f.label)}</div>
-        <textarea id="ta-${esc(f.id)}" rows="${rows}" data-gw-id="${esc(f.id)}">${esc(f.content)}</textarea>
-        <div class="save-row">
-          <span class="save-note">Auto-saves as you type</span>
-          <span class="status" id="st-${esc(f.id)}"></span>
-        </div>
+        <textarea rows="${rows}" data-gw-id="${esc(f.id)}">${esc(f.content)}</textarea>
+        <div class="save-row"><span class="status" id="st-${esc(f.id)}"></span></div>
       </div>`;
     });
   }
@@ -153,6 +296,7 @@ function render(fields) {
   container.querySelectorAll('textarea').forEach(ta => {
     const id = ta.dataset.gwId;
     const st = document.getElementById('st-' + id);
+    const card = ta.closest('.field-card');
 
     const save = debounce(async val => {
       st.textContent = 'Saving…';
@@ -167,7 +311,7 @@ function render(fields) {
         if (d.ok) {
           st.textContent = '✓ Saved';
           st.className = 'status s-saved';
-          setTimeout(() => { st.textContent = ''; }, 3000);
+          setTimeout(() => { if (st.textContent === '✓ Saved') st.textContent = ''; }, 3000);
         } else {
           st.textContent = d.error || 'Save failed';
           st.className = 'status s-error';
@@ -178,10 +322,27 @@ function render(fields) {
       }
     }, 1200);
 
+    // Focusing a textarea → highlight matching element in preview
+    ta.addEventListener('focus', () => {
+      document.querySelectorAll('.field-card').forEach(c => c.classList.remove('active'));
+      card.classList.add('active');
+      highlightInPreview(id);
+    });
+
+    // Typing → live update in preview DOM + debounced server save
     ta.addEventListener('input', () => {
       st.textContent = 'Unsaved';
       st.className = 'status s-unsaved';
+      const el = getIframeEl(id);
+      if (el) el.textContent = ta.value;
       save(ta.value);
+    });
+  });
+
+  // Clicking a field-card (not directly on the textarea) focuses the textarea
+  container.querySelectorAll('.field-card').forEach(card => {
+    card.addEventListener('click', e => {
+      if (e.target.tagName !== 'TEXTAREA') card.querySelector('textarea')?.focus();
     });
   });
 }
