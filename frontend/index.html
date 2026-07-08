@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Groundwork — Websites for UK construction trades, built in a day</title>
+<title>Groundwork — Websites for UK construction trades, built in minutes</title>
 <link rel="icon" type="image/x-icon" href="/favicon.ico">
 <link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png">
-<meta name="description" content="A professional website for your trade, built in a day. See it free before you pay. On your own domain, written around your work.">
+<meta name="description" content="A professional website for your trade, built in minutes. See real examples, built by real UK trades businesses.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@700;800&display=swap" rel="stylesheet">
@@ -22,17 +22,20 @@ a:focus-visible,button:focus-visible{outline:3px solid #3B82F6;outline-offset:2p
 .nav-link:hover,.nav-link[aria-current=page]{color:#3B82F6;}
 .grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:24px;}
 @media(max-width:860px){.grid-3{grid-template-columns:1fr;}}
-.grid-4{display:grid;grid-template-columns:repeat(4,1fr);gap:18px;}
-@media(max-width:920px){.grid-4{grid-template-columns:repeat(2,1fr);}}
-@media(max-width:560px){.grid-4{grid-template-columns:1fr;}}
+.grid-3-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;}
+@media(max-width:760px){.grid-3-stats{grid-template-columns:1fr;}}
+.grid-3fit{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:18px;}
 .btn-primary{background:#3B82F6;color:#fff;font-weight:700;font-size:16px;text-decoration:none;padding:15px 26px;border-radius:8px;transition:background .15s;display:inline-block;}
 .btn-primary:hover{background:#2563EB;}
 .btn-ghost{background:transparent;color:#fff;font-weight:600;font-size:16px;text-decoration:none;padding:15px 26px;border-radius:8px;border:1px solid #4A4A48;transition:border-color .15s,background .15s;display:inline-block;}
 .btn-ghost:hover{border-color:#3B82F6;background:#242424;}
 .feat-card{background:#FAFAF8;border:1px solid #E2E0DA;border-radius:14px;padding:26px;}
-.feat-icon{width:46px;height:46px;border-radius:11px;background:#FBEBD3;display:flex;align-items:center;justify-content:center;margin-bottom:18px;}
+.feat-icon{width:46px;height:46px;border-radius:11px;background:#EAF1FD;display:flex;align-items:center;justify-content:center;margin-bottom:18px;}
 .feat-card h3{margin:0 0 8px;font-weight:700;font-size:18px;letter-spacing:-.01em;}
 .feat-card p{margin:0;font-size:15px;line-height:1.6;color:#5C5A56;}
+.stat-card{background:#fff;border:1px solid #E2E0DA;border-radius:14px;padding:26px;}
+.stat-card .num{font-weight:800;font-size:36px;letter-spacing:-.02em;color:#1C1C1C;margin-bottom:8px;}
+.stat-card p{margin:0;font-size:15px;line-height:1.6;color:#5C5A56;}
 .s-label{font-size:13px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;margin-bottom:14px;}
 .step-card{background:#FAFAF8;border:1px solid #E2E0DA;border-radius:14px;padding:30px 26px;}
 .step-n{width:44px;height:44px;border-radius:11px;background:#1C1C1C;color:#3B82F6;font-weight:800;font-size:19px;display:flex;align-items:center;justify-content:center;margin-bottom:20px;}
@@ -40,6 +43,9 @@ a:focus-visible,button:focus-visible{outline:3px solid #3B82F6;outline-offset:2p
 .step-card p{margin:0;font-size:15.5px;line-height:1.6;color:#5C5A56;}
 .ba-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:13px;}
 .ba-list li{display:flex;gap:11px;align-items:flex-start;font-size:15px;line-height:1.5;}
+.browser-frame{border-radius:14px;overflow:hidden;}
+.browser-scroll{width:100%;overflow-y:auto;overflow-x:hidden;background:#fff;}
+.browser-scroll iframe{border:0;position:absolute;top:0;left:0;transform-origin:top left;overflow:hidden;pointer-events:none;}
 #mobile-menu{display:none;}
 @media(max-width:820px){#desktop-nav{display:none!important;}#hamburger{display:flex!important;}}
 </style>
@@ -79,11 +85,12 @@ a:focus-visible,button:focus-visible{outline:3px solid #3B82F6;outline-offset:2p
 
 <!-- CREDIBILITY BAR -->
 <div style="background:#1C1C1C;border-bottom:1px solid #262625;">
-  <div style="max-width:1200px;margin:0 auto;padding:0 24px;height:40px;display:flex;align-items:center;justify-content:center;gap:clamp(16px,3vw,40px);flex-wrap:wrap;overflow:hidden;">
+  <div class="wrap" style="padding:12px 24px;display:flex;align-items:center;justify-content:center;gap:clamp(16px,3vw,40px);flex-wrap:wrap;">
     <span style="display:inline-flex;align-items:center;gap:7px;color:#9A9893;font-size:13px;font-weight:500;white-space:nowrap;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3B82F6" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l4 4 10-10"/></svg>No IT skills needed</span>
     <span style="display:inline-flex;align-items:center;gap:7px;color:#9A9893;font-size:13px;font-weight:500;white-space:nowrap;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3B82F6" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l4 4 10-10"/></svg>See it free before you pay</span>
-    <span style="display:inline-flex;align-items:center;gap:7px;color:#9A9893;font-size:13px;font-weight:500;white-space:nowrap;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3B82F6" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l4 4 10-10"/></svg>Live within 24 hours</span>
+    <span style="display:inline-flex;align-items:center;gap:7px;color:#9A9893;font-size:13px;font-weight:500;white-space:nowrap;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3B82F6" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l4 4 10-10"/></svg>Live within minutes</span>
     <span style="display:inline-flex;align-items:center;gap:7px;color:#9A9893;font-size:13px;font-weight:500;white-space:nowrap;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3B82F6" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l4 4 10-10"/></svg>Cancel any time</span>
+    <span style="display:inline-flex;align-items:center;gap:7px;color:#9DBEF8;font-size:13px;font-weight:700;white-space:nowrap;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3B82F6" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l4 4 10-10"/></svg>First month free</span>
   </div>
 </div>
 
@@ -95,43 +102,30 @@ a:focus-visible,button:focus-visible{outline:3px solid #3B82F6;outline-offset:2p
         <span style="width:7px;height:7px;border-radius:50%;background:#3B82F6;display:block;"></span>
         <span style="color:#9DBEF8;font-size:12.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;">Websites for construction trades</span>
       </div>
-      <h1 style="margin:0 0 22px;font-weight:800;font-size:clamp(33px,4.8vw,56px);line-height:1.07;letter-spacing:-.035em;text-wrap:balance;">A proper website for your trade — <span style="color:#3B82F6;">built in a day.</span></h1>
-      <p style="margin:0 0 32px;font-size:clamp(17px,2vw,20px);line-height:1.6;color:#B8B6B0;max-width:500px;">Tell us about your business and we'll build you a clean, professional website — on your own domain, written around your trade. See it free, then go live whenever you're ready. No IT skills needed.</p>
+      <h1 style="margin:0 0 22px;font-weight:800;font-size:clamp(33px,4.8vw,56px);line-height:1.07;letter-spacing:-.035em;text-wrap:balance;">A proper website for your trade — <span style="color:#3B82F6;">built in minutes.</span></h1>
+      <p style="margin:0 0 32px;font-size:clamp(17px,2vw,20px);line-height:1.6;color:#B8B6B0;max-width:500px;">Tell us about your business and our algorithm builds a clean, professional website around it — real copy, your logo's colours, your services and area. See the real thing free, then go live whenever you're ready.</p>
       <div style="display:flex;flex-wrap:wrap;gap:14px;margin-bottom:22px;">
         <a href="build.html" class="btn-primary">See your website free</a>
-        <a href="#how-it-works" class="btn-ghost">How it works</a>
+        <a href="#real-examples" class="btn-ghost">See real examples</a>
       </div>
-      <p style="margin:0;font-size:14px;color:#7E7C77;">£24.99/mo + £99 setup · Cancel any time · No long contracts</p>
+      <p style="margin:0 0 10px;font-size:14px;color:#7E7C77;">£99 one-off setup + £24.99/mo · Cancel any time · Ready to view in about 2–3 minutes</p>
+      <p style="margin:0;display:inline-flex;align-items:center;gap:7px;background:rgba(59,130,246,.14);border:1px solid rgba(59,130,246,.35);border-radius:8px;padding:7px 12px;font-size:13.5px;font-weight:700;color:#9DBEF8;">First month free when you go live</p>
     </div>
-    <!-- Mockup -->
+    <!-- Real screenshot proof -->
     <div style="flex:1 1 380px;min-width:300px;">
-      <div style="background:#232322;border:1px solid #34332F;border-radius:14px;box-shadow:0 30px 60px -20px rgba(0,0,0,.6);overflow:hidden;">
-        <div style="display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1px solid #34332F;">
+      <div class="browser-frame" id="hero-frame" style="background:#232322;border:1px solid #34332F;box-shadow:0 30px 60px -20px rgba(0,0,0,.6);">
+        <a href="https://sussexleadcraftltd.groundworkbuild.com" target="_blank" rel="noopener" style="display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1px solid #34332F;text-decoration:none;">
           <span style="width:10px;height:10px;border-radius:50%;background:#3A3A38;display:block;"></span><span style="width:10px;height:10px;border-radius:50%;background:#3A3A38;display:block;"></span><span style="width:10px;height:10px;border-radius:50%;background:#3A3A38;display:block;"></span>
-          <div style="margin:0 auto;background:#161615;border-radius:6px;padding:5px 16px;display:flex;align-items:center;gap:7px;min-width:180px;justify-content:center;"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><path d="M6 10V8a6 6 0 0 1 12 0v2" stroke="#5E5C58" stroke-width="2.4"/><rect x="4" y="10" width="16" height="10" rx="2" stroke="#5E5C58" stroke-width="2.4"/></svg><span style="color:#807E79;font-size:11.5px;">yourbusiness.co.uk</span></div>
-        </div>
-        <div>
-          <div style="display:flex;align-items:center;gap:9px;padding:13px 16px;background:#141517;">
-            <span style="width:24px;height:24px;border-radius:6px;background:#D97706;display:flex;align-items:center;justify-content:center;color:#141517;font-weight:800;font-size:11px;">YB</span>
-            <span style="width:74px;height:8px;border-radius:4px;background:#EDEBE6;display:block;"></span>
-            <span style="margin-left:auto;display:flex;gap:12px;align-items:center;"><span style="width:34px;height:6px;border-radius:3px;background:#41454B;display:block;"></span><span style="width:34px;height:6px;border-radius:3px;background:#41454B;display:block;"></span><span style="width:66px;height:22px;border-radius:6px;background:#D97706;display:block;"></span></span>
-          </div>
-          <div style="background:#1A1C1F;padding:26px 18px 30px;">
-            <div style="width:52px;height:6px;border-radius:3px;background:#D97706;margin-bottom:15px;"></div>
-            <div style="width:90%;height:15px;border-radius:5px;background:#F1EFEA;margin-bottom:9px;"></div>
-            <div style="width:66%;height:15px;border-radius:5px;background:#F1EFEA;margin-bottom:16px;"></div>
-            <div style="width:78%;height:8px;border-radius:4px;background:#5A5E64;margin-bottom:7px;"></div>
-            <div style="width:56%;height:8px;border-radius:4px;background:#5A5E64;margin-bottom:20px;"></div>
-            <div style="display:flex;gap:9px;align-items:center;"><span style="display:flex;align-items:center;gap:7px;height:30px;padding:0 14px;border-radius:7px;background:#D97706;"><span style="width:12px;height:12px;border-radius:50%;border:2px solid #1A1C1F;display:block;"></span><span style="width:58px;height:7px;border-radius:4px;background:#1A1C1F;opacity:.65;display:block;"></span></span><span style="width:82px;height:30px;border-radius:7px;border:1px solid #3A3D42;display:block;"></span></div>
-          </div>
-          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:9px;padding:16px;background:#FAFAF8;">
-            <div style="border:1px solid #E6E3DC;border-radius:9px;padding:13px 11px;"><span style="display:block;width:26px;height:26px;border-radius:7px;background:#FBEBD3;margin-bottom:10px;"></span><span style="display:block;width:82%;height:7px;border-radius:4px;background:#CFCCC4;margin-bottom:6px;"></span><span style="display:block;width:60%;height:7px;border-radius:4px;background:#E4E1DA;"></span></div>
-            <div style="border:1px solid #E6E3DC;border-radius:9px;padding:13px 11px;"><span style="display:block;width:26px;height:26px;border-radius:7px;background:#FBEBD3;margin-bottom:10px;"></span><span style="display:block;width:82%;height:7px;border-radius:4px;background:#CFCCC4;margin-bottom:6px;"></span><span style="display:block;width:54%;height:7px;border-radius:4px;background:#E4E1DA;"></span></div>
-            <div style="border:1px solid #E6E3DC;border-radius:9px;padding:13px 11px;"><span style="display:block;width:26px;height:26px;border-radius:7px;background:#FBEBD3;margin-bottom:10px;"></span><span style="display:block;width:76%;height:7px;border-radius:4px;background:#CFCCC4;margin-bottom:6px;"></span><span style="display:block;width:64%;height:7px;border-radius:4px;background:#E4E1DA;"></span></div>
+          <div style="margin:0 auto;background:#161615;border-radius:6px;padding:5px 16px;display:flex;align-items:center;gap:7px;min-width:220px;justify-content:center;"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><path d="M6 10V8a6 6 0 0 1 12 0v2" stroke="#5E5C58" stroke-width="2.4"/><rect x="4" y="10" width="16" height="10" rx="2" stroke="#5E5C58" stroke-width="2.4"/></svg><span style="color:#807E79;font-size:11.5px;">sussexleadcraftltd.groundworkbuild.com</span></div>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#807E79" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M14 4h6v6"/><path d="M20 4L10 14"/><path d="M18 14v6H4V6h6"/></svg>
+        </a>
+        <div class="browser-scroll" style="height:340px;">
+          <div style="width:100%;height:1484px;position:relative;" id="hero-mount">
+            <iframe src="https://sussexleadcraftltd.groundworkbuild.com" title="Sussex Leadcraft Ltd — live generated website" loading="lazy" scrolling="no" style="width:1440px;height:5300px;"></iframe>
           </div>
         </div>
       </div>
-      <p style="margin:16px 2px 0;font-size:13.5px;color:#7E7C77;text-align:center;">A real website — with your name, your trade and your area on it.</p>
+      <p style="margin:16px 2px 0;font-size:13.5px;color:#7E7C77;text-align:center;">A real, live Groundwork site — scroll to explore, or <a href="https://sussexleadcraftltd.groundworkbuild.com" target="_blank" rel="noopener" style="color:#9DBEF8;font-weight:600;">open it in full ↗</a></p>
     </div>
   </div>
 </section>
@@ -140,10 +134,12 @@ a:focus-visible,button:focus-visible{outline:3px solid #3B82F6;outline-offset:2p
 <section style="background:#F5F3EE;border-bottom:1px solid #E2E0DA;">
   <div class="wrap" style="padding:26px 24px;display:flex;flex-wrap:wrap;gap:14px 30px;align-items:center;justify-content:center;">
     <span style="color:#807E79;font-size:14px;font-weight:600;margin-right:6px;">Websites built for:</span>
-    <span style="display:inline-flex;align-items:center;gap:7px;color:#1C1C1C;font-size:15px;font-weight:600;"><svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M5 12l4 4 10-10" stroke="#1A6B3A" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Roofers</span>
     <span style="display:inline-flex;align-items:center;gap:7px;color:#1C1C1C;font-size:15px;font-weight:600;"><svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M5 12l4 4 10-10" stroke="#1A6B3A" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Plumbers</span>
     <span style="display:inline-flex;align-items:center;gap:7px;color:#1C1C1C;font-size:15px;font-weight:600;"><svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M5 12l4 4 10-10" stroke="#1A6B3A" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Electricians</span>
+    <span style="display:inline-flex;align-items:center;gap:7px;color:#1C1C1C;font-size:15px;font-weight:600;"><svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M5 12l4 4 10-10" stroke="#1A6B3A" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Roofers</span>
+    <span style="display:inline-flex;align-items:center;gap:7px;color:#1C1C1C;font-size:15px;font-weight:600;"><svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M5 12l4 4 10-10" stroke="#1A6B3A" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Leadwork &amp; heritage</span>
     <span style="display:inline-flex;align-items:center;gap:7px;color:#1C1C1C;font-size:15px;font-weight:600;"><svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M5 12l4 4 10-10" stroke="#1A6B3A" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Builders</span>
+    <span style="display:inline-flex;align-items:center;gap:7px;color:#1C1C1C;font-size:15px;font-weight:600;"><svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M5 12l4 4 10-10" stroke="#1A6B3A" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Pool engineers</span>
     <span style="display:inline-flex;align-items:center;gap:7px;color:#1C1C1C;font-size:15px;font-weight:600;"><svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M5 12l4 4 10-10" stroke="#1A6B3A" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Plasterers</span>
     <span style="display:inline-flex;align-items:center;gap:7px;color:#1C1C1C;font-size:15px;font-weight:600;"><svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M5 12l4 4 10-10" stroke="#1A6B3A" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Landscapers</span>
   </div>
@@ -155,43 +151,50 @@ a:focus-visible,button:focus-visible{outline:3px solid #3B82F6;outline-offset:2p
     <div style="text-align:center;max-width:620px;margin:0 auto clamp(40px,5vw,56px);">
       <div class="s-label" style="color:#2257CC;">How it works</div>
       <h2 style="margin:0 0 14px;font-weight:800;font-size:clamp(28px,4vw,42px);letter-spacing:-.025em;line-height:1.1;">From a few questions to a live website</h2>
-      <p style="margin:0;font-size:17px;line-height:1.6;color:#5C5A56;">No drawn-out projects. Tell us about your business and see your website the same day — free, before you pay a penny.</p>
+      <p style="margin:0;font-size:17px;line-height:1.6;color:#5C5A56;">No drawn-out projects, no briefs, no waiting weeks for a designer. Answer some questions about your business and see the real result the same day — for free.</p>
     </div>
     <div class="grid-3">
-      <div class="step-card"><div class="step-n">1</div><h3>Answer a few questions</h3><p>Tell us about your trade, your area and the work you do. A few moments, on your phone.</p></div>
-      <div class="step-card"><div class="step-n">2</div><h3>We build your website</h3><p>We put together a clean, mobile-ready site from your details — written around your trade.</p></div>
-      <div class="step-card"><div class="step-n">3</div><h3>See it, then go live</h3><p>Look it over free on desktop and mobile. Happy? We publish it to your domain within 24 hours.</p></div>
+      <div class="step-card"><div class="step-n">1</div><h3>Tell us about the business</h3><p>Your trade, your area, your logo and a few photos of your work — a few minutes, on your phone.</p></div>
+      <div class="step-card"><div class="step-n">2</div><h3>We build it — for real, in minutes</h3><p>Our algorithm writes and designs a genuinely unique site around your details, themed to your own logo colours. Usually ready in 2–3 minutes.</p></div>
+      <div class="step-card"><div class="step-n">3</div><h3>See it, then go live</h3><p>Look it over free, on desktop and mobile, edit the text if you want to. Happy? Go live on your own address within minutes.</p></div>
     </div>
   </div>
 </section>
 
 <!-- REAL EXAMPLES -->
-<section style="background:#F5F3EE;border-top:1px solid #E2E0DA;border-bottom:1px solid #E2E0DA;">
+<section id="real-examples" style="background:#F5F3EE;border-top:1px solid #E2E0DA;border-bottom:1px solid #E2E0DA;">
   <div style="max-width:1160px;margin:0 auto;padding:clamp(56px,8vw,96px) 24px;">
-    <div style="text-align:center;max-width:640px;margin:0 auto clamp(38px,5vw,54px);">
+    <div style="text-align:center;max-width:660px;margin:0 auto clamp(38px,5vw,54px);">
       <div class="s-label" style="color:#B45309;">Real examples</div>
-      <h2 style="margin:0 0 14px;font-weight:800;font-size:clamp(28px,4vw,42px);letter-spacing:-.025em;line-height:1.1;">Built for real businesses</h2>
-      <p style="margin:0;font-size:17px;line-height:1.6;color:#5C5A56;">Here's what a Groundwork site actually looks like. No two are the same — each is built around the trade it's for.</p>
+      <h2 style="margin:0 0 14px;font-weight:800;font-size:clamp(28px,4vw,42px);letter-spacing:-.025em;line-height:1.1;">Not mockups. Actual generated sites.</h2>
+      <p style="margin:0 0 10px;font-size:17px;line-height:1.6;color:#5C5A56;">This is what comes out the other end — real businesses, live right now on their own Groundwork addresses. No two look the same.</p>
+      <p style="margin:0;font-size:14px;color:#807E79;">Want your site featured here? <a href="mailto:groundwork-build@outlook.com" style="color:#2257CC;font-weight:600;">Email us</a></p>
     </div>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:26px;">
       <div>
-        <div style="background:#26241F;border:1px solid #3A362E;border-radius:14px;box-shadow:0 26px 52px -26px rgba(0,0,0,.5);overflow:hidden;">
-          <div style="display:flex;align-items:center;gap:7px;padding:11px 14px;background:#1E1C18;border-bottom:1px solid #333029;"><span style="width:9px;height:9px;border-radius:50%;background:#4A4640;display:block;"></span><span style="width:9px;height:9px;border-radius:50%;background:#4A4640;display:block;"></span><span style="width:9px;height:9px;border-radius:50%;background:#4A4640;display:block;"></span><div style="margin:0 auto;background:#141310;border-radius:6px;padding:4px 16px;"><span style="display:block;width:120px;height:6px;border-radius:3px;background:#5A554B;"></span></div></div>
-          <div style="background:#211F1A;padding:34px 26px 30px;text-align:center;"><div style="display:inline-block;margin-bottom:18px;border:1px solid #7A5C2E;border-radius:999px;padding:6px 14px;"><span style="display:block;width:96px;height:6px;border-radius:3px;background:#C79A4E;"></span></div><div style="width:70%;height:15px;border-radius:3px;background:#EDE6D6;margin:0 auto 11px;"></div><div style="width:52%;height:15px;border-radius:3px;background:#EDE6D6;margin:0 auto 22px;"></div><div style="width:60%;height:7px;border-radius:4px;background:#6B655A;margin:0 auto 8px;"></div><div style="width:44%;height:7px;border-radius:4px;background:#6B655A;margin:0 auto 26px;"></div><div style="display:flex;justify-content:center;gap:9px;flex-wrap:wrap;"><span style="border:1px solid #4A463D;border-radius:8px;padding:9px 14px;display:inline-flex;align-items:center;gap:7px;"><span style="width:14px;height:14px;border-radius:50%;background:#C79A4E;display:block;"></span><span style="width:40px;height:6px;border-radius:3px;background:#8A8478;display:block;"></span></span><span style="border:1px solid #4A463D;border-radius:8px;padding:9px 14px;display:inline-flex;align-items:center;gap:7px;"><span style="width:14px;height:14px;border-radius:50%;background:#C79A4E;display:block;"></span><span style="width:40px;height:6px;border-radius:3px;background:#8A8478;display:block;"></span></span></div></div>
-          <div style="background:#2A2721;border-top:1px solid #35322B;padding:18px 26px;display:flex;gap:16px;justify-content:center;"><span style="width:70px;height:6px;border-radius:3px;background:#524D44;display:block;"></span><span style="width:70px;height:6px;border-radius:3px;background:#524D44;display:block;"></span><span style="width:70px;height:6px;border-radius:3px;background:#524D44;display:block;"></span></div>
+        <div class="browser-frame" id="pool-frame" style="background:#26241F;border:1px solid #3A362E;box-shadow:0 26px 52px -26px rgba(0,0,0,.5);">
+          <a href="https://pooltec.groundworkbuild.com" target="_blank" rel="noopener" style="display:flex;align-items:center;gap:7px;padding:11px 14px;background:#1E1C18;border-bottom:1px solid #333029;text-decoration:none;"><span style="width:9px;height:9px;border-radius:50%;background:#4A4640;display:block;"></span><span style="width:9px;height:9px;border-radius:50%;background:#4A4640;display:block;"></span><span style="width:9px;height:9px;border-radius:50%;background:#4A4640;display:block;"></span><div style="margin:0 auto;background:#141310;border-radius:6px;padding:4px 16px;"><span style="color:#8B8478;font-size:11.5px;">pooltec.groundworkbuild.com</span></div><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#8B8478" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M14 4h6v6"/><path d="M20 4L10 14"/><path d="M18 14v6H4V6h6"/></svg></a>
+          <div class="browser-scroll" style="height:300px;">
+            <div style="width:100%;height:1232px;position:relative;" id="pool-mount">
+              <iframe src="https://pooltec.groundworkbuild.com" title="Pool Tec — live generated website" loading="lazy" scrolling="no" style="width:1440px;height:4400px;"></iframe>
+            </div>
+          </div>
         </div>
-        <p style="margin:16px 4px 0;font-size:14px;color:#5C5A56;text-align:center;"><strong style="color:#1C1C1C;">Heritage &amp; specialist</strong> — refined, credential-led, for listed and conservation work.</p>
+        <p style="margin:16px 4px 0;font-size:14px;color:#5C5A56;text-align:center;"><strong style="color:#1C1C1C;">Pool Tec</strong> — swimming pool engineers, Sussex. Scroll to explore, or <a href="https://pooltec.groundworkbuild.com" target="_blank" rel="noopener" style="color:#2257CC;font-weight:600;">open it in full ↗</a></p>
       </div>
       <div>
-        <div style="background:#FAFAF8;border:1px solid #E2E0DA;border-radius:14px;box-shadow:0 26px 52px -26px rgba(0,0,0,.28);overflow:hidden;">
-          <div style="display:flex;align-items:center;gap:7px;padding:11px 14px;background:#EFEDE7;border-bottom:1px solid #E2E0DA;"><span style="width:9px;height:9px;border-radius:50%;background:#CFCCC4;display:block;"></span><span style="width:9px;height:9px;border-radius:50%;background:#CFCCC4;display:block;"></span><span style="width:9px;height:9px;border-radius:50%;background:#CFCCC4;display:block;"></span><div style="margin:0 auto;background:#FAFAF8;border-radius:6px;padding:4px 16px;"><span style="display:block;width:120px;height:6px;border-radius:3px;background:#CFCCC4;"></span></div></div>
-          <div style="display:flex;align-items:center;gap:9px;padding:13px 18px;background:#1C1C1C;"><span style="width:26px;height:26px;border-radius:6px;background:#3B82F6;display:block;"></span><span style="width:80px;height:8px;border-radius:4px;background:#fff;display:block;"></span><span style="margin-left:auto;width:78px;height:26px;border-radius:6px;background:#3B82F6;display:block;"></span></div>
-          <div style="padding:30px 24px 28px;background:#FAFAF8;"><div style="width:92%;height:18px;border-radius:4px;background:#1C1C1C;margin-bottom:10px;"></div><div style="width:60%;height:18px;border-radius:4px;background:#1C1C1C;margin-bottom:18px;"></div><div style="width:80%;height:8px;border-radius:4px;background:#B8B5AD;margin-bottom:24px;"></div><div style="display:flex;gap:10px;align-items:center;"><span style="height:44px;flex:0 0 auto;padding:0 22px;border-radius:9px;background:#3B82F6;display:inline-flex;align-items:center;gap:8px;"><span style="width:14px;height:14px;border-radius:3px;border:2px solid #fff;display:block;"></span><span style="width:66px;height:8px;border-radius:4px;background:#fff;display:block;"></span></span><span style="height:44px;flex:1;border-radius:9px;border:1.5px solid #1C1C1C;display:flex;align-items:center;padding:0 16px;"><span style="width:70px;height:7px;border-radius:4px;background:#8A8478;display:block;"></span></span></div></div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:0 24px 26px;background:#FAFAF8;"><div style="border:1px solid #E2E0DA;border-radius:9px;padding:14px;background:#fff;"><span style="display:block;width:28px;height:28px;border-radius:7px;background:#E8F0FE;margin-bottom:10px;"></span><span style="display:block;width:80%;height:7px;border-radius:4px;background:#CFCCC4;"></span></div><div style="border:1px solid #E2E0DA;border-radius:9px;padding:14px;background:#fff;"><span style="display:block;width:28px;height:28px;border-radius:7px;background:#E8F0FE;margin-bottom:10px;"></span><span style="display:block;width:70%;height:7px;border-radius:4px;background:#CFCCC4;"></span></div></div>
+        <div class="browser-frame" id="roofing-frame" style="background:#26241F;border:1px solid #3A362E;box-shadow:0 26px 52px -26px rgba(0,0,0,.5);">
+          <a href="https://richardsoanroofing.groundworkbuild.com" target="_blank" rel="noopener" style="display:flex;align-items:center;gap:7px;padding:11px 14px;background:#1E1C18;border-bottom:1px solid #333029;text-decoration:none;"><span style="width:9px;height:9px;border-radius:50%;background:#4A4640;display:block;"></span><span style="width:9px;height:9px;border-radius:50%;background:#4A4640;display:block;"></span><span style="width:9px;height:9px;border-radius:50%;background:#4A4640;display:block;"></span><div style="margin:0 auto;background:#141310;border-radius:6px;padding:4px 16px;"><span style="color:#8B8478;font-size:11.5px;">richardsoanroofing.groundworkbuild.com</span></div><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#8B8478" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M14 4h6v6"/><path d="M20 4L10 14"/><path d="M18 14v6H4V6h6"/></svg></a>
+          <div class="browser-scroll" style="height:300px;">
+            <div style="width:100%;height:1652px;position:relative;" id="roofing-mount">
+              <iframe src="https://richardsoanroofing.groundworkbuild.com" title="Richard Soan Roofing — live generated website" loading="lazy" scrolling="no" style="width:1440px;height:5900px;"></iframe>
+            </div>
+          </div>
         </div>
-        <p style="margin:16px 4px 0;font-size:14px;color:#5C5A56;text-align:center;"><strong style="color:#1C1C1C;">Direct &amp; local</strong> — bold, fast to the phone, built to get the call.</p>
+        <p style="margin:16px 4px 0;font-size:14px;color:#5C5A56;text-align:center;"><strong style="color:#1C1C1C;">Richard Soan Roofing</strong> — roofing contractor. Scroll to explore, or <a href="https://richardsoanroofing.groundworkbuild.com" target="_blank" rel="noopener" style="color:#2257CC;font-weight:600;">open it in full ↗</a></p>
       </div>
     </div>
+    <p style="text-align:center;margin:34px 0 0;font-size:15px;color:#807E79;">Every one of these is a genuinely unique layout, written from that business's own details — not a shared template with a new logo dropped in.</p>
   </div>
 </section>
 
@@ -200,23 +203,39 @@ a:focus-visible,button:focus-visible{outline:3px solid #3B82F6;outline-offset:2p
   <div class="wrap-sm" style="padding:clamp(56px,8vw,96px) 24px;">
     <div style="max-width:660px;margin:0 auto clamp(40px,5vw,56px);text-align:center;">
       <div class="s-label" style="color:#9DBEF8;">Why it matters</div>
-      <h2 style="margin:0 0 14px;font-weight:800;font-size:clamp(28px,4vw,42px);letter-spacing:-.025em;line-height:1.1;">What a website changes</h2>
-      <p style="margin:0;font-size:16px;line-height:1.6;color:#9A9893;">When someone wants to check you out, you want something to show them. Here's the difference having a site makes.</p>
+      <h2 style="margin:0 0 14px;font-weight:800;font-size:clamp(28px,4vw,42px);letter-spacing:-.025em;line-height:1.1;">The real difference a website makes</h2>
+      <p style="margin:0;font-size:16px;line-height:1.6;color:#9A9893;">Before a customer picks up the phone, many will look you up. What they find — or don't find — shapes the decision before you've said a word.</p>
     </div>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin-bottom:16px;">
       <div style="background:#201F1E;border:1px solid #2F2E2B;border-radius:14px;padding:28px 26px;">
         <div style="font-size:12.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#807E79;margin-bottom:18px;">Without a website</div>
-        <ul class="ba-list"><li style="color:#9A9893;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" style="flex-shrink:0;margin-top:2px;"><path d="M6 12h12" stroke="#6E6C67" stroke-width="2.4" stroke-linecap="round"/></svg>Nothing comes up when someone looks you up</li><li style="color:#9A9893;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" style="flex-shrink:0;margin-top:2px;"><path d="M6 12h12" stroke="#6E6C67" stroke-width="2.4" stroke-linecap="round"/></svg>Just a number on a flyer, with nothing to back it up</li><li style="color:#9A9893;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" style="flex-shrink:0;margin-top:2px;"><path d="M6 12h12" stroke="#6E6C67" stroke-width="2.4" stroke-linecap="round"/></svg>Harder to look established next to the competition</li><li style="color:#9A9893;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" style="flex-shrink:0;margin-top:2px;"><path d="M6 12h12" stroke="#6E6C67" stroke-width="2.4" stroke-linecap="round"/></svg>Sending people to a half-empty Facebook page</li></ul>
+        <ul class="ba-list"><li style="color:#9A9893;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" style="flex-shrink:0;margin-top:2px;"><path d="M6 12h12" stroke="#6E6C67" stroke-width="2.4" stroke-linecap="round"/></svg>Nothing comes up when a customer searches for your business</li><li style="color:#9A9893;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" style="flex-shrink:0;margin-top:2px;"><path d="M6 12h12" stroke="#6E6C67" stroke-width="2.4" stroke-linecap="round"/></svg>No way to show your accreditations or past work before they call</li><li style="color:#9A9893;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" style="flex-shrink:0;margin-top:2px;"><path d="M6 12h12" stroke="#6E6C67" stroke-width="2.4" stroke-linecap="round"/></svg>Looks less established than competitors who do have a site</li><li style="color:#9A9893;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" style="flex-shrink:0;margin-top:2px;"><path d="M6 12h12" stroke="#6E6C67" stroke-width="2.4" stroke-linecap="round"/></svg>Enquiries land on a bare social media page instead of a proper site</li></ul>
       </div>
       <div style="background:#232322;border:1px solid rgba(59,130,246,.4);border-radius:14px;padding:28px 26px;">
         <div style="font-size:12.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#3B82F6;margin-bottom:18px;">With a Groundwork site</div>
-        <ul class="ba-list"><li style="color:#E8E6E0;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" style="flex-shrink:0;margin-top:1px;"><path d="M5 12l4 4 10-10" stroke="#6FBE8C" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>A professional site with your name on it</li><li style="color:#E8E6E0;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" style="flex-shrink:0;margin-top:1px;"><path d="M5 12l4 4 10-10" stroke="#6FBE8C" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Somewhere solid to send every customer who asks</li><li style="color:#E8E6E0;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" style="flex-shrink:0;margin-top:1px;"><path d="M5 12l4 4 10-10" stroke="#6FBE8C" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Looks the part next to anyone in your trade</li><li style="color:#E8E6E0;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" style="flex-shrink:0;margin-top:1px;"><path d="M5 12l4 4 10-10" stroke="#6FBE8C" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Your services, area and contact details, clearly laid out</li></ul>
+        <ul class="ba-list"><li style="color:#E8E6E0;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" style="flex-shrink:0;margin-top:1px;"><path d="M5 12l4 4 10-10" stroke="#6FBE8C" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>A professional website with your business name on it</li><li style="color:#E8E6E0;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" style="flex-shrink:0;margin-top:1px;"><path d="M5 12l4 4 10-10" stroke="#6FBE8C" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>One place to send every enquiry, with your work on display</li><li style="color:#E8E6E0;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" style="flex-shrink:0;margin-top:1px;"><path d="M5 12l4 4 10-10" stroke="#6FBE8C" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Presents your business on equal footing with any competitor</li><li style="color:#E8E6E0;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" style="flex-shrink:0;margin-top:1px;"><path d="M5 12l4 4 10-10" stroke="#6FBE8C" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Puts you in contention for larger, higher-value work</li></ul>
       </div>
     </div>
-    <div style="background:#232322;border:1px solid #34332F;border-radius:16px;padding:clamp(28px,3.5vw,44px);text-align:center;max-width:780px;margin:0 auto;">
-      <div style="display:inline-block;background:rgba(59,130,246,.14);color:#3B82F6;font-size:11.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:5px 11px;border-radius:20px;margin-bottom:18px;">Straight talk</div>
-      <p style="margin:0;font-size:clamp(18px,2.1vw,22px);line-height:1.55;font-weight:600;color:#F2F0EA;text-wrap:pretty;">We build you a website that looks the part and gives customers somewhere to find you. What you do with it is up to you — but now you've got something proper to point people to.</p>
+  </div>
+</section>
+
+<!-- TRUST / STATS -->
+<section style="background:#FAFAF8;">
+  <div class="wrap-sm" style="padding:clamp(56px,8vw,96px) 24px;">
+    <div style="max-width:680px;margin:0 auto clamp(40px,5vw,56px);text-align:center;">
+      <div class="s-label" style="color:#2257CC;">Why this matters, in numbers</div>
+      <h2 style="margin:0 0 14px;font-weight:800;font-size:clamp(28px,4vw,42px);letter-spacing:-.025em;line-height:1.1;">The research behind why this matters</h2>
+      <p style="margin:0;font-size:17px;line-height:1.6;color:#5C5A56;">Recent UK small-business and trades research puts numbers on what most owners already sense from the calls they get.</p>
     </div>
+    <div class="grid-3-stats">
+      <div class="stat-card"><div class="num">78%</div><p>Of UK small business owners already have a website — it's now the standard, not the exception.</p></div>
+      <div class="stat-card"><div class="num">83.5%</div><p>Of those owners say their website plays a significant role in running the business, not just a formality.</p></div>
+      <div class="stat-card"><div class="num">81%</div><p>Of customers research a business online — including checking for a website — before hiring or buying.</p></div>
+      <div class="stat-card"><div class="num">94%</div><p>Of first impressions of a business are shaped by its website design and presentation.</p></div>
+      <div class="stat-card"><div class="num">£4bn</div><p>Lost by UK homeowners to rogue traders every year — 87% report real trust concerns when hiring a tradesperson.</p></div>
+      <div class="stat-card"><div class="num">16%</div><p>Of all UK businesses are in construction — the single largest sector in the country.</p></div>
+    </div>
+    <p style="margin:28px 0 0;font-size:12.5px;color:#9A9893;line-height:1.6;text-align:center;">Sources: Forbes Advisor UK (2025) · Network Solutions UK small-business research (2026) · Harri Digital UK trades research (2026) · ONS/DBT UK business population statistics (2024–25).</p>
   </div>
 </section>
 
@@ -226,18 +245,17 @@ a:focus-visible,button:focus-visible{outline:3px solid #3B82F6;outline-offset:2p
     <div style="max-width:620px;margin:0 auto clamp(40px,5vw,56px);text-align:center;">
       <div class="s-label" style="color:#2257CC;">What you get</div>
       <h2 style="margin:0 0 14px;font-weight:800;font-size:clamp(28px,4vw,42px);letter-spacing:-.025em;line-height:1.1;">A website that does your business justice</h2>
-      <p style="margin:0;font-size:17px;line-height:1.6;color:#5C5A56;">Everything in the one job we're here to do really well.</p>
+      <p style="margin:0;font-size:17px;line-height:1.6;color:#5C5A56;">Everything you need from a business website — nothing you don't.</p>
     </div>
-    <div class="grid-4">
-      <div class="feat-card"><div class="feat-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#D97706" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/><path d="M6.5 6.5h.01"/></svg></div><h3>Your own website</h3><p>A clean, fast, mobile-ready site — on your own domain, not a profile on someone else's platform.</p></div>
-      <div class="feat-card"><div class="feat-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#D97706" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3l7 7-4 4-7-7z"/><path d="M10 7L3 14v7h7l7-7"/></svg></div><h3>Built around your trade</h3><p>Your services, your area and your contact details — written and laid out to suit the work you actually do.</p></div>
-      <div class="feat-card"><div class="feat-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#D97706" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18a14 14 0 0 1 0-18z"/></svg></div><h3>Live on your domain</h3><p>We publish it within 24 hours — new domain or your existing one, wired up and sorted for you.</p></div>
-      <div class="feat-card"><div class="feat-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#D97706" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></div><h3>Support &amp; occasional edits</h3><p>Need a change? Just ask — small tweaks and support come with every plan.</p></div>
+    <div class="grid-3fit">
+      <div class="feat-card"><div class="feat-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#2257CC" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/><path d="M6.5 6.5h.01"/></svg></div><h3>Your own website</h3><p>A clean, fast, mobile-ready website on your own address — not a listing on someone else's platform.</p></div>
+      <div class="feat-card"><div class="feat-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#2257CC" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3l7 7-4 4-7-7z"/><path d="M10 7L3 14v7h7l7-7"/></svg></div><h3>Built specifically around you</h3><p>Your services, your area, and your logo's own colours — not a generic template with your name swapped in.</p></div>
+      <div class="feat-card"><div class="feat-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#2257CC" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></div><h3>Support &amp; edits</h3><p>Ongoing support and content edits are included with every plan — just email us.</p></div>
     </div>
   </div>
 </section>
 
-<!-- PRICING -->
+<!-- PRICING TEASER -->
 <section style="background:#FAFAF8;">
   <div class="wrap-sm" style="padding:clamp(56px,8vw,96px) 24px;">
     <div style="max-width:620px;margin:0 auto clamp(40px,5vw,56px);text-align:center;">
@@ -249,12 +267,13 @@ a:focus-visible,button:focus-visible{outline:3px solid #3B82F6;outline-offset:2p
       <div style="background:#FAFAF8;border:2px solid #3B82F6;border-radius:18px;padding:34px 30px;">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;"><h3 style="margin:0;font-weight:800;font-size:23px;">Starter</h3><span style="background:#1A6B3A;color:#fff;font-size:11.5px;font-weight:700;padding:5px 11px;border-radius:20px;">Available now</span></div>
         <div style="display:flex;align-items:baseline;gap:5px;margin-bottom:6px;"><span style="font-weight:800;font-size:46px;letter-spacing:-.03em;">£24.99</span><span style="color:#807E79;font-size:17px;">/mo</span></div>
-        <p style="margin:0 0 22px;font-size:15px;color:#5C5A56;line-height:1.5;">Plus a one-off £99 setup &amp; build fee. Cancel any time.</p>
+        <p style="margin:0 0 10px;font-size:15px;color:#5C5A56;line-height:1.5;">Plus a one-off £99 setup &amp; build fee. Cancel any time.</p>
+        <p style="margin:0 0 22px;font-size:13.5px;font-weight:700;color:#1A6B3A;">First month free when you go live</p>
         <ul style="list-style:none;margin:0 0 28px;padding:0;display:flex;flex-direction:column;gap:12px;">
           <li style="display:flex;gap:10px;align-items:flex-start;font-size:15.5px;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" style="flex-shrink:0;margin-top:1px;"><path d="M5 12l4 4 10-10" stroke="#1A6B3A" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Professional, mobile-ready website</li>
-          <li style="display:flex;gap:10px;align-items:flex-start;font-size:15.5px;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" style="flex-shrink:0;margin-top:1px;"><path d="M5 12l4 4 10-10" stroke="#1A6B3A" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Live on your own domain</li>
+          <li style="display:flex;gap:10px;align-items:flex-start;font-size:15.5px;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" style="flex-shrink:0;margin-top:1px;"><path d="M5 12l4 4 10-10" stroke="#1A6B3A" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Live on your own groundworkbuild.com address</li>
           <li style="display:flex;gap:10px;align-items:flex-start;font-size:15.5px;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" style="flex-shrink:0;margin-top:1px;"><path d="M5 12l4 4 10-10" stroke="#1A6B3A" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Written around your trade</li>
-          <li style="display:flex;gap:10px;align-items:flex-start;font-size:15.5px;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" style="flex-shrink:0;margin-top:1px;"><path d="M5 12l4 4 10-10" stroke="#1A6B3A" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Support &amp; occasional edits</li>
+          <li style="display:flex;gap:10px;align-items:flex-start;font-size:15.5px;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" style="flex-shrink:0;margin-top:1px;"><path d="M5 12l4 4 10-10" stroke="#1A6B3A" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Support &amp; edits</li>
         </ul>
         <a href="build.html" class="btn-primary" style="text-align:center;border-radius:9px;padding:15px;display:block;">See your website free</a>
       </div>
@@ -278,9 +297,9 @@ a:focus-visible,button:focus-visible{outline:3px solid #3B82F6;outline-offset:2p
 <!-- FOOTER -->
 <footer style="background:#1C1C1C;color:#9A9893;">
   <div style="max-width:1200px;margin:0 auto;padding:56px 24px 40px;display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:40px;">
-    <div style="grid-column:1 / -1;max-width:340px;">
+    <div style="grid-column:1 / -1;max-width:360px;">
       <a href="index.html" style="display:flex;align-items:center;gap:11px;text-decoration:none;margin-bottom:16px;"><svg viewBox="0 0 48 48" width="30" height="30" fill="none"><path d="M 37 13.1 A 17 17 0 1 0 41 24 L 27 24" stroke="#3B82F6" stroke-width="4.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M 30.9 18.2 A 9 9 0 1 0 30.9 29.8" stroke="#3B82F6" stroke-width="4.6" stroke-linecap="round"/></svg><span style="color:#fff;font-weight:800;font-size:19px;letter-spacing:-.03em;">Groundwork</span></a>
-      <p style="margin:0;font-size:14px;line-height:1.6;color:#7E7C77;">Professional websites for UK construction trades. Built in a day, live on your own domain.</p>
+      <p style="margin:0;font-size:14px;line-height:1.6;color:#7E7C77;">Professional websites for UK construction trades. Built in minutes, live on your own web address.</p>
     </div>
     <nav style="display:flex;flex-direction:column;gap:12px;"><span style="color:#5E5C58;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;margin-bottom:2px;">Pages</span><a href="index.html" style="color:#9A9893;text-decoration:none;font-size:14px;">Home</a><a href="pricing.html" style="color:#9A9893;text-decoration:none;font-size:14px;">Pricing</a><a href="about.html" style="color:#9A9893;text-decoration:none;font-size:14px;">About</a><a href="contact.html" style="color:#9A9893;text-decoration:none;font-size:14px;">Contact</a></nav>
     <nav style="display:flex;flex-direction:column;gap:12px;"><span style="color:#5E5C58;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;margin-bottom:2px;">Get started</span><a href="build.html" style="color:#9A9893;text-decoration:none;font-size:14px;">See your website free</a><a href="pricing.html" style="color:#9A9893;text-decoration:none;font-size:14px;">Pricing — £24.99/mo</a></nav>
@@ -312,6 +331,41 @@ function toggleMenu() {
     // Not logged in / session check failed — leave as "Sign In".
   }
 })();
+
+// Scale each embedded live-site iframe to fit its frame's actual width,
+// so the 1440px-wide real site renders proportionally at any viewport size.
+const GW_IFRAMES = [
+  { frame: 'hero-frame', mount: 'hero-mount', rawW: 1440, rawH: 5300 },
+  { frame: 'pool-frame', mount: 'pool-mount', rawW: 1440, rawH: 4400 },
+  { frame: 'roofing-frame', mount: 'roofing-mount', rawW: 1440, rawH: 5900 },
+];
+
+function gwScaleIframe(cfg) {
+  const frameEl = document.getElementById(cfg.frame);
+  const mountEl = document.getElementById(cfg.mount);
+  const iframeEl = mountEl && mountEl.querySelector('iframe');
+  if (!frameEl || !mountEl || !iframeEl) return;
+  const w = frameEl.clientWidth;
+  if (!w) return;
+  const scale = w / cfg.rawW;
+  const h = Math.round(cfg.rawH * scale);
+  mountEl.style.height = h + 'px';
+  iframeEl.style.transform = 'scale(' + scale + ')';
+}
+
+function gwScaleAllIframes() {
+  GW_IFRAMES.forEach(gwScaleIframe);
+}
+
+gwScaleAllIframes();
+window.addEventListener('resize', gwScaleAllIframes);
+if (typeof ResizeObserver !== 'undefined') {
+  GW_IFRAMES.forEach(cfg => {
+    const frameEl = document.getElementById(cfg.frame);
+    if (!frameEl) return;
+    new ResizeObserver(() => gwScaleIframe(cfg)).observe(frameEl);
+  });
+}
 </script>
 </body>
 </html>

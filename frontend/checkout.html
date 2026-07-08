@@ -49,23 +49,21 @@ body{margin:0;background:#F5F3EE;font-family:Inter,sans-serif;color:#1C1C1C;}
         <span style="font-weight:700;font-size:16px;">£99</span>
       </div>
       <div style="display:flex;justify-content:space-between;align-items:baseline;">
-        <span style="font-size:15px;color:#5C5A56;">Monthly hosting <span style="color:#2257CC;font-weight:700;">— first month free</span></span>
-        <span style="font-weight:700;font-size:16px;">£24.99/mo</span>
+        <span style="font-size:15px;color:#5C5A56;">Monthly hosting</span>
+        <span style="text-align:right;"><span style="font-weight:700;font-size:16px;color:#1A6B3A;">Free this month</span><span style="display:block;font-size:12.5px;color:#9A9893;font-weight:500;">then £24.99/mo</span></span>
       </div>
     </div>
+
+    <p style="margin:0 0 20px;font-size:13px;color:#5C5A56;line-height:1.5;">Your card is billed £24.99/mo automatically from month two, unless you cancel first.</p>
 
     <div style="background:#F5F3EE;border-radius:10px;padding:16px 18px;margin-bottom:28px;">
       <div class="check-row">
         <div class="check-icon"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#2257CC" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l4 4 10-10"/></svg></div>
-        <span>Your first month of hosting is free — you won't be charged until month two</span>
+        <span>First month of hosting free</span>
       </div>
       <div class="check-row">
         <div class="check-icon"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#2257CC" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l4 4 10-10"/></svg></div>
-        <span>Site live at your address within 24 hours</span>
-      </div>
-      <div class="check-row">
-        <div class="check-icon"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#2257CC" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l4 4 10-10"/></svg></div>
-        <span>Connect your own domain for free — we'll handle the setup</span>
+        <span>Site live at your address within minutes</span>
       </div>
       <div class="check-row" style="margin-bottom:0;">
         <div class="check-icon"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#2257CC" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l4 4 10-10"/></svg></div>
@@ -74,7 +72,7 @@ body{margin:0;background:#F5F3EE;font-family:Inter,sans-serif;color:#1C1C1C;}
     </div>
 
     <button id="pay-btn" onclick="startCheckout()" style="width:100%;background:#3B82F6;color:#fff;font-family:inherit;font-weight:700;font-size:17px;border:none;border-radius:10px;padding:17px 24px;cursor:pointer;box-shadow:0 8px 24px -8px rgba(59,130,246,.55);transition:opacity .15s;">
-      Pay and go live →
+      Pay £99 and go live →
     </button>
 
     <div id="pay-error" style="display:none;margin-top:14px;background:#FEF2F2;border:1px solid #FCA5A5;border-radius:8px;padding:12px 14px;font-size:14px;color:#B91C1C;line-height:1.5;"></div>
@@ -96,7 +94,10 @@ const jobId = params.get('id');
 let subdomainBlocked = false;
 
 if (jobId) {
-  document.getElementById('back-link').href = '/api/generate/' + jobId + '/html';
+  // Was pointing straight at the raw generated HTML (bypassing the app's own
+  // chrome entirely, with no way back except the browser's own back button).
+  // Send them back to the preview page they actually came from instead.
+  document.getElementById('back-link').href = 'preview.html?id=' + jobId;
   loadSubdomainPreview();
 }
 

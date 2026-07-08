@@ -1236,18 +1236,43 @@ button{background:#3B82F6;color:#fff;border:0;font-weight:700;padding:12px 22px;
 # Shared nav/footer markup so /account and other Flask-rendered pages match the
 # static frontend pages' look, since there's no shared CSS file in this repo —
 # every page (including frontend/index.html) inlines its own styles.
-_SITE_HEADER = """<header style="position:sticky;top:0;z-index:100;background:#1C1C1C;border-bottom:1px solid #2C2C2C;">
+def _site_header() -> str:
+    signed_in = bool(session.get("account_email"))
+    right_link = (
+        '<a href="/account" style="color:#9A9893;text-decoration:none;font-size:15px;font-weight:500;">Dashboard</a>'
+        if signed_in else
+        '<a href="/account/login" style="color:#9A9893;text-decoration:none;font-size:15px;font-weight:500;">Sign in</a>'
+    )
+    cta_label = "New site" if signed_in else "Get started"
+    return f"""<header style="position:sticky;top:0;z-index:100;background:#1C1C1C;border-bottom:1px solid #2C2C2C;">
   <nav style="max-width:1200px;margin:0 auto;padding:0 24px;height:68px;display:flex;align-items:center;justify-content:space-between;gap:24px;">
     <a href="/index.html" style="display:flex;align-items:center;gap:11px;text-decoration:none;">
       <svg viewBox="0 0 48 48" width="32" height="32" fill="none"><path d="M 37 13.1 A 17 17 0 1 0 41 24 L 27 24" stroke="#3B82F6" stroke-width="4.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M 30.9 18.2 A 9 9 0 1 0 30.9 29.8" stroke="#3B82F6" stroke-width="4.6" stroke-linecap="round"/></svg>
       <span style="color:#fff;font-weight:800;font-size:20px;letter-spacing:-.03em;">Groundwork</span>
     </a>
-    <a href="/build.html" style="background:#3B82F6;color:#fff;font-weight:700;font-size:15px;text-decoration:none;padding:10px 18px;border-radius:7px;">Get started</a>
+    <div style="display:flex;align-items:center;gap:20px;">
+      {right_link}
+      <a href="/build.html" style="background:#3B82F6;color:#fff;font-weight:700;font-size:15px;text-decoration:none;padding:10px 18px;border-radius:7px;">{cta_label}</a>
+    </div>
   </nav>
 </header>"""
 
-_SITE_FOOTER = """<footer style="background:#1C1C1C;color:#9A9893;margin-top:56px;">
-  <div style="max-width:1200px;margin:0 auto;padding:28px 24px;font-size:13px;color:#5E5C58;">© 2026 Groundwork Ltd. Made for people who build things.</div>
+
+def _site_footer() -> str:
+    return """<footer style="background:#1C1C1C;color:#9A9893;margin-top:56px;">
+  <div style="max-width:1200px;margin:0 auto;padding:32px 24px 26px;display:flex;flex-wrap:wrap;gap:16px 32px;align-items:center;justify-content:space-between;">
+    <a href="/index.html" style="display:flex;align-items:center;gap:10px;text-decoration:none;">
+      <svg viewBox="0 0 48 48" width="22" height="22" fill="none"><path d="M 37 13.1 A 17 17 0 1 0 41 24 L 27 24" stroke="#3B82F6" stroke-width="4.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M 30.9 18.2 A 9 9 0 1 0 30.9 29.8" stroke="#3B82F6" stroke-width="4.6" stroke-linecap="round"/></svg>
+      <span style="color:#fff;font-weight:800;font-size:15px;letter-spacing:-.03em;">Groundwork</span>
+    </a>
+    <div style="display:flex;gap:22px;flex-wrap:wrap;">
+      <a href="/pricing.html" style="color:#9A9893;text-decoration:none;font-size:13.5px;">Pricing</a>
+      <a href="/about.html" style="color:#9A9893;text-decoration:none;font-size:13.5px;">About</a>
+      <a href="/contact.html" style="color:#9A9893;text-decoration:none;font-size:13.5px;">Contact</a>
+      <a href="mailto:groundwork-build@outlook.com" style="color:#9A9893;text-decoration:none;font-size:13.5px;">groundwork-build@outlook.com</a>
+    </div>
+    <span style="font-size:13px;color:#5E5C58;">© 2026 Groundwork Ltd.</span>
+  </div>
 </footer>"""
 
 
@@ -1274,9 +1299,9 @@ input[type=email]{{width:100%;padding:13px 16px;border:1px solid #D9D7D0;border-
 .pw-toggle:hover{{color:#3B82F6;}}
 </style>
 </head><body>
-{_SITE_HEADER}
+{_site_header()}
 <div class="acct-wrap">{inner_html}</div>
-{_SITE_FOOTER}
+{_site_footer()}
 <script>
 function gwTogglePw(id, btn){{
   const el = document.getElementById(id);

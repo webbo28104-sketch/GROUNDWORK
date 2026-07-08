@@ -119,6 +119,10 @@ A relative fetch from a page on `groundworkbuild.com` goes through `_worker.js`'
 - Contact email: `groundwork-build@outlook.com`
 - Plans: **Starter** £99 setup + £24.99/mo (first month of hosting free via a 30-day Stripe trial on the subscription). One-Man-Band and Director are coming soon stubs.
 
+## Marketing pages
+
+`frontend/index.html` (Home), `pricing.html`, `about.html`, `contact.html` — plain static HTML, inline styles, no shared header/footer include file (same pattern as the rest of `frontend/`). Nav and footer markup is duplicated in each page's `<body>` on purpose, matching how the working funnel pages already do it. `index.html` embeds three real live generated sites as scaled `<iframe>`s (hero + two "Real examples" cards) rather than mockups or screenshots — a vanilla-JS `ResizeObserver` rescales each to its container width. `pricing.html` has a monthly/annual billing toggle (annual isn't wired to Stripe yet — no `STRIPE_ANNUAL_PRICE_ID` — it's a marketing-only display for now).
+
 ## Design source
 
-Original design files (`.dc.html`) are in `frontend/` of the zip handoff. The `frontend/*.html` files are the working plain-HTML conversions of those designs.
+Marketing pages were last refreshed from a Claude Design project (`claude.ai/design`), pulled via the `DesignSync` MCP tool. The project's `.dc.html` files are design references in that tool's own component format — not meant to be copied in as-is — recreated here as plain static HTML per the pattern above.
