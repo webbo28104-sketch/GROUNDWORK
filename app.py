@@ -3032,7 +3032,6 @@ def _railway_add_custom_domain(domain: str) -> str:
       customDomainCreate(input: $input) {
         id
         domain
-        cnameTarget
       }
     }
     """
@@ -3059,7 +3058,7 @@ def _railway_add_custom_domain(domain: str) -> str:
     if result.get("errors"):
         raise RuntimeError(f"Railway customDomainCreate: {result['errors']}")
 
-    return (result.get("data", {}).get("customDomainCreate") or {}).get("cnameTarget", "")
+    return ""  # CNAME target comes from RAILWAY_CNAME_TARGET env var
 
 
 def _handle_domain_order_async(domain: str, site_id: str, customer_email: str,
