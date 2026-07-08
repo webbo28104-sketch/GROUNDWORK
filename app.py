@@ -25,7 +25,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 from build_prompt import build_prompt
 from models import SessionLocal, Lead, Generation, Account, GenerationImage, init_db
-from emails import send_verification_email, send_resend_email, send_password_reset_email, send_support_message_email, send_enquiry_email
+from emails import send_verification_email, send_resend_email, send_password_reset_email, send_support_message_email, send_enquiry_email, send_domain_order_admin_email, send_domain_order_customer_email
 
 app = Flask(__name__, static_folder="frontend", static_url_path="")
 app.logger.setLevel(logging.INFO)
@@ -1584,7 +1584,7 @@ def _render_dashboard(email: str) -> str:
                   : '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#9A9893" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>';
                 var badge = row.best_match ? '<span style="background:#3B82F6;color:#fff;font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;margin-left:6px;">Best match</span>' : '';
                 var btn   = avail
-                  ? '<a href="/domain-search.html?q=' + encodeURIComponent(row.domain.split('.')[0]) + (SITE_ID ? '&id='+encodeURIComponent(SITE_ID) : '') + '" style="background:#3B82F6;color:#fff;font-weight:700;font-size:13px;border-radius:8px;padding:8px 14px;text-decoration:none;white-space:nowrap;">Select</a>'
+                  ? '<a href="/domain-checkout.html?domain=' + encodeURIComponent(row.domain) + (SITE_ID ? '&id='+encodeURIComponent(SITE_ID) : '') + '" style="background:#3B82F6;color:#fff;font-weight:700;font-size:13px;border-radius:8px;padding:8px 14px;text-decoration:none;white-space:nowrap;">Select</a>'
                   : '<span style="font-size:13px;color:#9A9893;font-weight:600;">Taken</span>';
                 return '<div style="display:flex;align-items:center;gap:12px;padding:11px 0;border-top:1px solid #EDEBE5;">'
                   + '<div style="width:22px;height:22px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;background:' + (avail ? 'rgba(26,107,58,.12)' : 'rgba(154,152,147,.15)') + ';">' + icon + '</div>'
@@ -2861,6 +2861,99 @@ def domain_search():
     return jsonify({"results": results})
 
 
+def _whois_available(domain: str) -> bool:
+    """Authoritative availability check via WHOIS. More reliable than DNS —
+    catches parked domains that have no A records but are still registered."""
+    import socket
+    domain = domain.lower().strip()
+    if domain.endswith(".co.uk") or domain.endswith(".uk"):
+        server = "whois.nic.uk"
+    elif domain.endswith(".com"):
+        server = "whois.verisign-grs.com"
+    else:
+        server = "whois.iana.org"
+    try:
+        s = socket.create_connection((server, 43), timeout=8)
+        s.sendall((domain + "\r\n").encode())
+        resp = b""
+        while True:
+            chunk = s.recv(4096)
+            if not chunk:
+                break
+            resp += chunk
+        s.close()
+        text = resp.decode(errors="replace").lower()
+        return "no match" in text or "not found" in text
+    except Exception as exc:
+        app.logger.warning(f"WHOIS check failed for {domain}: {exc}")
+        return False  # fail safe — don't offer domains we couldn't verify
+
+
+@app.route("/api/domain/confirm")
+def domain_confirm():
+    """Fresh availability check (WHOIS) + confirmed price for the checkout page.
+    This is the source of truth — the search page price is only indicative."""
+    domain = request.args.get("domain", "").strip().lower()
+    if not domain or "." not in domain:
+        return jsonify({"error": "invalid domain"}), 400
+
+    tld = ".".join(domain.split(".")[1:])
+    price_gbp = _TLD_PRICE_GBP.get(tld)
+    if price_gbp is None:
+        return jsonify({"error": "unsupported TLD"}), 400
+
+    available = _whois_available(domain)
+    return jsonify({"domain": domain, "available": available, "price_gbp": price_gbp})
+
+
+@app.route("/api/domain/checkout/session", methods=["POST"])
+def domain_checkout_session():
+    """Create a Stripe Checkout session for a one-time domain registration payment.
+    Re-confirms availability and price server-side — never trusts the client amount."""
+    if not STRIPE_SECRET_KEY:
+        return jsonify({"error": "Stripe is not configured"}), 503
+
+    data = request.get_json(silent=True) or {}
+    domain  = str(data.get("domain", "")).strip().lower()
+    site_id = str(data.get("site_id", "")).strip()
+
+    if not domain or "." not in domain:
+        return jsonify({"error": "invalid domain"}), 400
+
+    tld = ".".join(domain.split(".")[1:])
+    price_gbp = _TLD_PRICE_GBP.get(tld)
+    if price_gbp is None:
+        return jsonify({"error": "unsupported TLD"}), 400
+
+    if not _whois_available(domain):
+        return jsonify({"error": "domain_taken",
+                        "message": "This domain was registered by someone else just now. Please choose another."}), 409
+
+    cancel_url = f"{SITE_URL}/domain-checkout.html?domain={domain}"
+    if site_id:
+        cancel_url += f"&id={site_id}"
+
+    cs = stripe.checkout.Session.create(
+        mode="payment",
+        line_items=[{
+            "price_data": {
+                "currency": "gbp",
+                "product_data": {
+                    "name": f"Domain registration: {domain}",
+                    "description": "1-year registration via Groundwork. We'll connect it to your site within 1 working day.",
+                },
+                "unit_amount": int(round(price_gbp * 100)),
+            },
+            "quantity": 1,
+        }],
+        metadata={"type": "domain", "domain": domain, "site_id": site_id, "price_gbp": str(price_gbp)},
+        client_reference_id=site_id or domain,
+        success_url=f"{SITE_URL}/account?domain_ordered={domain}",
+        cancel_url=cancel_url,
+    )
+    return jsonify({"url": cs.url})
+
+
 @app.route("/api/contact", methods=["POST"])
 def contact_form():
     """Receive a contact form submission from a generated site and forward it
@@ -2984,34 +3077,73 @@ def stripe_webhook():
 
     if event.type == "checkout.session.completed":
         cs = event.data.object
-        job_id = cs.client_reference_id
-        customer_id = cs.customer
-        invoice_id = cs.get("invoice")
-        if job_id:
-            db = SessionLocal()
+        metadata = cs.get("metadata") or {}
+
+        if metadata.get("type") == "domain":
+            # Domain registration order — notify admin to register via Porkbun,
+            # confirm to customer.
+            domain    = metadata.get("domain", "")
+            site_id   = metadata.get("site_id", "")
+            price_gbp = float(metadata.get("price_gbp") or 0)
+            customer_email = (cs.customer_details or {}).get("email", "") if cs.customer_details else ""
+            if not customer_email and site_id:
+                db = SessionLocal()
+                try:
+                    gen = db.query(Generation).join(Lead).filter(Lead.public_id == site_id).first()
+                    if gen:
+                        customer_email = gen.email
+                finally:
+                    db.close()
+            business_name = ""
+            if site_id:
+                db = SessionLocal()
+                try:
+                    gen = db.query(Generation).join(Lead).filter(Lead.public_id == site_id).first()
+                    if gen:
+                        business_name = gen.business_name or ""
+                finally:
+                    db.close()
+            app.logger.info(f"Domain order paid: {domain} site={site_id} email={customer_email}")
             try:
-                gen = db.query(Generation).join(Lead).filter(Lead.public_id == job_id).first()
-                if gen and gen.status != "live":
-                    gen.status = "live"
-                    if customer_id:
-                        gen.stripe_customer_id = customer_id
-                    if invoice_id:
-                        gen.stripe_setup_invoice_id = invoice_id
-                    # Assign subdomain (the checkout route already validated this;
-                    # the double-check here guards the rare simultaneous-payment race).
-                    if not gen.subdomain:
-                        business_name = (gen.lead.form_data or {}).get("business_name", "")
-                        slug = _make_subdomain(business_name)
-                        if slug and not _subdomain_has_invalid_chars(slug):
-                            if not _subdomain_is_taken(slug, db, exclude_gen_id=gen.id):
-                                gen.subdomain = slug
-                            else:
-                                app.logger.error(
-                                    f"Subdomain race: {slug!r} taken when webhook fired for job {job_id}"
-                                )
-                    db.commit()
-            finally:
-                db.close()
+                send_domain_order_admin_email(domain, price_gbp, customer_email, site_id)
+            except Exception as exc:
+                app.logger.error(f"Failed to send domain admin email: {exc}")
+            if customer_email:
+                try:
+                    send_domain_order_customer_email(customer_email, domain, business_name)
+                except Exception as exc:
+                    app.logger.error(f"Failed to send domain customer email: {exc}")
+
+        else:
+            # Standard site subscription checkout
+            job_id = cs.client_reference_id
+            customer_id = cs.customer
+            invoice_id = cs.get("invoice")
+            if job_id:
+                db = SessionLocal()
+                try:
+                    gen = db.query(Generation).join(Lead).filter(Lead.public_id == job_id).first()
+                    if gen and gen.status != "live":
+                        gen.status = "live"
+                        if customer_id:
+                            gen.stripe_customer_id = customer_id
+                        if invoice_id:
+                            gen.stripe_setup_invoice_id = invoice_id
+                        # Assign subdomain (the checkout route already validated this;
+                        # the double-check here guards the rare simultaneous-payment race).
+                        if not gen.subdomain:
+                            business_name = (gen.lead.form_data or {}).get("business_name", "")
+                            slug = _make_subdomain(business_name)
+                            if slug and not _subdomain_has_invalid_chars(slug):
+                                if not _subdomain_is_taken(slug, db, exclude_gen_id=gen.id):
+                                    gen.subdomain = slug
+                                else:
+                                    app.logger.error(
+                                        f"Subdomain race: {slug!r} taken when webhook fired for job {job_id}"
+                                    )
+                        db.commit()
+                finally:
+                    db.close()
 
     return "", 200
 

@@ -123,7 +123,7 @@ function renderResults(results) {
       : '';
     const priceStr = r.available ? '£' + r.price_gbp.toFixed(2) + '/yr' : 'Taken';
     const btn = r.available
-      ? `<a class="select-btn" href="${selectHref(r.domain, r.price_gbp)}">Select →</a>`
+      ? `<a class="select-btn" href="${selectHref(r.domain)}">Select →</a>`
       : `<span class="select-btn taken" aria-disabled="true">Taken</span>`;
     return `<div class="result-row ${r.best_match ? 'best' : ''} ${r.available ? '' : 'taken'}">
       <div style="width:26px;height:26px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;background:${r.available ? 'rgba(26,107,58,.12)' : 'rgba(154,152,147,.15)'};">
@@ -141,17 +141,10 @@ function renderResults(results) {
   }).join('');
 }
 
-function selectHref(domain, price) {
-  // Build a pre-filled email inquiry. Replace with domain-checkout.html when
-  // a purchase flow is ready.
-  const subject = encodeURIComponent('Domain registration — ' + domain);
-  const body    = encodeURIComponent(
-    "Hi,\n\nI'd like to register the domain: " + domain +
-    " (approx. £" + price.toFixed(2) + "/yr)" +
-    (jobId ? "\n\nMy Groundwork site ID: " + jobId : "") +
-    "\n\nThanks"
-  );
-  return 'mailto:groundwork-build@outlook.com?subject=' + subject + '&body=' + body;
+function selectHref(domain) {
+  let url = '/domain-checkout.html?domain=' + encodeURIComponent(domain);
+  if (jobId) url += '&id=' + encodeURIComponent(jobId);
+  return url;
 }
 
 if (businessParam) runSearch(businessParam); else setState('empty');

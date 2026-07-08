@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Confirm your domain — Groundwork</title>
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
+<link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@700;800&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;}
+h1,h2,h3,h4{font-family:'Plus Jakarta Sans','Inter',sans-serif;}
+body{margin:0;background:#F5F3EE;font-family:Inter,sans-serif;color:#1C1C1C;}
+@keyframes gw-fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+.card{background:#fff;border:1px solid #E2E0DA;border-radius:14px;padding:28px 30px;animation:gw-fade .3s ease both;}
+</style>
+</head>
+<body>
+
+<div style="background:#1C1C1C;border-bottom:1px solid #2C2C2C;">
+  <div style="max-width:520px;margin:0 auto;padding:0 24px;height:64px;display:flex;align-items:center;">
+    <a href="index.html" style="display:flex;align-items:center;gap:11px;text-decoration:none;">
+      <svg viewBox="0 0 48 48" width="30" height="30" fill="none"><path d="M 37 13.1 A 17 17 0 1 0 41 24 L 27 24" stroke="#3B82F6" stroke-width="4.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M 30.9 18.2 A 9 9 0 1 0 30.9 29.8" stroke="#3B82F6" stroke-width="4.6" stroke-linecap="round"/></svg>
+      <span style="color:#fff;font-weight:800;font-size:19px;letter-spacing:-.03em;">Groundwork</span>
+    </a>
+  </div>
+</div>
+
+<div style="max-width:520px;margin:0 auto;padding:clamp(40px,6vw,72px) 24px;">
+
+  <!-- Loading state -->
+  <div id="state-loading" class="card" style="text-align:center;">
+    <div style="width:40px;height:40px;border:3px solid #E2E0DA;border-top-color:#3B82F6;border-radius:50%;animation:spin .7s linear infinite;margin:0 auto 16px;"></div>
+    <p style="margin:0;font-size:15px;color:#5C5A56;">Checking availability…</p>
+  </div>
+
+  <!-- Taken state -->
+  <div id="state-taken" style="display:none;" class="card">
+    <div style="width:48px;height:48px;border-radius:12px;background:#FEF2F2;display:flex;align-items:center;justify-content:center;margin:0 0 18px;">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#DC2626" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+    </div>
+    <h1 style="margin:0 0 8px;font-weight:800;font-size:22px;letter-spacing:-.02em;">Domain just taken</h1>
+    <p id="taken-msg" style="margin:0 0 22px;font-size:15px;color:#5C5A56;line-height:1.5;">This domain was registered by someone else moments ago.</p>
+    <a id="back-to-search" href="/domain-search.html" style="display:inline-block;background:#3B82F6;color:#fff;font-weight:700;font-size:15px;text-decoration:none;padding:12px 22px;border-radius:9px;">Search again →</a>
+  </div>
+
+  <!-- Error state -->
+  <div id="state-error" style="display:none;" class="card">
+    <p style="margin:0 0 14px;font-size:15px;color:#B91C1C;">Something went wrong — please try again.</p>
+    <a id="retry-link" href="#" onclick="location.reload();return false;" style="color:#3B82F6;font-weight:600;font-size:14px;">Try again</a>
+  </div>
+
+  <!-- Available: confirm & pay -->
+  <div id="state-ready" style="display:none;">
+    <div style="margin-bottom:6px;font-size:12.5px;font-weight:700;color:#2257CC;letter-spacing:.1em;text-transform:uppercase;">Step 2 of 2 — Confirm &amp; pay</div>
+    <h1 style="margin:0 0 24px;font-weight:800;font-size:clamp(22px,3vw,28px);letter-spacing:-.025em;">Register your domain</h1>
+
+    <!-- Domain confirmed -->
+    <div class="card" style="margin-bottom:14px;">
+      <div style="display:flex;align-items:center;gap:14px;">
+        <div style="width:38px;height:38px;border-radius:10px;background:rgba(26,107,58,.1);display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#1A6B3A" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l4 4 10-10"/></svg>
+        </div>
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:12px;font-weight:600;color:#5C5A56;text-transform:uppercase;letter-spacing:.07em;margin-bottom:2px;">Domain</div>
+          <div id="confirm-domain" style="font-weight:800;font-size:19px;color:#1C1C1C;word-break:break-all;"></div>
+          <div style="font-size:12.5px;color:#5C5A56;margin-top:2px;">Available — confirmed just now</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Price breakdown -->
+    <div class="card" style="margin-bottom:14px;">
+      <div style="font-weight:700;font-size:15.5px;margin-bottom:14px;">Order summary</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-top:1px solid #EDEBE5;">
+        <div>
+          <div style="font-size:14.5px;font-weight:600;" id="line-item-name">Domain registration</div>
+          <div style="font-size:12.5px;color:#807E79;margin-top:2px;">1-year registration · renewed annually</div>
+        </div>
+        <div style="font-weight:800;font-size:16px;" id="confirm-price"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-top:1px solid #EDEBE5;">
+        <div style="font-size:14px;font-weight:700;">Total due today</div>
+        <div style="font-weight:800;font-size:17px;color:#1C1C1C;" id="confirm-total"></div>
+      </div>
+    </div>
+
+    <!-- What happens next -->
+    <div class="card" style="margin-bottom:22px;background:#F5F3EE;border-color:#E2E0DA;">
+      <div style="font-size:13px;font-weight:700;color:#5C5A56;text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px;">What happens next</div>
+      <div style="display:flex;flex-direction:column;gap:9px;">
+        <div style="display:flex;gap:10px;font-size:13.5px;color:#1C1C1C;">
+          <span style="color:#3B82F6;font-weight:700;flex-shrink:0;">1.</span>
+          <span>You pay securely via Stripe — takes about 30 seconds.</span>
+        </div>
+        <div style="display:flex;gap:10px;font-size:13.5px;color:#1C1C1C;">
+          <span style="color:#3B82F6;font-weight:700;flex-shrink:0;">2.</span>
+          <span>We register the domain and point it at your Groundwork site within 1 working day.</span>
+        </div>
+        <div style="display:flex;gap:10px;font-size:13.5px;color:#1C1C1C;">
+          <span style="color:#3B82F6;font-weight:700;flex-shrink:0;">3.</span>
+          <span>You'll get an email confirmation once it's live.</span>
+        </div>
+      </div>
+    </div>
+
+    <button id="pay-btn" onclick="startCheckout()"
+      style="width:100%;background:#3B82F6;color:#fff;font-weight:700;font-size:16px;border:0;border-radius:11px;padding:16px;cursor:pointer;font-family:inherit;">
+      Pay &amp; register domain →
+    </button>
+    <div id="pay-error" style="display:none;margin-top:12px;background:#FEF2F2;border:1px solid #FCA5A5;border-radius:8px;padding:11px 14px;font-size:14px;color:#B91C1C;"></div>
+
+    <div style="text-align:center;margin-top:20px;">
+      <a id="back-link" href="/domain-search.html" style="color:#807E79;font-size:14px;font-weight:500;text-decoration:none;">← Back to search</a>
+    </div>
+  </div>
+
+</div>
+
+<style>
+@keyframes spin{to{transform:rotate(360deg)}}
+#pay-btn:hover{background:#2563EB;}
+#pay-btn:disabled{background:#D9D7D0;cursor:not-allowed;}
+</style>
+
+<script>
+const params = new URLSearchParams(location.search);
+const domain = (params.get('domain') || '').trim().toLowerCase();
+const siteId = params.get('id') || '';
+
+// Wire back links
+document.getElementById('back-link').href =
+  '/domain-search.html' + (siteId ? '?id=' + encodeURIComponent(siteId) : '');
+document.getElementById('back-to-search').href =
+  '/domain-search.html' + (siteId ? '?id=' + encodeURIComponent(siteId) : '');
+
+function show(id) {
+  ['state-loading','state-taken','state-error','state-ready'].forEach(s => {
+    document.getElementById(s).style.display = s === id ? 'block' : 'none';
+  });
+}
+
+let confirmedPrice = 0;
+
+async function confirmDomain() {
+  if (!domain) { show('state-error'); return; }
+  try {
+    const r = await fetch('/api/domain/confirm?domain=' + encodeURIComponent(domain));
+    if (!r.ok) throw new Error('confirm_failed');
+    const d = await r.json();
+
+    if (!d.available) {
+      document.getElementById('taken-msg').textContent =
+        domain + ' was registered by someone else moments ago. Choose a different domain.';
+      show('state-taken');
+      return;
+    }
+
+    confirmedPrice = d.price_gbp;
+    const priceStr = '£' + d.price_gbp.toFixed(2);
+
+    document.getElementById('confirm-domain').textContent = d.domain;
+    document.getElementById('line-item-name').textContent = 'Domain: ' + d.domain;
+    document.getElementById('confirm-price').textContent = priceStr + '/yr';
+    document.getElementById('confirm-total').textContent = priceStr;
+    show('state-ready');
+  } catch (e) {
+    show('state-error');
+  }
+}
+
+async function startCheckout() {
+  const btn = document.getElementById('pay-btn');
+  const errEl = document.getElementById('pay-error');
+  btn.disabled = true;
+  btn.textContent = 'Checking…';
+  errEl.style.display = 'none';
+  try {
+    const r = await fetch('/api/domain/checkout/session', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({domain, site_id: siteId}),
+    });
+    const data = await r.json();
+    if (!r.ok) {
+      if (data.error === 'domain_taken') {
+        show('state-taken');
+        return;
+      }
+      throw new Error(data.error || 'checkout_failed');
+    }
+    location.href = data.url;
+  } catch (e) {
+    errEl.textContent = e.message === 'domain_taken'
+      ? 'This domain was just registered by someone else.'
+      : 'Something went wrong — please try again.';
+    errEl.style.display = 'block';
+    btn.disabled = false;
+    btn.textContent = 'Pay & register domain →';
+  }
+}
+
+confirmDomain();
+</script>
+</body>
+</html>

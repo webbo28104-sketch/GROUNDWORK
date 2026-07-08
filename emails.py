@@ -146,6 +146,49 @@ def send_changes_live_email(to_email: str, business_name: str) -> None:
     _send(to_email, f"Your changes are live — {escape(biz)}", html)
 
 
+def send_domain_order_admin_email(domain: str, price_gbp: float, customer_email: str, site_id: str) -> None:
+    """Notify the Groundwork admin inbox that a customer has paid for a domain and it needs registering."""
+    support_inbox = os.environ.get("SUPPORT_INBOX_EMAIL", "groundwork-build@outlook.com")
+    d = escape(domain)
+    e = escape(customer_email)
+    s = escape(site_id)
+    html = f"""<div style="font-family:Arial,Helvetica,sans-serif;background:#F5F3EE;padding:32px 20px;">
+  <div style="max-width:480px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;">
+    <div style="background:#1C1C1C;padding:20px 28px;">
+      <span style="color:{ACCENT};font-weight:800;font-size:18px;letter-spacing:-.03em;">Groundwork</span>
+    </div>
+    <div style="padding:28px;">
+      <h2 style="margin:0 0 6px;font-size:19px;color:#1C1C1C;">Domain order — action required</h2>
+      <p style="margin:0 0 20px;font-size:14px;color:#5C5A56;">A customer has paid for a domain. Please register it via Porkbun.</p>
+      <table style="width:100%;border-collapse:collapse;">
+        <tr><td style="padding:8px 0;font-size:14px;color:#5C5A56;width:110px;">Domain</td><td style="padding:8px 0;font-size:14px;font-weight:700;color:#1C1C1C;">{d}</td></tr>
+        <tr><td style="padding:8px 0;font-size:14px;color:#5C5A56;">Amount paid</td><td style="padding:8px 0;font-size:14px;color:#1C1C1C;">£{price_gbp:.2f}/yr</td></tr>
+        <tr><td style="padding:8px 0;font-size:14px;color:#5C5A56;">Customer email</td><td style="padding:8px 0;font-size:14px;color:#1C1C1C;">{e}</td></tr>
+        <tr><td style="padding:8px 0;font-size:14px;color:#5C5A56;">Site ID</td><td style="padding:8px 0;font-size:14px;color:#1C1C1C;">{s}</td></tr>
+      </table>
+    </div>
+  </div>
+</div>"""
+    _send(support_inbox, f"Domain order: {domain}", html)
+
+
+def send_domain_order_customer_email(to_email: str, domain: str, business_name: str) -> None:
+    """Confirm to the customer that their domain order has been received."""
+    biz = business_name or "your website"
+    html = _wrapper(
+        preheader=f"Your domain order for {domain} has been received.",
+        heading="Domain order confirmed",
+        body_html=(
+            f"Thanks — we've received your payment for <strong>{escape(domain)}</strong>. "
+            f"We'll register it and connect it to <strong>{escape(biz)}</strong> within 1 working day. "
+            f"You'll hear from us once it's live."
+        ),
+        cta_url="https://groundworkbuild.com/account",
+        cta_label="View your account →",
+    )
+    _send(to_email, f"Domain order confirmed — {escape(domain)}", html)
+
+
 def send_support_message_email(from_email: str, message: str) -> None:
     """
     Forwards a message submitted from the account dashboard straight to the
