@@ -2988,6 +2988,7 @@ def domain_checkout_session():
 
 def _porkbun_post(endpoint: str, extra: dict = None) -> dict:
     """POST to Porkbun API v3. Returns parsed JSON. Raises on HTTP error."""
+    import urllib.error as _urlerr
     url = f"https://api.porkbun.com/api/json/v3/{endpoint}"
     payload = {"apikey": PORKBUN_API_KEY, "secretapikey": PORKBUN_SECRET_KEY}
     if extra:
@@ -2996,8 +2997,16 @@ def _porkbun_post(endpoint: str, extra: dict = None) -> dict:
     req = urllib.request.Request(
         url, data=data, headers={"Content-Type": "application/json"}, method="POST"
     )
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        return json.loads(resp.read().decode())
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return json.loads(resp.read().decode())
+    except _urlerr.HTTPError as exc:
+        body = ""
+        try:
+            body = exc.read().decode()
+        except Exception:
+            pass
+        raise RuntimeError(f"Porkbun HTTP {exc.code} on {endpoint}: {body or '(empty body)'}") from exc
 
 
 def _porkbun_register_domain(domain: str) -> None:
@@ -3035,11 +3044,13 @@ def _railway_add_custom_domain(domain: str) -> str:
       }
     }
     """
+    railway_project_id = os.environ.get("RAILWAY_PROJECT_ID", "")
     variables = {
         "input": {
             "domain": domain,
             "serviceId": RAILWAY_SERVICE_ID,
             "environmentId": RAILWAY_ENVIRONMENT_ID,
+            "projectId": railway_project_id,
         }
     }
     payload = json.dumps({"query": mutation, "variables": variables}).encode()
