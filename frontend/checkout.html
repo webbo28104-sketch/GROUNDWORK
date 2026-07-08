@@ -15,6 +15,8 @@ h1,h2,h3,h4{font-family:'Plus Jakarta Sans','Inter',sans-serif;}
 body{margin:0;background:#F5F3EE;font-family:Inter,sans-serif;color:#1C1C1C;}
 .check-row{display:flex;align-items:flex-start;gap:12px;margin-bottom:14px;font-size:15px;color:#3C3A36;line-height:1.45;}
 .check-icon{flex-shrink:0;width:20px;height:20px;border-radius:50%;background:#EAF1FD;display:flex;align-items:center;justify-content:center;margin-top:1px;}
+.billing-toggle-btn{font-weight:600;font-size:13.5px;border:0;border-radius:7px;padding:8px 14px;cursor:pointer;background:transparent;color:#5C5A56;}
+.billing-toggle-btn.active{background:#1C1C1C;color:#fff;font-weight:700;}
 </style>
 </head>
 <body>
@@ -43,21 +45,31 @@ body{margin:0;background:#F5F3EE;font-family:Inter,sans-serif;color:#1C1C1C;}
     </div>
     <div id="subdomain-error" style="display:none;background:#FEF2F2;border:1px solid #FCA5A5;border-radius:10px;padding:14px 16px;margin-bottom:20px;font-size:14px;color:#B91C1C;line-height:1.5;"></div>
 
+    <!-- Billing toggle -->
+    <div style="display:inline-flex;background:#F5F3EE;border:1px solid #E2E0DA;border-radius:10px;padding:4px;gap:4px;margin-bottom:20px;">
+      <button type="button" id="btn-monthly" class="billing-toggle-btn active" onclick="setPlan('monthly')">Monthly</button>
+      <button type="button" id="btn-annual" class="billing-toggle-btn" onclick="setPlan('annual')">Annual — save ~17%</button>
+    </div>
+
     <div style="border-top:1px solid #E2E0DA;padding-top:20px;margin-bottom:20px;">
       <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;">
         <span style="font-size:15px;color:#5C5A56;">One-time setup fee</span>
         <span style="font-weight:700;font-size:16px;">£99</span>
       </div>
-      <div style="display:flex;justify-content:space-between;align-items:baseline;">
+      <div id="hosting-row-monthly" style="display:flex;justify-content:space-between;align-items:baseline;">
         <span style="font-size:15px;color:#5C5A56;">Monthly hosting</span>
         <span style="text-align:right;"><span style="font-weight:700;font-size:16px;color:#1A6B3A;">Free this month</span><span style="display:block;font-size:12.5px;color:#9A9893;font-weight:500;">then £24.99/mo</span></span>
       </div>
+      <div id="hosting-row-annual" style="display:none;justify-content:space-between;align-items:baseline;">
+        <span style="font-size:15px;color:#5C5A56;">Annual hosting</span>
+        <span style="font-weight:700;font-size:16px;">£249.99/yr</span>
+      </div>
     </div>
 
-    <p style="margin:0 0 20px;font-size:13px;color:#5C5A56;line-height:1.5;">Your card is billed £24.99/mo automatically from month two, unless you cancel first.</p>
+    <p id="billing-disclosure" style="margin:0 0 20px;font-size:13px;color:#5C5A56;line-height:1.5;">Your card is billed £24.99/mo automatically from month two, unless you cancel first.</p>
 
     <div style="background:#F5F3EE;border-radius:10px;padding:16px 18px;margin-bottom:28px;">
-      <div class="check-row">
+      <div class="check-row" id="check-row-trial">
         <div class="check-icon"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#2257CC" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l4 4 10-10"/></svg></div>
         <span>First month of hosting free</span>
       </div>
@@ -92,6 +104,7 @@ body{margin:0;background:#F5F3EE;font-family:Inter,sans-serif;color:#1C1C1C;}
 const params = new URLSearchParams(location.search);
 const jobId = params.get('id');
 let subdomainBlocked = false;
+let currentPlan = 'monthly';
 
 if (jobId) {
   // Was pointing straight at the raw generated HTML (bypassing the app's own
@@ -99,6 +112,24 @@ if (jobId) {
   // Send them back to the preview page they actually came from instead.
   document.getElementById('back-link').href = 'preview.html?id=' + jobId;
   loadSubdomainPreview();
+}
+
+// Default to whatever billing toggle the visitor last picked on pricing.html.
+try {
+  if (localStorage.getItem('gw_billing_plan') === 'annual') setPlan('annual');
+} catch (e) {}
+
+function setPlan(plan) {
+  currentPlan = plan;
+  const isMonthly = plan === 'monthly';
+  document.getElementById('btn-monthly').classList.toggle('active', isMonthly);
+  document.getElementById('btn-annual').classList.toggle('active', !isMonthly);
+  document.getElementById('hosting-row-monthly').style.display = isMonthly ? 'flex' : 'none';
+  document.getElementById('hosting-row-annual').style.display = isMonthly ? 'none' : 'flex';
+  document.getElementById('check-row-trial').style.display = isMonthly ? 'flex' : 'none';
+  document.getElementById('billing-disclosure').textContent = isMonthly
+    ? 'Your card is billed £24.99/mo automatically from month two, unless you cancel first.'
+    : 'Your card is billed £99 setup + £249.99 for the first year today, then £249.99/yr on renewal — no separate free-month trial on the annual plan, since the annual rate is already discounted.';
 }
 
 async function loadSubdomainPreview() {
@@ -149,7 +180,7 @@ async function startCheckout() {
     const r = await fetch('/api/checkout/session', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({job_id: jobId})
+      body: JSON.stringify({job_id: jobId, plan: currentPlan})
     });
     const data = await r.json();
     if (data.url) {

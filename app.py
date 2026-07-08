@@ -34,8 +34,9 @@ RESET_TOKEN_MAX_AGE = 3600  # 1h — shorter-lived since it grants a password ch
 IP_RATE_LIMIT_PER_HOUR = int(os.environ.get("IP_RATE_LIMIT_PER_HOUR", "5"))
 
 # Stripe — all values come from environment variables set in Railway.
-# STRIPE_SETUP_PRICE_ID   → the one-time £99 price  (price_...)
-# STRIPE_MONTHLY_PRICE_ID → the £24.99/month price   (price_...)
+# STRIPE_SETUP_PRICE_ID   → the one-time £99 price          (price_...)
+# STRIPE_MONTHLY_PRICE_ID → the £24.99/month recurring price (price_...)
+# STRIPE_ANNUAL_PRICE_ID  → the £249.99/year recurring price (price_...)
 # STRIPE_SECRET_KEY       → sk_live_... (or sk_test_... for testing)
 # STRIPE_WEBHOOK_SECRET   → whsec_... from `stripe listen` or dashboard
 # SITE_URL                → https://groundworkbuild.com (used for redirect URLs)
@@ -43,6 +44,7 @@ STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY", "")
 STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
 STRIPE_SETUP_PRICE_ID = os.environ.get("STRIPE_SETUP_PRICE_ID", "")
 STRIPE_MONTHLY_PRICE_ID = os.environ.get("STRIPE_MONTHLY_PRICE_ID", "")
+STRIPE_ANNUAL_PRICE_ID = os.environ.get("STRIPE_ANNUAL_PRICE_ID", "")
 SITE_URL = os.environ.get("SITE_URL", "https://groundworkbuild.com")
 stripe.api_key = STRIPE_SECRET_KEY
 
@@ -2717,6 +2719,13 @@ def create_checkout_session():
     if not job_id:
         return jsonify({"error": "missing job_id"}), 400
 
+    plan = str(data.get("plan", "monthly")).strip().lower()
+    if plan not in ("monthly", "annual"):
+        return jsonify({"error": "invalid plan"}), 400
+    if plan == "annual" and not STRIPE_ANNUAL_PRICE_ID:
+        return jsonify({"error": "Annual billing isn't available yet — please choose monthly."}), 503
+    recurring_price_id = STRIPE_ANNUAL_PRICE_ID if plan == "annual" else STRIPE_MONTHLY_PRICE_ID
+
     db = SessionLocal()
     try:
         gen = db.query(Generation).join(Lead).filter(Lead.public_id == job_id).first()
@@ -2747,13 +2756,18 @@ def create_checkout_session():
     finally:
         db.close()
 
+    # First-month-free trial is a monthly-only promo — annual customers
+    # already get the discounted rate, so trial_period_days isn't stacked
+    # on top of that (see design_handoff_marketing_consistency notes).
+    subscription_data = {"trial_period_days": 30} if plan == "monthly" else {}
+
     cs = stripe.checkout.Session.create(
         mode="subscription",
         line_items=[
             {"price": STRIPE_SETUP_PRICE_ID, "quantity": 1},
-            {"price": STRIPE_MONTHLY_PRICE_ID, "quantity": 1},
+            {"price": recurring_price_id, "quantity": 1},
         ],
-        subscription_data={"trial_period_days": 30},
+        subscription_data=subscription_data,
         allow_promotion_codes=True,
         client_reference_id=job_id,
         success_url=f"{SITE_URL}/live.html?id={job_id}",

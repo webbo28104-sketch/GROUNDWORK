@@ -215,7 +215,14 @@ function setBilling(mode) {
   document.getElementById('billing-annual').style.display = isMonthly ? 'none' : 'block';
   document.getElementById('btn-monthly').classList.toggle('active', isMonthly);
   document.getElementById('btn-annual').classList.toggle('active', !isMonthly);
+  try { localStorage.setItem('gw_billing_plan', mode); } catch (e) {}
 }
+
+// Remember the visitor's last choice so checkout.html can default to it.
+try {
+  const saved = localStorage.getItem('gw_billing_plan');
+  if (saved === 'annual') setBilling('annual');
+} catch (e) {}
 
 (async function checkAccountSession() {
   try {
