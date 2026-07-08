@@ -2120,11 +2120,9 @@ def admin_generate_test():
 def admin_wait(public_id):
     """
     Admin-only equivalent of frontend/loading.html — polls until the
-    generation is done, then goes straight to the unwatermarked HTML view
-    (/admin/generations/<gen_id>/html), skipping the "your preview is ready"
-    landing page real signups see before their Go-live decision. That page is
-    intentional conversion scaffolding for real users; admin testing has no
-    purchase decision to make, so it's pure friction here.
+    generation is done, then goes straight to the same live-preview route
+    (/api/generate/<public_id>/html) that real signups land on, so admin
+    test sites get the same watermark bar, Go-live link, and Edit button.
     """
     return render_template_string(f"""<!DOCTYPE html><html><head><meta charset="utf-8">
 <title>Admin — generating…</title><link rel="icon" type="image/x-icon" href="/favicon.ico"><link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png"><style>{_PAGE_STYLE}</style></head>
@@ -2138,7 +2136,7 @@ async function poll() {{
     const r = await fetch('/admin/generate-test/status/{public_id}');
     const data = await r.json();
     if (data.status === 'done' && data.gen_id) {{
-      window.location.href = `/admin/generations/${{data.gen_id}}/html`;
+      window.location.href = '/api/generate/{public_id}/html?new=1';
       return;
     }}
     if (data.status === 'error') {{
@@ -2718,12 +2716,21 @@ def _extract_gw_text_fields(html: str) -> list:
         plain = _unescape(plain)
         if plain:
             fields.append({'id': field_id, 'tag': tag_name.lower(), 'content': plain})
-    return fields
+    return [f for f in fields if not _is_groundwork_credit(f['content'])]
+
+
+def _is_groundwork_credit(text: str) -> bool:
+    """True if text is (or contains) the 'Website by Groundwork' builder credit —
+    never editable/removable via the sidebar, whichever data-gw-text field it
+    ends up baked into."""
+    t = text.lower()
+    return "groundwork" in t and ("website by" in t or "groundworkbuild.com" in t)
 
 
 def _update_gw_text_field(html: str, field_id: str, new_text: str):
     """Replace text content of data-gw-text="field_id". Returns (new_html, success)."""
     from html import escape as _escape
+    from html import unescape as _unescape
     attr = f'data-gw-text="{field_id}"'
     attr_pos = html.find(attr)
     if attr_pos == -1:
@@ -2738,6 +2745,9 @@ def _update_gw_text_field(html: str, field_id: str, new_text: str):
         return html, False
     close_pos = html.lower().find(f'</{tag_name.lower()}>', open_end)
     if close_pos == -1:
+        return html, False
+    current_plain = _unescape(re.sub(r'<[^>]+>', '', html[open_end:close_pos])).strip()
+    if _is_groundwork_credit(current_plain):
         return html, False
     return html[:open_end] + _escape(new_text) + html[close_pos:], True
 
@@ -2765,10 +2775,14 @@ def _inject_badge(html: str) -> str:
 
 def _inject_watermark(html: str, job_id: str, *, show_toast: bool = False) -> str:
     checkout_url = f"/checkout.html?id={job_id}"
+    editor_url = f"/editor.html?id={job_id}"
 
     watermark_bar = f"""<div id="gw-preview-bar" style="position:fixed;top:0;left:0;right:0;z-index:99999;background:#1C2630;color:#fff;font-family:sans-serif;font-size:13px;display:flex;align-items:center;justify-content:space-between;padding:10px 20px;box-shadow:0 2px 8px rgba(0,0,0,0.3);">
   <span>⚠ Preview — this site is unpublished and watermarked</span>
-  <a href="{checkout_url}" style="background:#B8976A;color:#fff;padding:6px 16px;border-radius:4px;text-decoration:none;font-weight:600;">Go live — £99 + £24.99/mo →</a>
+  <span style="display:flex;align-items:center;gap:10px;">
+    <a href="{editor_url}" style="background:transparent;color:#fff;padding:6px 16px;border-radius:4px;border:1px solid #3C4A5A;text-decoration:none;font-weight:600;">Edit</a>
+    <a href="{checkout_url}" style="background:#B8976A;color:#fff;padding:6px 16px;border-radius:4px;text-decoration:none;font-weight:600;">Go live — £99 + £24.99/mo →</a>
+  </span>
 </div>
 <div style="height:44px;"></div>"""
 
