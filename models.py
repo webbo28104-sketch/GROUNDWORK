@@ -32,7 +32,7 @@ Three tables:
 import os
 from datetime import datetime
 
-from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, ForeignKey, JSON, Boolean, UniqueConstraint, inspect, text
+from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, ForeignKey, JSON, Boolean, Float, UniqueConstraint, inspect, text
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker
 
 Base = declarative_base()
@@ -100,6 +100,25 @@ class GenerationImage(Base):
 Generation.images = relationship("GenerationImage", back_populates="generation", order_by="GenerationImage.slot")
 
 
+class Domain(Base):
+    __tablename__ = "domains"
+
+    id = Column(Integer, primary_key=True)
+    generation_id = Column(Integer, ForeignKey("generations.id"), nullable=True, index=True)
+    domain = Column(String(255), unique=True, nullable=False, index=True)
+    status = Column(String(50), nullable=False, default="pending")
+    # statuses: pending, active, needs_manual_setup
+    price_gbp = Column(Float)
+    stripe_payment_id = Column(String(255))
+    customer_email = Column(String(255))
+    registered_at = Column(DateTime, nullable=True)
+    dns_configured_at = Column(DateTime, nullable=True)
+    railway_connected_at = Column(DateTime, nullable=True)
+    error_step = Column(String(100), nullable=True)
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
 def _database_url() -> str:
     url = os.environ.get("DATABASE_URL", "")
     # Railway/Heroku-style URLs use the postgres:// scheme; SQLAlchemy 2.x requires postgresql://
@@ -120,6 +139,11 @@ def init_db():
     _ensure_column(Generation.__tablename__, "stripe_setup_invoice_id", "VARCHAR(255)")
     _ensure_column(Generation.__tablename__, "subdomain", "VARCHAR(100)")
     _ensure_column(Generation.__tablename__, "html_pending", "TEXT")
+    _ensure_column(Domain.__tablename__, "registered_at", "TIMESTAMP")
+    _ensure_column(Domain.__tablename__, "dns_configured_at", "TIMESTAMP")
+    _ensure_column(Domain.__tablename__, "railway_connected_at", "TIMESTAMP")
+    _ensure_column(Domain.__tablename__, "error_step", "VARCHAR(100)")
+    _ensure_column(Domain.__tablename__, "error_message", "TEXT")
 
 
 def _ensure_column(table_name: str, column_name: str, ddl_type: str) -> None:

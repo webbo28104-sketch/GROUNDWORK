@@ -146,20 +146,35 @@ def send_changes_live_email(to_email: str, business_name: str) -> None:
     _send(to_email, f"Your changes are live — {escape(biz)}", html)
 
 
-def send_domain_order_admin_email(domain: str, price_gbp: float, customer_email: str, site_id: str) -> None:
-    """Notify the Groundwork admin inbox that a customer has paid for a domain and it needs registering."""
+def send_domain_order_admin_email(domain: str, price_gbp: float, customer_email: str,
+                                   site_id: str, automated: bool = False) -> None:
+    """Audit trail to admin inbox when a domain order is processed. automated=True means
+    registration ran automatically; False means it still needs manual action."""
     support_inbox = os.environ.get("SUPPORT_INBOX_EMAIL", "groundwork-build@outlook.com")
     d = escape(domain)
     e = escape(customer_email)
     s = escape(site_id)
+    if automated:
+        heading = "Domain order — automatically processed"
+        note = "Domain registration ran automatically. No action needed — this is an audit trail."
+        badge_bg = "#D1FAE5"
+        badge_color = "#065F46"
+        badge_text = "Automated"
+    else:
+        heading = "Domain order — manual action required"
+        note = "Automation did not run (or failed separately). Please register this domain manually via Porkbun."
+        badge_bg = "#FEF3C7"
+        badge_color = "#92400E"
+        badge_text = "Manual"
     html = f"""<div style="font-family:Arial,Helvetica,sans-serif;background:#F5F3EE;padding:32px 20px;">
   <div style="max-width:480px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;">
     <div style="background:#1C1C1C;padding:20px 28px;">
       <span style="color:{ACCENT};font-weight:800;font-size:18px;letter-spacing:-.03em;">Groundwork</span>
     </div>
     <div style="padding:28px;">
-      <h2 style="margin:0 0 6px;font-size:19px;color:#1C1C1C;">Domain order — action required</h2>
-      <p style="margin:0 0 20px;font-size:14px;color:#5C5A56;">A customer has paid for a domain. Please register it via Porkbun.</p>
+      <div style="display:inline-block;background:{badge_bg};color:{badge_color};font-size:12px;font-weight:700;padding:3px 10px;border-radius:20px;margin-bottom:12px;">{badge_text}</div>
+      <h2 style="margin:0 0 8px;font-size:19px;color:#1C1C1C;">{heading}</h2>
+      <p style="margin:0 0 20px;font-size:14px;color:#5C5A56;">{note}</p>
       <table style="width:100%;border-collapse:collapse;">
         <tr><td style="padding:8px 0;font-size:14px;color:#5C5A56;width:110px;">Domain</td><td style="padding:8px 0;font-size:14px;font-weight:700;color:#1C1C1C;">{d}</td></tr>
         <tr><td style="padding:8px 0;font-size:14px;color:#5C5A56;">Amount paid</td><td style="padding:8px 0;font-size:14px;color:#1C1C1C;">£{price_gbp:.2f}/yr</td></tr>
@@ -187,6 +202,58 @@ def send_domain_order_customer_email(to_email: str, domain: str, business_name: 
         cta_label="View your account →",
     )
     _send(to_email, f"Domain order confirmed — {escape(domain)}", html)
+
+
+def send_domain_setup_failed_email(domain: str, site_id: str, customer_email: str,
+                                    price_gbp: float, failed_step: str, error_msg: str) -> None:
+    """Alert admin that automated domain setup failed and manual intervention is needed."""
+    support_inbox = os.environ.get("SUPPORT_INBOX_EMAIL", "groundwork-build@outlook.com")
+    d = escape(domain)
+    e = escape(customer_email)
+    s = escape(site_id)
+    step_esc = escape(failed_step)
+    err_esc = escape(error_msg[:500])
+    html = f"""<div style="font-family:Arial,Helvetica,sans-serif;background:#F5F3EE;padding:32px 20px;">
+  <div style="max-width:480px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;">
+    <div style="background:#1C1C1C;padding:20px 28px;">
+      <span style="color:{ACCENT};font-weight:800;font-size:18px;letter-spacing:-.03em;">Groundwork</span>
+    </div>
+    <div style="padding:28px;">
+      <div style="display:inline-block;background:#FEE2E2;color:#991B1B;font-size:12px;font-weight:700;padding:3px 10px;border-radius:20px;margin-bottom:12px;">Action required</div>
+      <h2 style="margin:0 0 8px;font-size:19px;color:#1C1C1C;">Domain setup failed — manual action needed</h2>
+      <p style="margin:0 0 20px;font-size:14px;color:#5C5A56;">Automated domain registration failed at step <strong>{step_esc}</strong>. The customer has paid — please complete setup manually.</p>
+      <table style="width:100%;border-collapse:collapse;">
+        <tr><td style="padding:8px 0;font-size:14px;color:#5C5A56;width:110px;">Domain</td><td style="padding:8px 0;font-size:14px;font-weight:700;color:#1C1C1C;">{d}</td></tr>
+        <tr><td style="padding:8px 0;font-size:14px;color:#5C5A56;">Amount paid</td><td style="padding:8px 0;font-size:14px;color:#1C1C1C;">£{price_gbp:.2f}/yr</td></tr>
+        <tr><td style="padding:8px 0;font-size:14px;color:#5C5A56;">Customer email</td><td style="padding:8px 0;font-size:14px;color:#1C1C1C;">{e}</td></tr>
+        <tr><td style="padding:8px 0;font-size:14px;color:#5C5A56;">Site ID</td><td style="padding:8px 0;font-size:14px;color:#1C1C1C;">{s}</td></tr>
+        <tr><td style="padding:8px 0;font-size:14px;color:#5C5A56;">Failed step</td><td style="padding:8px 0;font-size:14px;color:#DC2626;">{step_esc}</td></tr>
+      </table>
+      <div style="margin-top:16px;background:#FEF2F2;border-radius:8px;padding:14px 16px;">
+        <div style="font-size:12px;font-weight:700;color:#9A9893;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;">Error detail</div>
+        <div style="font-size:13px;color:#1C1C1C;word-break:break-word;white-space:pre-wrap;">{err_esc}</div>
+      </div>
+    </div>
+  </div>
+</div>"""
+    _send(support_inbox, f"FAILED domain setup: {domain}", html)
+
+
+def send_domain_live_email(to_email: str, domain: str, business_name: str) -> None:
+    """Notify customer that their domain is registered and connected to their site."""
+    biz = business_name or "your website"
+    html = _wrapper(
+        preheader=f"Your domain {domain} is now live and connected to your Groundwork site.",
+        heading="Your domain is live",
+        body_html=(
+            f"Great news — <strong>{escape(domain)}</strong> has been registered and connected to "
+            f"<strong>{escape(biz)}</strong>. DNS changes can take up to a few hours to propagate "
+            f"globally, so your site may appear at the new address very soon if it doesn't already."
+        ),
+        cta_url="https://groundworkbuild.com/account",
+        cta_label="View your account →",
+    )
+    _send(to_email, f"Your domain is live — {escape(domain)}", html)
 
 
 def send_support_message_email(from_email: str, message: str) -> None:

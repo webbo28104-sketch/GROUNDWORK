@@ -24,8 +24,11 @@ from markupsafe import escape
 from werkzeug.security import generate_password_hash, check_password_hash
 
 from build_prompt import build_prompt
-from models import SessionLocal, Lead, Generation, Account, GenerationImage, init_db
-from emails import send_verification_email, send_resend_email, send_password_reset_email, send_support_message_email, send_enquiry_email, send_domain_order_admin_email, send_domain_order_customer_email
+from models import SessionLocal, Lead, Generation, Account, GenerationImage, Domain, init_db
+from emails import (send_verification_email, send_resend_email, send_password_reset_email,
+                    send_support_message_email, send_enquiry_email,
+                    send_domain_order_admin_email, send_domain_order_customer_email,
+                    send_domain_setup_failed_email, send_domain_live_email)
 
 app = Flask(__name__, static_folder="frontend", static_url_path="")
 app.logger.setLevel(logging.INFO)
@@ -52,11 +55,20 @@ STRIPE_ANNUAL_PRICE_ID = os.environ.get("STRIPE_ANNUAL_PRICE_ID", "")
 SITE_URL = os.environ.get("SITE_URL", "https://groundworkbuild.com")
 stripe.api_key = STRIPE_SECRET_KEY
 
-# Porkbun — domain availability search.
-# PORKBUN_API_KEY    → pk1_... from Porkbun account → API Access
-# PORKBUN_SECRET_KEY → sk1_...
+# Porkbun — domain registration and DNS.
 PORKBUN_API_KEY    = os.environ.get("PORKBUN_API_KEY", "")
 PORKBUN_SECRET_KEY = os.environ.get("PORKBUN_SECRET_KEY", "")
+
+# Railway — GraphQL API for adding custom domains to the service.
+# RAILWAY_SERVICE_ID and RAILWAY_ENVIRONMENT_ID are set automatically by Railway.
+# RAILWAY_API_TOKEN must be added manually: Railway dashboard → Account → Tokens.
+# RAILWAY_CNAME_TARGET: the CNAME target Railway provides for custom domains
+#   (e.g. "roundhouse.proxy.rlwy.net") — find it in Railway Dashboard → Settings → Domains.
+RAILWAY_API_URL        = "https://backboard.railway.app/graphql/v2"
+RAILWAY_API_TOKEN      = os.environ.get("RAILWAY_API_TOKEN", "")
+RAILWAY_SERVICE_ID     = os.environ.get("RAILWAY_SERVICE_ID", "")
+RAILWAY_ENVIRONMENT_ID = os.environ.get("RAILWAY_ENVIRONMENT_ID", "")
+RAILWAY_CNAME_TARGET   = os.environ.get("RAILWAY_CNAME_TARGET", "")
 
 # Subdomain routing — every live customer gets <slug>.groundworkbuild.com.
 # _SUBDOMAIN_BASE is derived from SITE_URL so local dev (localhost) doesn't
@@ -2790,90 +2802,48 @@ def update_text_field(job_id):
         db.close()
 
 
-# Porkbun doesn't expose a domain availability endpoint.
-# Availability: DNS resolution — NXDOMAIN = available, resolves = taken.
-# Pricing: hardcoded from Porkbun /pricing/get (verified 2026-07-08, rarely changes).
+# Pricing from Porkbun /pricing/get (verified 2026-07-08). USD converted at 0.79.
+# All standard domains at these TLDs are flat-rate — no registry-level premiums for
+# .co.uk/.com/.uk/.org.uk. Premium-sounding names (roofing.com) are already registered
+# so WHOIS catches them as taken before payment is possible.
 _TLD_PRICE_GBP = {
-    "co.uk": round(5.66 * 0.79, 2),   # $5.66/yr
-    "com":   round(11.08 * 0.79, 2),  # $11.08/yr
-    "uk":    round(5.66 * 0.79, 2),   # $5.66/yr
+    "co.uk":  round(5.66 * 0.79, 2),    # $5.66/yr
+    "com":    round(11.08 * 0.79, 2),   # $11.08/yr
+    "uk":     round(5.66 * 0.79, 2),    # $5.66/yr
+    "org.uk": round(5.66 * 0.79, 2),    # $5.66/yr
+    "net":    round(12.52 * 0.79, 2),   # $12.52/yr
+    "org":    round(7.98 * 0.79, 2),    # $7.98/yr
+    "biz":    round(6.69 * 0.79, 2),    # $6.69/yr
+    "uk.com": round(22.63 * 0.79, 2),   # $22.63/yr
 }
 
+_WHOIS_SERVERS = {
+    "co.uk":  "whois.nic.uk",
+    "uk":     "whois.nic.uk",
+    "org.uk": "whois.nic.uk",
+    "com":    "whois.verisign-grs.com",
+    "net":    "whois.verisign-grs.com",
+    "org":    "whois.pir.org",
+    "biz":    "whois.nic.biz",
+    "uk.com": "whois.centralnic.com",
+}
 
-def _dns_available(domain: str) -> bool:
-    """True if the domain has no DNS records (likely unregistered)."""
-    import socket
-    try:
-        socket.getaddrinfo(domain, None)
-        return False  # resolves → taken
-    except socket.gaierror:
-        return True   # NXDOMAIN → likely available
-
-
-def _check_domain(domain: str) -> dict | None:
-    """Return availability + price for one domain, or None on hard error."""
-    try:
-        tld = ".".join(domain.split(".")[1:])  # "example.co.uk" → "co.uk"
-        available = _dns_available(domain)
-        price_gbp = _TLD_PRICE_GBP.get(tld, 0.0)
-        return {"domain": domain, "available": available, "price_gbp": price_gbp}
-    except Exception as exc:
-        app.logger.warning(f"Domain check failed for {domain}: {exc}")
-        return None
-
-
-@app.route("/api/domain/search")
-def domain_search():
-    """Check domain availability for a business name query.
-    Uses DNS resolution for availability and hardcoded Porkbun prices."""
-    query = request.args.get("q", "").strip()
-    if not query:
-        return jsonify({"results": []})
-
-    condensed  = re.sub(r'[^a-z0-9]', '', query.lower())
-    hyphenated = re.sub(r'[^a-z0-9]+', '-', query.lower()).strip('-')
-
-    if not condensed:
-        return jsonify({"results": []})
-
-    seen = set()
-    candidates = []
-    for base in [condensed, hyphenated]:
-        for tld in [".co.uk", ".com", ".uk"]:
-            d = base + tld
-            if d not in seen:
-                seen.add(d)
-                candidates.append(d)
-            if len(candidates) == 4:
-                break
-        if len(candidates) == 4:
-            break
-
-    with ThreadPoolExecutor(max_workers=4) as pool:
-        checked = list(pool.map(_check_domain, candidates))
-
-    results = []
-    for i, item in enumerate(checked):
-        if item is not None:
-            item["best_match"] = (i == 0)
-            results.append(item)
-
-    return jsonify({"results": results})
+# .biz uses "no data found" for available; all others use "no match"/"not found"
+_WHOIS_AVAILABLE_MARKERS = {
+    "biz": ["no data found"],
+}
+_WHOIS_AVAILABLE_DEFAULT = ["no match", "not found"]
 
 
 def _whois_available(domain: str) -> bool:
-    """Authoritative availability check via WHOIS. More reliable than DNS —
-    catches parked domains that have no A records but are still registered."""
-    import socket
+    """Authoritative availability check via WHOIS. Catches parked domains DNS misses."""
+    import socket as _socket
     domain = domain.lower().strip()
-    if domain.endswith(".co.uk") or domain.endswith(".uk"):
-        server = "whois.nic.uk"
-    elif domain.endswith(".com"):
-        server = "whois.verisign-grs.com"
-    else:
-        server = "whois.iana.org"
+    tld = ".".join(domain.split(".")[1:])
+    server = _WHOIS_SERVERS.get(tld, "whois.iana.org")
+    markers = _WHOIS_AVAILABLE_MARKERS.get(tld, _WHOIS_AVAILABLE_DEFAULT)
     try:
-        s = socket.create_connection((server, 43), timeout=8)
+        s = _socket.create_connection((server, 43), timeout=8)
         s.sendall((domain + "\r\n").encode())
         resp = b""
         while True:
@@ -2883,16 +2853,75 @@ def _whois_available(domain: str) -> bool:
             resp += chunk
         s.close()
         text = resp.decode(errors="replace").lower()
-        return "no match" in text or "not found" in text
+        return any(m in text for m in markers)
     except Exception as exc:
         app.logger.warning(f"WHOIS check failed for {domain}: {exc}")
         return False  # fail safe — don't offer domains we couldn't verify
 
 
+def _check_domain(domain: str) -> dict:
+    """Return availability + price for one domain. Never raises — errors get error=True."""
+    tld = ".".join(domain.split(".")[1:])
+    price_gbp = _TLD_PRICE_GBP.get(tld, 0.0)
+    try:
+        available = _whois_available(domain)
+        return {"domain": domain, "available": available, "price_gbp": price_gbp}
+    except Exception as exc:
+        app.logger.warning(f"Domain check failed for {domain}: {exc}")
+        return {"domain": domain, "available": None, "price_gbp": price_gbp, "error": True}
+
+
+@app.route("/api/domain/search")
+def domain_search():
+    """Check domain availability for a business name query via WHOIS.
+    Accepts ?tlds=co.uk,com,uk (comma-separated). Checks all TLD × name variants in parallel."""
+    query = request.args.get("q", "").strip()
+    tlds_param = request.args.get("tlds", "").strip()
+
+    if not query:
+        return jsonify({"results": []})
+
+    condensed  = re.sub(r'[^a-z0-9]', '', query.lower())
+    hyphenated = re.sub(r'[^a-z0-9]+', '-', query.lower()).strip('-')
+
+    if not condensed:
+        return jsonify({"results": []})
+
+    if tlds_param:
+        tlds = [t.strip().lstrip('.') for t in tlds_param.split(',') if t.strip()]
+        tlds = [t for t in tlds if t in _TLD_PRICE_GBP]
+    else:
+        tlds = ["co.uk", "com", "uk"]
+    if not tlds:
+        tlds = ["co.uk", "com", "uk"]
+
+    seen = set()
+    candidates = []
+    for base in [condensed, hyphenated]:
+        for tld in tlds:
+            d = f"{base}.{tld}"
+            if d not in seen:
+                seen.add(d)
+                candidates.append(d)
+
+    with ThreadPoolExecutor(max_workers=min(len(candidates), 12)) as pool:
+        checked = list(pool.map(_check_domain, candidates))
+
+    # Mark the first available domain as best_match
+    best_set = False
+    for item in checked:
+        if not best_set and item.get("available"):
+            item["best_match"] = True
+            best_set = True
+        else:
+            item.setdefault("best_match", False)
+
+    return jsonify({"results": checked})
+
+
 @app.route("/api/domain/confirm")
 def domain_confirm():
-    """Fresh availability check (WHOIS) + confirmed price for the checkout page.
-    This is the source of truth — the search page price is only indicative."""
+    """Fresh WHOIS availability check + confirmed price. Source of truth for checkout."""
     domain = request.args.get("domain", "").strip().lower()
     if not domain or "." not in domain:
         return jsonify({"error": "invalid domain"}), 400
@@ -2908,8 +2937,7 @@ def domain_confirm():
 
 @app.route("/api/domain/checkout/session", methods=["POST"])
 def domain_checkout_session():
-    """Create a Stripe Checkout session for a one-time domain registration payment.
-    Re-confirms availability and price server-side — never trusts the client amount."""
+    """Stripe Checkout session for one-time domain payment. Re-confirms server-side."""
     if not STRIPE_SECRET_KEY:
         return jsonify({"error": "Stripe is not configured"}), 503
 
@@ -2940,7 +2968,7 @@ def domain_checkout_session():
                 "currency": "gbp",
                 "product_data": {
                     "name": f"Domain registration: {domain}",
-                    "description": "1-year registration via Groundwork. We'll connect it to your site within 1 working day.",
+                    "description": "1-year registration via Groundwork. We'll connect it to your site automatically.",
                 },
                 "unit_amount": int(round(price_gbp * 100)),
             },
@@ -2952,6 +2980,207 @@ def domain_checkout_session():
         cancel_url=cancel_url,
     )
     return jsonify({"url": cs.url})
+
+
+# ---------------------------------------------------------------------------
+# Domain registration automation (called from Stripe webhook)
+# ---------------------------------------------------------------------------
+
+def _porkbun_post(endpoint: str, extra: dict = None) -> dict:
+    """POST to Porkbun API v3. Returns parsed JSON. Raises on HTTP error."""
+    url = f"https://api.porkbun.com/api/json/v3/{endpoint}"
+    payload = {"apikey": PORKBUN_API_KEY, "secretapikey": PORKBUN_SECRET_KEY}
+    if extra:
+        payload.update(extra)
+    data = json.dumps(payload).encode()
+    req = urllib.request.Request(
+        url, data=data, headers={"Content-Type": "application/json"}, method="POST"
+    )
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        return json.loads(resp.read().decode())
+
+
+def _porkbun_register_domain(domain: str) -> None:
+    """Register a domain for 1 year via Porkbun. Raises RuntimeError on failure."""
+    result = _porkbun_post("domain/create", {"domain": domain, "years": 1})
+    if result.get("status") != "SUCCESS":
+        raise RuntimeError(f"Porkbun domain/create: {result.get('message', result)}")
+
+
+def _porkbun_create_dns(domain: str, record_type: str, name: str, content: str) -> None:
+    """Create a DNS record via Porkbun. Raises RuntimeError on failure."""
+    result = _porkbun_post(f"dns/create/{domain}", {
+        "type": record_type,
+        "name": name,
+        "content": content,
+        "ttl": "300",
+    })
+    if result.get("status") != "SUCCESS":
+        raise RuntimeError(f"Porkbun dns/create ({record_type} {name}): {result.get('message', result)}")
+
+
+def _railway_add_custom_domain(domain: str) -> str:
+    """Add a custom domain to the Railway service. Returns the Railway CNAME target
+    if the API exposes it, otherwise empty string. Raises RuntimeError on failure."""
+    if not RAILWAY_API_TOKEN:
+        raise RuntimeError("RAILWAY_API_TOKEN not set — add it in Railway environment variables")
+    if not RAILWAY_SERVICE_ID or not RAILWAY_ENVIRONMENT_ID:
+        raise RuntimeError("RAILWAY_SERVICE_ID or RAILWAY_ENVIRONMENT_ID not available in environment")
+
+    mutation = """
+    mutation customDomainCreate($input: CustomDomainCreateInput!) {
+      customDomainCreate(input: $input) {
+        id
+        domain
+        cnameTarget
+      }
+    }
+    """
+    variables = {
+        "input": {
+            "domain": domain,
+            "serviceId": RAILWAY_SERVICE_ID,
+            "environmentId": RAILWAY_ENVIRONMENT_ID,
+        }
+    }
+    payload = json.dumps({"query": mutation, "variables": variables}).encode()
+    req = urllib.request.Request(
+        RAILWAY_API_URL,
+        data=payload,
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {RAILWAY_API_TOKEN}",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        result = json.loads(resp.read().decode())
+
+    if result.get("errors"):
+        raise RuntimeError(f"Railway customDomainCreate: {result['errors']}")
+
+    return (result.get("data", {}).get("customDomainCreate") or {}).get("cnameTarget", "")
+
+
+def _handle_domain_order_async(domain: str, site_id: str, customer_email: str,
+                                price_gbp: float, business_name: str,
+                                stripe_payment_id: str) -> None:
+    """Orchestrate domain registration in a background thread.
+    Steps: Porkbun register → Railway add domain → Porkbun DNS.
+    On any failure: email admin, mark needs_manual_setup."""
+
+    # Resolve generation FK
+    gen_id = None
+    if site_id:
+        db = SessionLocal()
+        try:
+            gen = db.query(Generation).join(Lead).filter(Lead.public_id == site_id).first()
+            if gen:
+                gen_id = gen.id
+        finally:
+            db.close()
+
+    # Create Domain row
+    dom_id = None
+    db = SessionLocal()
+    try:
+        dom = Domain(
+            generation_id=gen_id,
+            domain=domain,
+            status="pending",
+            price_gbp=price_gbp,
+            stripe_payment_id=stripe_payment_id,
+            customer_email=customer_email,
+        )
+        db.add(dom)
+        db.commit()
+        dom_id = dom.id
+    except Exception as exc:
+        app.logger.error(f"Failed to create Domain record for {domain}: {exc}")
+        try:
+            send_domain_setup_failed_email(
+                domain, site_id, customer_email, price_gbp, "db_create", str(exc))
+        except Exception:
+            pass
+        return
+    finally:
+        db.close()
+
+    def _update(status=None, error_step=None, error_msg=None, **kw):
+        db2 = SessionLocal()
+        try:
+            rec = db2.query(Domain).filter(Domain.id == dom_id).first()
+            if rec:
+                if status:
+                    rec.status = status
+                if error_step:
+                    rec.error_step = error_step
+                if error_msg:
+                    rec.error_message = error_msg
+                for attr, val in kw.items():
+                    setattr(rec, attr, val)
+                db2.commit()
+        except Exception as exc:
+            app.logger.warning(f"Domain record update failed: {exc}")
+        finally:
+            db2.close()
+
+    def _fail(step: str, error: str) -> None:
+        _update(status="needs_manual_setup", error_step=step, error_msg=error)
+        app.logger.error(f"Domain automation [{step}] failed for {domain}: {error}")
+        try:
+            send_domain_setup_failed_email(domain, site_id, customer_email, price_gbp, step, error)
+        except Exception as exc2:
+            app.logger.error(f"Failed to send domain failure email: {exc2}")
+
+    # Step 1: Register domain with Porkbun
+    try:
+        _porkbun_register_domain(domain)
+        _update(registered_at=datetime.utcnow())
+        app.logger.info(f"Domain registered via Porkbun: {domain}")
+    except Exception as exc:
+        _fail("porkbun_register", str(exc))
+        return
+
+    # Step 2: Add domain to Railway (also gets us the CNAME target)
+    cname_target = RAILWAY_CNAME_TARGET
+    try:
+        api_cname = _railway_add_custom_domain(domain)
+        if api_cname:
+            cname_target = api_cname
+        _railway_add_custom_domain("www." + domain)
+        _update(railway_connected_at=datetime.utcnow())
+        app.logger.info(f"Railway custom domain added: {domain} (cname: {cname_target})")
+    except Exception as exc:
+        _fail("railway_connect", str(exc))
+        return
+
+    # Step 3: Configure DNS via Porkbun
+    if not cname_target:
+        _fail("dns_setup",
+              "No CNAME target available. Set RAILWAY_CNAME_TARGET env var "
+              "(find it in Railway Dashboard → Settings → Domains).")
+        return
+
+    try:
+        _porkbun_create_dns(domain, "ALIAS", "", cname_target)   # apex/root
+        _porkbun_create_dns(domain, "CNAME", "www", cname_target)
+        _update(dns_configured_at=datetime.utcnow(), status="active")
+        app.logger.info(f"DNS configured for {domain} → {cname_target}")
+    except Exception as exc:
+        _fail("dns_setup", str(exc))
+        return
+
+    # All steps succeeded
+    app.logger.info(f"Domain automation complete: {domain}")
+    try:
+        send_domain_live_email(customer_email, domain, business_name)
+    except Exception as exc:
+        app.logger.error(f"Failed to send domain live email to {customer_email}: {exc}")
+    try:
+        send_domain_order_admin_email(domain, price_gbp, customer_email, site_id, automated=True)
+    except Exception as exc:
+        app.logger.error(f"Failed to send domain admin audit email: {exc}")
 
 
 @app.route("/api/contact", methods=["POST"])
@@ -3080,39 +3309,42 @@ def stripe_webhook():
         metadata = cs.get("metadata") or {}
 
         if metadata.get("type") == "domain":
-            # Domain registration order — notify admin to register via Porkbun,
-            # confirm to customer.
             domain    = metadata.get("domain", "")
             site_id   = metadata.get("site_id", "")
             price_gbp = float(metadata.get("price_gbp") or 0)
-            customer_email = (cs.customer_details or {}).get("email", "") if cs.customer_details else ""
-            if not customer_email and site_id:
-                db = SessionLocal()
-                try:
-                    gen = db.query(Generation).join(Lead).filter(Lead.public_id == site_id).first()
-                    if gen:
-                        customer_email = gen.email
-                finally:
-                    db.close()
+            stripe_payment_id = cs.payment_intent or cs.id or ""
+
+            customer_email = ""
             business_name = ""
+            if cs.customer_details:
+                customer_email = (cs.customer_details or {}).get("email", "")
             if site_id:
                 db = SessionLocal()
                 try:
                     gen = db.query(Generation).join(Lead).filter(Lead.public_id == site_id).first()
                     if gen:
+                        if not customer_email:
+                            customer_email = gen.email
                         business_name = gen.business_name or ""
                 finally:
                     db.close()
+
             app.logger.info(f"Domain order paid: {domain} site={site_id} email={customer_email}")
-            try:
-                send_domain_order_admin_email(domain, price_gbp, customer_email, site_id)
-            except Exception as exc:
-                app.logger.error(f"Failed to send domain admin email: {exc}")
+
+            # Immediately confirm to customer that order received
             if customer_email:
                 try:
                     send_domain_order_customer_email(customer_email, domain, business_name)
                 except Exception as exc:
                     app.logger.error(f"Failed to send domain customer email: {exc}")
+
+            # Kick off automation in background — do not block the webhook response
+            t = threading.Thread(
+                target=_handle_domain_order_async,
+                args=(domain, site_id, customer_email, price_gbp, business_name, stripe_payment_id),
+                daemon=True,
+            )
+            t.start()
 
         else:
             # Standard site subscription checkout

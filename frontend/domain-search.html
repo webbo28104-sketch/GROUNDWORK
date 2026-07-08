@@ -14,13 +14,19 @@
 h1,h2,h3,h4{font-family:'Plus Jakarta Sans','Inter',sans-serif;}
 body{margin:0;background:#F5F3EE;font-family:Inter,sans-serif;color:#1C1C1C;}
 @keyframes gw-fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+@keyframes spin{to{transform:rotate(360deg)}}
 .result-row{display:flex;align-items:center;gap:14px;background:#fff;border:1px solid #E2E0DA;border-radius:12px;padding:16px;margin-bottom:10px;animation:gw-fade .25s ease both;}
 .result-row.best{background:#EAF1FD;border-color:rgba(59,130,246,.35);}
 .result-row.taken{opacity:.55;}
+.result-row.error-row{opacity:.6;background:#FAFAFA;}
 .select-btn{background:#3B82F6;color:#fff;font-weight:700;font-size:14px;border:0;border-radius:8px;padding:10px 18px;cursor:pointer;font-family:inherit;flex-shrink:0;text-decoration:none;display:inline-block;white-space:nowrap;}
 .select-btn:hover{background:#2563EB;}
-.select-btn:disabled,.select-btn.taken{background:#D9D7D0;cursor:not-allowed;color:#fff;}
+.select-btn.taken,.select-btn.error{background:#D9D7D0;cursor:not-allowed;color:#fff;}
 input[type=search]{width:100%;border:0;outline:0;font-size:16px;font-family:inherit;color:#1C1C1C;background:transparent;}
+.tld-toggle{display:inline-flex;align-items:center;gap:6px;padding:5px 12px 5px 8px;border-radius:20px;border:1px solid #E2E0DA;background:#fff;font-size:13px;font-weight:600;color:#5C5A56;cursor:pointer;user-select:none;transition:border-color .15s,background .15s;}
+.tld-toggle:hover{border-color:#3B82F6;color:#1C1C1C;}
+.tld-toggle input[type=checkbox]{accent-color:#3B82F6;width:14px;height:14px;cursor:pointer;}
+.tld-toggle input[type=checkbox]:checked + span{color:#1C1C1C;}
 </style>
 </head>
 <body>
@@ -39,14 +45,34 @@ input[type=search]{width:100%;border:0;outline:0;font-size:16px;font-family:inhe
   <h1 style="margin:0 0 6px;font-weight:800;font-size:clamp(24px,3.4vw,30px);letter-spacing:-.025em;">Find your domain</h1>
   <p style="margin:0 0 22px;font-size:15.5px;color:#5C5A56;line-height:1.5;">Search for the perfect web address for your business.</p>
 
-  <div id="search-box" style="display:flex;align-items:center;gap:10px;background:#fff;border:1.5px solid #3B82F6;border-radius:12px;padding:0 16px;height:54px;margin-bottom:22px;transition:border-color .15s;">
+  <div id="search-box" style="display:flex;align-items:center;gap:10px;background:#fff;border:1.5px solid #3B82F6;border-radius:12px;padding:0 16px;height:54px;margin-bottom:14px;transition:border-color .15s;">
     <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#807E79" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><circle cx="11" cy="11" r="7"></circle><path d="M21 21l-4.35-4.35"></path></svg>
     <input type="search" id="domain-query" placeholder="Type your business name…" autocomplete="off" autofocus>
   </div>
 
+  <!-- TLD selector -->
+  <div style="margin-bottom:20px;">
+    <div style="font-size:12px;font-weight:700;color:#9A9893;text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px;">Extensions to search</div>
+    <div style="display:flex;flex-wrap:wrap;gap:7px;" id="tld-filters">
+      <label class="tld-toggle"><input type="checkbox" value="co.uk" checked><span>.co.uk</span></label>
+      <label class="tld-toggle"><input type="checkbox" value="com" checked><span>.com</span></label>
+      <label class="tld-toggle"><input type="checkbox" value="uk" checked><span>.uk</span></label>
+      <label class="tld-toggle"><input type="checkbox" value="org.uk"><span>.org.uk</span></label>
+      <label class="tld-toggle"><input type="checkbox" value="net"><span>.net</span></label>
+      <label class="tld-toggle"><input type="checkbox" value="org"><span>.org</span></label>
+      <label class="tld-toggle"><input type="checkbox" value="biz"><span>.biz</span></label>
+      <label class="tld-toggle"><input type="checkbox" value="uk.com"><span>.uk.com</span></label>
+    </div>
+  </div>
+
   <div id="results" style="display:none;"></div>
   <p id="empty-state" style="display:none;margin:24px 0;text-align:center;font-size:14.5px;color:#9A9893;">Start typing to search for a domain.</p>
-  <p id="loading-state" style="display:none;margin:24px 0;text-align:center;font-size:14.5px;color:#9A9893;">Searching…</p>
+
+  <div id="loading-state" style="display:none;margin:28px 0;text-align:center;">
+    <div style="width:28px;height:28px;border:3px solid #E2E0DA;border-top-color:#3B82F6;border-radius:50%;animation:spin .7s linear infinite;margin:0 auto 10px;"></div>
+    <div style="font-size:14.5px;color:#5C5A56;font-weight:500;">Checking live availability…</div>
+  </div>
+
   <div id="error-box" style="display:none;margin-top:16px;background:#FEF2F2;border:1px solid #FCA5A5;border-radius:8px;padding:12px 14px;font-size:14px;color:#B91C1C;line-height:1.5;"></div>
 
   <p id="price-note" style="display:none;margin:14px 0 0;font-size:12.5px;color:#9A9893;text-align:center;">Prices shown in GBP (approx). Registrar billing is in USD via Porkbun.</p>
@@ -73,10 +99,16 @@ const priceNote  = document.getElementById('price-note');
 
 if (businessParam) input.value = businessParam;
 
+// Wire up TLD checkboxes — re-run search on change
+document.getElementById('tld-filters').addEventListener('change', () => {
+  const q = input.value.trim();
+  if (q) runSearch(q);
+});
+
 let debounceTimer = null;
 input.addEventListener('input', () => {
   clearTimeout(debounceTimer);
-  debounceTimer = setTimeout(() => runSearch(input.value.trim()), 350);
+  debounceTimer = setTimeout(() => runSearch(input.value.trim()), 400);
 });
 input.addEventListener('focus', () => {
   document.getElementById('search-box').style.borderColor = '#3B82F6';
@@ -84,6 +116,11 @@ input.addEventListener('focus', () => {
 input.addEventListener('blur', () => {
   document.getElementById('search-box').style.borderColor = '#D9D7D0';
 });
+
+function getSelectedTlds() {
+  return [...document.querySelectorAll('#tld-filters input[type=checkbox]:checked')]
+    .map(cb => cb.value);
+}
 
 function setState(state) {
   emptyState.style.display  = state === 'empty'   ? 'block' : 'none';
@@ -93,20 +130,34 @@ function setState(state) {
   priceNote.style.display   = state === 'results' ? 'block' : 'none';
 }
 
+let currentQuery = '';
+
 async function runSearch(query) {
   if (!query) { setState('empty'); resultsEl.innerHTML = ''; return; }
+  const tlds = getSelectedTlds();
+  if (!tlds.length) { setState('empty'); return; }
+
+  currentQuery = query;
   setState('loading');
+
   try {
-    let url = '/api/domain/search?q=' + encodeURIComponent(query);
+    let url = '/api/domain/search?q=' + encodeURIComponent(query)
+            + '&tlds=' + encodeURIComponent(tlds.join(','));
     if (jobId) url += '&site_id=' + encodeURIComponent(jobId);
+
     const r = await fetch(url);
     if (!r.ok) throw new Error('search_failed');
     const data = await r.json();
+
+    // If user typed again while we were fetching, discard stale result
+    if (query !== currentQuery) return;
+
     if (!data.results || !data.results.length) {
       setState('empty'); return;
     }
     renderResults(data.results);
   } catch (e) {
+    if (query !== currentQuery) return;
     setState('error');
     errorBox.textContent = 'Could not reach domain search — please try again in a moment.';
   }
@@ -115,6 +166,19 @@ async function runSearch(query) {
 function renderResults(results) {
   setState('results');
   resultsEl.innerHTML = results.map(r => {
+    if (r.error) {
+      return `<div class="result-row error-row">
+        <div style="width:26px;height:26px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;background:rgba(154,152,147,.15);">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#9A9893" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/></svg>
+        </div>
+        <div style="flex:1;min-width:0;">
+          <div style="font-weight:700;font-size:15px;color:#9A9893;word-break:break-all;">${r.domain}</div>
+          <div style="font-size:12.5px;color:#9A9893;margin-top:2px;">Unable to check — try again</div>
+        </div>
+        <span class="select-btn error" aria-disabled="true">Unavailable</span>
+      </div>`;
+    }
+
     const availIcon = r.available
       ? '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#1A6B3A" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l4 4 10-10"/></svg>'
       : '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#9A9893" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>';
