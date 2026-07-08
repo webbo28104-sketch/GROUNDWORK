@@ -67,6 +67,7 @@ class Generation(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     status = Column(String(30), nullable=False, default="draft")
     stripe_customer_id = Column(String(255))
+    stripe_setup_invoice_id = Column(String(255))
     subdomain = Column(String(100), nullable=True, index=True)
 
     lead = relationship("Lead", back_populates="generations")
@@ -116,6 +117,7 @@ def init_db():
     Base.metadata.create_all(engine)
     _ensure_column(Lead.__tablename__, "is_test", "BOOLEAN NOT NULL DEFAULT FALSE")
     _ensure_column(Generation.__tablename__, "stripe_customer_id", "VARCHAR(255)")
+    _ensure_column(Generation.__tablename__, "stripe_setup_invoice_id", "VARCHAR(255)")
     _ensure_column(Generation.__tablename__, "subdomain", "VARCHAR(100)")
     _ensure_column(Generation.__tablename__, "html_pending", "TEXT")
 

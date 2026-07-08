@@ -41,6 +41,10 @@ body{margin:0;background:#F5F3EE;font-family:Inter,sans-serif;color:#1C1C1C;}
        style="display:inline-block;background:#1C1C1C;color:#3B82F6;font-weight:700;font-size:17px;
               text-decoration:none;padding:14px 24px;border-radius:10px;word-break:break-all;">
     </a>
+    <div style="margin-top:16px;">
+      <a id="receipt-link" href="#" target="_blank" rel="noopener" style="display:none;font-size:14.5px;color:#2257CC;font-weight:600;text-decoration:none;">Download receipt →</a>
+      <span id="receipt-pending" style="display:none;font-size:14px;color:#9A9893;">Receipt generating — check back shortly.</span>
+    </div>
   </div>
   <div id="url-pending" style="margin:24px 0;font-size:15px;color:#9A9893;">
     Fetching your web address…
@@ -59,17 +63,34 @@ if (jobId) {
   document.getElementById('url-pending').style.display = 'none';
 }
 
+function showReceipt(d) {
+  const link = document.getElementById('receipt-link');
+  const pending = document.getElementById('receipt-pending');
+  if (d.receipt_pdf_url) {
+    link.href = d.receipt_pdf_url;
+    link.style.display = 'inline-block';
+    pending.style.display = 'none';
+    return true;
+  }
+  pending.style.display = 'inline';
+  return false;
+}
+
 async function pollForSubdomain(attemptsLeft) {
   try {
     const r = await fetch('/api/generate/' + jobId + '/info');
     if (r.ok) {
       const d = await r.json();
+      const receiptReady = showReceipt(d);
       if (d.subdomain_url) {
         const link = document.getElementById('site-url');
         link.href = d.subdomain_url;
         link.textContent = d.subdomain_url.replace('https://', '');
         document.getElementById('url-pending').style.display = 'none';
         document.getElementById('url-section').style.display = 'block';
+        if (!receiptReady && attemptsLeft > 1) {
+          setTimeout(() => pollForSubdomain(attemptsLeft - 1), 2000);
+        }
         return;
       }
     }

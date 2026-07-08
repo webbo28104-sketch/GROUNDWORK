@@ -1448,6 +1448,9 @@ def _render_dashboard(email: str) -> str:
           </div>
         </div>"""
 
+        customer_ids = sorted({g.stripe_customer_id for g in gens if g.stripe_customer_id})
+        billing_card = _render_billing_section(customer_ids)
+
         inner = f"""<div style="display:flex;justify-content:flex-end;margin-bottom:6px;">
           <a href="/account/logout" style="color:#807E79;font-size:13px;text-decoration:none;">Log out</a>
         </div>
@@ -1457,10 +1460,69 @@ def _render_dashboard(email: str) -> str:
           <p style="margin:0;font-size:15.5px;color:#5C5A56;">{subcopy}</p>
         </div>
         {cards}
+        {billing_card}
         {support_card}"""
         return render_template_string(_account_page(inner, "Your account"))
     finally:
         db.close()
+
+
+def _describe_invoice(invoice) -> str:
+    lines = list(invoice.lines.data) if invoice.lines else []
+    descriptions = []
+    for line in lines:
+        desc = line.description or (line.price.nickname if line.price else None)
+        if desc and desc not in descriptions:
+            descriptions.append(desc)
+    if descriptions:
+        return ", ".join(descriptions)
+    return "Monthly subscription" if invoice.billing_reason == "subscription_cycle" else "Setup fee"
+
+
+def _render_billing_section(customer_ids: list) -> str:
+    if not customer_ids or not STRIPE_SECRET_KEY:
+        return ""
+
+    invoices = []
+    try:
+        for customer_id in customer_ids:
+            for inv in stripe.Invoice.list(customer=customer_id, limit=100).auto_paging_iter():
+                invoices.append(inv)
+    except stripe.error.StripeError:
+        pass
+
+    if not invoices:
+        return """<div class="acct-card">
+          <div style="font-weight:700;font-size:17px;margin-bottom:4px;">Billing</div>
+          <p style="margin:0;font-size:14px;color:#807E79;">No invoices yet.</p>
+        </div>"""
+
+    invoices.sort(key=lambda inv: inv.created, reverse=True)
+
+    rows = []
+    for inv in invoices:
+        date_str = datetime.utcfromtimestamp(inv.created).strftime("%d %b %Y")
+        description = escape(_describe_invoice(inv))
+        amount = _format_gbp(inv.amount_paid if inv.status == "paid" else inv.amount_due)
+        pdf_link = (
+            f'<a href="{inv.invoice_pdf}" target="_blank" rel="noopener" style="color:#2257CC;font-weight:600;font-size:13.5px;text-decoration:none;">Download PDF</a>'
+            if inv.invoice_pdf else
+            '<span style="color:#9A9893;font-size:13.5px;">Generating…</span>'
+        )
+        rows.append(
+            '<div style="display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px 0;border-top:1px solid #EDEBE5;flex-wrap:wrap;">'
+            f'<div><div style="font-size:14.5px;font-weight:600;">{description}</div>'
+            f'<div style="font-size:12.5px;color:#807E79;margin-top:2px;">{date_str}</div></div>'
+            f'<div style="display:flex;align-items:center;gap:16px;">'
+            f'<span style="font-weight:700;font-size:14.5px;">{amount}</span>{pdf_link}</div>'
+            '</div>'
+        )
+
+    return f"""<div class="acct-card">
+      <div style="font-weight:700;font-size:17px;margin-bottom:4px;">Billing</div>
+      <p style="margin:0 0 4px;font-size:14px;color:#5C5A56;">Your full payment history.</p>
+      {"".join(rows)}
+    </div>"""
 
 
 def _password_field_html(field_id: str, name: str, placeholder: str) -> str:
@@ -2490,9 +2552,26 @@ def job_info(job_id):
             "subdomain_preview_url": preview_url,
             "subdomain_invalid_chars": invalid,
             "subdomain_taken": taken,
+            "receipt_pdf_url": _fetch_invoice_pdf(gen.stripe_setup_invoice_id),
         })
     finally:
         db.close()
+
+
+def _fetch_invoice_pdf(invoice_id: str) -> str | None:
+    """Best-effort invoice_pdf lookup — returns None (never raises) if there's
+    no invoice on file yet, Stripe isn't configured, or the PDF isn't ready."""
+    if not invoice_id or not STRIPE_SECRET_KEY:
+        return None
+    try:
+        invoice = stripe.Invoice.retrieve(invoice_id)
+        return invoice.invoice_pdf or None
+    except stripe.error.StripeError:
+        return None
+
+
+def _format_gbp(amount_cents: int) -> str:
+    return f"£{amount_cents / 100:,.2f}"
 
 
 @app.route("/api/generate/<job_id>/text-fields")
@@ -2671,6 +2750,7 @@ def stripe_webhook():
         cs = event.data.object
         job_id = cs.client_reference_id
         customer_id = cs.customer
+        invoice_id = cs.get("invoice")
         if job_id:
             db = SessionLocal()
             try:
@@ -2679,6 +2759,8 @@ def stripe_webhook():
                     gen.status = "live"
                     if customer_id:
                         gen.stripe_customer_id = customer_id
+                    if invoice_id:
+                        gen.stripe_setup_invoice_id = invoice_id
                     # Assign subdomain (the checkout route already validated this;
                     # the double-check here guards the rare simultaneous-payment race).
                     if not gen.subdomain:
