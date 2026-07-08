@@ -815,7 +815,12 @@ def _run(job_id, prompt, logo_b64, logo_mime):
                 "type": "image",
                 "source": {"type": "base64", "media_type": logo_mime, "data": logo_b64},
             })
-        content.append({"type": "text", "text": prompt})
+        # Mark the prompt for caching.  Every subsequent turn in this loop
+        # re-sends the full message history; without a cache breakpoint the
+        # entire prompt is billed as fresh input on every continuation turn.
+        # With caching: turn 1 pays cache_write (1.25× base cost), turns 2+
+        # pay cache_read (0.1× base cost) — net saving starts at turn 3.
+        content.append({"type": "text", "text": prompt, "cache_control": {"type": "ephemeral"}})
 
         messages = [{"role": "user", "content": content}]
         accumulated_text = ""
@@ -828,6 +833,14 @@ def _run(job_id, prompt, logo_b64, logo_mime):
                 messages=messages,
             )
 
+            u = resp.usage
+            app.logger.info(
+                f"Generation {job_id} turn usage: "
+                f"in={u.input_tokens} out={u.output_tokens} "
+                f"cache_write={getattr(u,'cache_creation_input_tokens',0)} "
+                f"cache_read={getattr(u,'cache_read_input_tokens',0)}"
+            )
+
             # Collect any text from this turn
             for block in resp.content:
                 if hasattr(block, "text"):
@@ -836,7 +849,21 @@ def _run(job_id, prompt, logo_b64, logo_mime):
             if resp.stop_reason == "end_turn":
                 break
 
-            messages.append({"role": "assistant", "content": resp.content})
+            # Serialise content blocks to plain dicts so we can attach
+            # cache_control.  Mark the last text block — typically the partial
+            # HTML on a max_tokens turn — so the accumulated output is also
+            # served from cache on the next continuation rather than re-billed
+            # as fresh input tokens.
+            assistant_blocks = []
+            last_text_idx = None
+            for i, block in enumerate(resp.content):
+                b = block.model_dump(exclude_none=True) if hasattr(block, "model_dump") else dict(block)
+                if b.get("type") == "text":
+                    last_text_idx = i
+                assistant_blocks.append(b)
+            if last_text_idx is not None:
+                assistant_blocks[last_text_idx]["cache_control"] = {"type": "ephemeral"}
+            messages.append({"role": "assistant", "content": assistant_blocks})
 
             if resp.stop_reason == "max_tokens":
                 # Output was cut off — ask Claude to continue from exactly where
@@ -849,9 +876,9 @@ def _run(job_id, prompt, logo_b64, logo_mime):
 
             # Continue conversation for tool_use turns
             tool_results = [
-                {"type": "tool_result", "tool_use_id": b.id, "content": ""}
-                for b in resp.content
-                if getattr(b, "type", "") == "tool_use"
+                {"type": "tool_result", "tool_use_id": b["id"], "content": ""}
+                for b in assistant_blocks
+                if b.get("type") == "tool_use"
             ]
             if tool_results:
                 messages.append({"role": "user", "content": tool_results})
