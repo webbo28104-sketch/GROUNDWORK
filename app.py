@@ -3305,7 +3305,8 @@ def stripe_webhook():
 
     if event.type == "checkout.session.completed":
         cs = event.data.object
-        metadata = cs.get("metadata") or {}
+        # Stripe SDK v5+ uses attribute access, not dict .get()
+        metadata = cs.metadata or {}
 
         if metadata.get("type") == "domain":
             domain    = metadata.get("domain", "")
@@ -3316,7 +3317,7 @@ def stripe_webhook():
             customer_email = ""
             business_name = ""
             if cs.customer_details:
-                customer_email = (cs.customer_details or {}).get("email", "")
+                customer_email = cs.customer_details.email or ""
             if site_id:
                 db = SessionLocal()
                 try:
@@ -3349,7 +3350,7 @@ def stripe_webhook():
             # Standard site subscription checkout
             job_id = cs.client_reference_id
             customer_id = cs.customer
-            invoice_id = cs.get("invoice")
+            invoice_id = cs.invoice
             if job_id:
                 db = SessionLocal()
                 try:
