@@ -154,7 +154,7 @@ def send_support_message_email(from_email: str, message: str) -> None:
     straight back to them rather than to Groundwork's own sending address.
     Not a templated/CTA email like the others — just the plain message.
     """
-    support_inbox = os.environ.get("RESEND_FROM_EMAIL", "groundwork-build@outlook.com")
+    support_inbox = os.environ.get("SUPPORT_INBOX_EMAIL", "groundwork-build@outlook.com")
     html = f"""<div style="font-family:Arial,Helvetica,sans-serif;background:#F5F3EE;padding:32px 20px;">
   <div style="max-width:480px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;">
     <div style="background:#1C1C1C;padding:20px 28px;">

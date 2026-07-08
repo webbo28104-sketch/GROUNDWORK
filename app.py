@@ -1347,7 +1347,8 @@ def _render_image_manager(gen_id: int, images) -> str:
     if not images:
         return (
             '<p style="margin:12px 0 0;font-size:13px;color:#807E79;">'
-            'Logo/photo editing isn\'t available for this site — regenerate it to enable it.</p>'
+            'No logo or photos on file for this site yet — send us a message below and '
+            'we\'ll add them for you.</p>'
         )
     tiles = []
     for img in images:
@@ -1376,6 +1377,7 @@ def _render_dashboard(email: str) -> str:
 
         if gens:
             card_parts = []
+            has_images_any = False
             for g in gens:
                 business_label = g.business_name or "Untitled site"
                 status_label = "Live" if g.status == "live" else "Draft — not yet published"
@@ -1393,6 +1395,7 @@ def _render_dashboard(email: str) -> str:
                 )
                 images = db.query(GenerationImage).filter(GenerationImage.generation_id == g.id).all()
                 image_manager = _render_image_manager(g.id, images)
+                has_images_any = has_images_any or bool(images)
                 card_parts.append(
                     '<div class="acct-card">'
                     '<div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;">'
@@ -1414,6 +1417,7 @@ def _render_dashboard(email: str) -> str:
                 )
             cards = "".join(card_parts)
         else:
+            has_images_any = False
             cards = '<div class="acct-card"><p style="margin:0;color:#5C5A56;font-size:15px;">No website yet — once you generate one, it\'ll show up here.</p></div>'
 
         # Copy is written for the common case — one account, one generated
@@ -1422,7 +1426,11 @@ def _render_dashboard(email: str) -> str:
         if len(gens) == 1:
             business_label = gens[0].business_name or "Your website"
             headline = f"{escape(business_label)} is ready"
-            subcopy = "View it any time, swap the logo or photos, or send us a message below if you'd like something changed."
+            subcopy = (
+                "View it any time, swap the logo or photos, or send us a message below if you'd like something changed."
+                if has_images_any else
+                "View it any time, or send us a message below if you'd like something changed."
+            )
         elif len(gens) > 1:
             headline = "Your sites, all in one place"
             subcopy = f"Every website you've generated with {escape(email)}, ready whenever you need it."
