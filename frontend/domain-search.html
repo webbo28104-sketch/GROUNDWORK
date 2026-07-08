@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Find your domain — Groundwork</title>
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
+<link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@700;800&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;}
+h1,h2,h3,h4{font-family:'Plus Jakarta Sans','Inter',sans-serif;}
+body{margin:0;background:#F5F3EE;font-family:Inter,sans-serif;color:#1C1C1C;}
+@keyframes gw-fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+.result-row{display:flex;align-items:center;gap:14px;background:#fff;border:1px solid #E2E0DA;border-radius:12px;padding:16px;margin-bottom:10px;animation:gw-fade .25s ease both;}
+.result-row.best{background:#EAF1FD;border-color:rgba(59,130,246,.35);}
+.result-row.taken{opacity:.55;}
+.select-btn{background:#3B82F6;color:#fff;font-weight:700;font-size:14px;border:0;border-radius:8px;padding:10px 18px;cursor:pointer;font-family:inherit;flex-shrink:0;text-decoration:none;display:inline-block;white-space:nowrap;}
+.select-btn:hover{background:#2563EB;}
+.select-btn:disabled,.select-btn.taken{background:#D9D7D0;cursor:not-allowed;color:#fff;}
+input[type=search]{width:100%;border:0;outline:0;font-size:16px;font-family:inherit;color:#1C1C1C;background:transparent;}
+</style>
+</head>
+<body>
+
+<div style="background:#1C1C1C;border-bottom:1px solid #2C2C2C;">
+  <div style="max-width:560px;margin:0 auto;padding:0 24px;height:64px;display:flex;align-items:center;">
+    <a href="index.html" style="display:flex;align-items:center;gap:11px;text-decoration:none;">
+      <svg viewBox="0 0 48 48" width="30" height="30" fill="none"><path d="M 37 13.1 A 17 17 0 1 0 41 24 L 27 24" stroke="#3B82F6" stroke-width="4.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M 30.9 18.2 A 9 9 0 1 0 30.9 29.8" stroke="#3B82F6" stroke-width="4.6" stroke-linecap="round"/></svg>
+      <span style="color:#fff;font-weight:800;font-size:19px;letter-spacing:-.03em;">Groundwork</span>
+    </a>
+  </div>
+</div>
+
+<div style="max-width:560px;margin:0 auto;padding:clamp(36px,6vw,64px) 24px;">
+
+  <h1 style="margin:0 0 6px;font-weight:800;font-size:clamp(24px,3.4vw,30px);letter-spacing:-.025em;">Find your domain</h1>
+  <p style="margin:0 0 22px;font-size:15.5px;color:#5C5A56;line-height:1.5;">Search for the perfect web address for your business.</p>
+
+  <div id="search-box" style="display:flex;align-items:center;gap:10px;background:#fff;border:1.5px solid #3B82F6;border-radius:12px;padding:0 16px;height:54px;margin-bottom:22px;transition:border-color .15s;">
+    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#807E79" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><circle cx="11" cy="11" r="7"></circle><path d="M21 21l-4.35-4.35"></path></svg>
+    <input type="search" id="domain-query" placeholder="Type your business name…" autocomplete="off" autofocus>
+  </div>
+
+  <div id="results" style="display:none;"></div>
+  <p id="empty-state" style="display:none;margin:24px 0;text-align:center;font-size:14.5px;color:#9A9893;">Start typing to search for a domain.</p>
+  <p id="loading-state" style="display:none;margin:24px 0;text-align:center;font-size:14.5px;color:#9A9893;">Searching…</p>
+  <div id="error-box" style="display:none;margin-top:16px;background:#FEF2F2;border:1px solid #FCA5A5;border-radius:8px;padding:12px 14px;font-size:14px;color:#B91C1C;line-height:1.5;"></div>
+
+  <p id="price-note" style="display:none;margin:14px 0 0;font-size:12.5px;color:#9A9893;text-align:center;">Prices shown in GBP (approx). Registrar billing is in USD via Porkbun.</p>
+
+  <div style="text-align:center;margin-top:28px;">
+    <a id="back-link" href="/account" style="display:inline-flex;align-items:center;gap:7px;color:#5C5A56;font-size:15px;font-weight:600;text-decoration:none;">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>
+      Back to your account
+    </a>
+  </div>
+</div>
+
+<script>
+const params        = new URLSearchParams(location.search);
+const jobId         = params.get('id');
+const businessParam = params.get('business') || params.get('q') || '';
+
+const input      = document.getElementById('domain-query');
+const resultsEl  = document.getElementById('results');
+const emptyState = document.getElementById('empty-state');
+const loadState  = document.getElementById('loading-state');
+const errorBox   = document.getElementById('error-box');
+const priceNote  = document.getElementById('price-note');
+
+if (businessParam) input.value = businessParam;
+
+let debounceTimer = null;
+input.addEventListener('input', () => {
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(() => runSearch(input.value.trim()), 350);
+});
+input.addEventListener('focus', () => {
+  document.getElementById('search-box').style.borderColor = '#3B82F6';
+});
+input.addEventListener('blur', () => {
+  document.getElementById('search-box').style.borderColor = '#D9D7D0';
+});
+
+function setState(state) {
+  emptyState.style.display  = state === 'empty'   ? 'block' : 'none';
+  loadState.style.display   = state === 'loading' ? 'block' : 'none';
+  errorBox.style.display    = state === 'error'   ? 'block' : 'none';
+  resultsEl.style.display   = state === 'results' ? 'block' : 'none';
+  priceNote.style.display   = state === 'results' ? 'block' : 'none';
+}
+
+async function runSearch(query) {
+  if (!query) { setState('empty'); resultsEl.innerHTML = ''; return; }
+  setState('loading');
+  try {
+    let url = '/api/domain/search?q=' + encodeURIComponent(query);
+    if (jobId) url += '&site_id=' + encodeURIComponent(jobId);
+    const r = await fetch(url);
+    if (!r.ok) throw new Error('search_failed');
+    const data = await r.json();
+    if (!data.results || !data.results.length) {
+      setState('empty'); return;
+    }
+    renderResults(data.results);
+  } catch (e) {
+    setState('error');
+    errorBox.textContent = 'Could not reach domain search — please try again in a moment.';
+  }
+}
+
+function renderResults(results) {
+  setState('results');
+  resultsEl.innerHTML = results.map(r => {
+    const availIcon = r.available
+      ? '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#1A6B3A" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l4 4 10-10"/></svg>'
+      : '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#9A9893" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>';
+    const bestBadge = r.best_match
+      ? '<span style="background:#3B82F6;color:#fff;font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;">Best match</span>'
+      : '';
+    const priceStr = r.available ? '£' + r.price_gbp.toFixed(2) + '/yr' : 'Taken';
+    const btn = r.available
+      ? `<a class="select-btn" href="${selectHref(r.domain, r.price_gbp)}">Select →</a>`
+      : `<span class="select-btn taken" aria-disabled="true">Taken</span>`;
+    return `<div class="result-row ${r.best_match ? 'best' : ''} ${r.available ? '' : 'taken'}">
+      <div style="width:26px;height:26px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;background:${r.available ? 'rgba(26,107,58,.12)' : 'rgba(154,152,147,.15)'};">
+        ${availIcon}
+      </div>
+      <div style="flex:1;min-width:0;">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <span style="font-weight:700;font-size:15.5px;color:${r.available ? '#1C1C1C' : '#9A9893'};word-break:break-all;">${r.domain}</span>
+          ${bestBadge}
+        </div>
+        <div style="font-size:13px;color:${r.available ? '#5C5A56' : '#9A9893'};margin-top:2px;">${priceStr}</div>
+      </div>
+      ${btn}
+    </div>`;
+  }).join('');
+}
+
+function selectHref(domain, price) {
+  // Build a pre-filled email inquiry. Replace with domain-checkout.html when
+  // a purchase flow is ready.
+  const subject = encodeURIComponent('Domain registration — ' + domain);
+  const body    = encodeURIComponent(
+    "Hi,\n\nI'd like to register the domain: " + domain +
+    " (approx. £" + price.toFixed(2) + "/yr)" +
+    (jobId ? "\n\nMy Groundwork site ID: " + jobId : "") +
+    "\n\nThanks"
+  );
+  return 'mailto:groundwork-build@outlook.com?subject=' + subject + '&body=' + body;
+}
+
+if (businessParam) runSearch(businessParam); else setState('empty');
+</script>
+</body>
+</html>

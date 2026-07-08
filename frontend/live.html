@@ -50,11 +50,22 @@ body{margin:0;background:#F5F3EE;font-family:Inter,sans-serif;color:#1C1C1C;}
     Fetching your web address…
   </div>
 
-  <p style="margin:0 0 0;font-size:15px;line-height:1.6;color:#807E79;">Questions or changes? <a href="mailto:groundwork-build@outlook.com" style="color:#2257CC;font-weight:600;">Email us</a> and we'll sort it.</p>
+  <!-- Domain search CTA — shown once the site URL is confirmed -->
+  <div id="domain-cta" style="display:none;margin:32px auto 0;max-width:440px;background:#fff;border:1px solid #E2E0DA;border-radius:14px;padding:22px 24px;text-align:left;animation:gw-fade .4s ease .2s both;">
+    <div style="display:flex;align-items:center;gap:11px;margin-bottom:10px;">
+      <div style="width:32px;height:32px;border-radius:8px;background:#EAF1FD;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#3B82F6" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+      </div>
+      <div style="font-weight:700;font-size:16px;color:#1C1C1C;">Get a custom domain</div>
+    </div>
+    <p style="margin:0 0 14px;font-size:14px;color:#5C5A56;line-height:1.5;">Give your site a professional web address like <strong>yourbusiness.co.uk</strong> instead of your Groundwork link.</p>
+    <a id="domain-search-link" href="/domain-search.html"
+       style="display:inline-block;background:#3B82F6;color:#fff;font-weight:700;font-size:14.5px;text-decoration:none;padding:11px 20px;border-radius:9px;">
+      Find your domain →
+    </a>
+  </div>
 
-  <!-- Previously the only page in the whole flow that never mentioned the
-       account system — a customer landing here right after paying had no clue
-       they could come back later to view or edit their site. -->
+  <p style="margin:28px 0 0;font-size:15px;line-height:1.6;color:#807E79;">Questions or changes? <a href="mailto:groundwork-build@outlook.com" style="color:#2257CC;font-weight:600;">Email us</a> and we'll sort it.</p>
   <p style="margin:14px 0 0;font-size:14.5px;color:#5C5A56;">Manage your site any time — <a href="/account/login" style="color:#2257CC;font-weight:600;text-decoration:none;">sign in to your account →</a></p>
 </div>
 
@@ -93,6 +104,16 @@ async function pollForSubdomain(attemptsLeft) {
         link.textContent = d.subdomain_url.replace('https://', '');
         document.getElementById('url-pending').style.display = 'none';
         document.getElementById('url-section').style.display = 'block';
+
+        // Show domain CTA with business name pre-filled
+        const domainCta = document.getElementById('domain-cta');
+        const domainLink = document.getElementById('domain-search-link');
+        const slug = (d.business_name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        let domainHref = '/domain-search.html?id=' + encodeURIComponent(jobId);
+        if (slug) domainHref += '&business=' + encodeURIComponent(slug);
+        domainLink.href = domainHref;
+        domainCta.style.display = 'block';
+
         if (!receiptReady && attemptsLeft > 1) {
           setTimeout(() => pollForSubdomain(attemptsLeft - 1), 2000);
         }

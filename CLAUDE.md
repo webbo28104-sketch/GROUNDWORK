@@ -19,6 +19,7 @@ Groundwork generates AI-built marketing websites for UK trades businesses. A use
 - `SECRET_KEY` — signs Flask sessions and magic-link tokens (`itsdangerous`). Must be set in production — the code falls back to an insecure dev default otherwise.
 - `RESEND_API_KEY` / `RESEND_FROM_EMAIL` — for verification and resend emails via Resend. If `RESEND_API_KEY` is unset, sends are skipped and logged instead of failing. `RESEND_FROM_EMAIL` must be an address on a domain verified in Resend (DNS-verified) or sends will fail even with a valid API key.
 - `ADMIN_USERNAME` / `ADMIN_PASSWORD` — credentials for `/admin/login`. Unset means admin login always fails.
+- `PORKBUN_API_KEY` / `PORKBUN_SECRET_KEY` — Porkbun API credentials for the `/api/domain/search` endpoint. If unset, the endpoint returns an empty results array.
 - `IP_RATE_LIMIT_PER_HOUR` — max form submissions per IP per hour (default `5`).
 - `PORT` — set automatically by Railway.
 
