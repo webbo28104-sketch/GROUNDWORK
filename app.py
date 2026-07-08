@@ -2644,6 +2644,7 @@ def create_checkout_session():
             {"price": STRIPE_MONTHLY_PRICE_ID, "quantity": 1},
         ],
         subscription_data={"trial_period_days": 30},
+        allow_promotion_codes=True,
         client_reference_id=job_id,
         success_url=f"{SITE_URL}/live.html?id={job_id}",
         cancel_url=f"{SITE_URL}/api/generate/{job_id}/html",
