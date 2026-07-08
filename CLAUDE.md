@@ -117,7 +117,7 @@ A relative fetch from a page on `groundworkbuild.com` goes through `_worker.js`'
 
 - Accent: `#3B82F6` (blue). Hover: `#2563EB`. No amber (except the preview watermark CTA, which intentionally uses `#B8976A` to stand out as non-brand chrome).
 - Contact email: `groundwork-build@outlook.com`
-- Plans: **Starter** £99 setup + £24.99/mo. One-Man-Band and Director are coming soon stubs.
+- Plans: **Starter** £99 setup + £24.99/mo (first month of hosting free via a 30-day Stripe trial on the subscription). One-Man-Band and Director are coming soon stubs.
 
 ## Design source
 
