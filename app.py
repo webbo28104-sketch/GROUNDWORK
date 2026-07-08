@@ -2790,44 +2790,14 @@ def update_text_field(job_id):
         db.close()
 
 
-# Porkbun doesn't expose a domain availability endpoint. We use two signals:
-#   1. DNS resolution — if the domain resolves it's taken; NXDOMAIN means likely available.
-#   2. Porkbun /pricing/get — gives us registration cost per TLD.
-# Pricing is fetched once and cached for the process lifetime (it rarely changes).
-_porkbun_pricing_cache: dict = {}
-_porkbun_pricing_lock = threading.Lock()
-
-
-def _porkbun_get_pricing() -> dict:
-    """Fetch and cache TLD pricing from Porkbun. Returns {} on failure."""
-    global _porkbun_pricing_cache
-    with _porkbun_pricing_lock:
-        if _porkbun_pricing_cache:
-            return _porkbun_pricing_cache
-    if not PORKBUN_API_KEY or not PORKBUN_SECRET_KEY:
-        return {}
-    try:
-        payload = json.dumps({
-            "apikey": PORKBUN_API_KEY,
-            "secretapikey": PORKBUN_SECRET_KEY,
-        }).encode()
-        req = urllib.request.Request(
-            "https://api.porkbun.com/api/json/v3/pricing/get",
-            data=payload,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=8) as resp:
-            data = json.loads(resp.read())
-        if data.get("status") != "SUCCESS":
-            return {}
-        pricing = data.get("pricing", {})
-        with _porkbun_pricing_lock:
-            _porkbun_pricing_cache = pricing
-        return pricing
-    except Exception as exc:
-        app.logger.warning(f"Porkbun pricing fetch failed: {exc}")
-        return {}
+# Porkbun doesn't expose a domain availability endpoint.
+# Availability: DNS resolution — NXDOMAIN = available, resolves = taken.
+# Pricing: hardcoded from Porkbun /pricing/get (verified 2026-07-08, rarely changes).
+_TLD_PRICE_GBP = {
+    "co.uk": round(5.66 * 0.79, 2),   # $5.66/yr
+    "com":   round(11.08 * 0.79, 2),  # $11.08/yr
+    "uk":    round(5.66 * 0.79, 2),   # $5.66/yr
+}
 
 
 def _dns_available(domain: str) -> bool:
@@ -2840,14 +2810,12 @@ def _dns_available(domain: str) -> bool:
         return True   # NXDOMAIN → likely available
 
 
-def _check_domain(domain: str, pricing: dict) -> dict | None:
+def _check_domain(domain: str) -> dict | None:
     """Return availability + price for one domain, or None on hard error."""
     try:
         tld = ".".join(domain.split(".")[1:])  # "example.co.uk" → "co.uk"
         available = _dns_available(domain)
-        tld_pricing = pricing.get(tld, {})
-        price_usd = float(tld_pricing.get("registration") or 0)
-        price_gbp = round(price_usd * 0.79, 2)
+        price_gbp = _TLD_PRICE_GBP.get(tld, 0.0)
         return {"domain": domain, "available": available, "price_gbp": price_gbp}
     except Exception as exc:
         app.logger.warning(f"Domain check failed for {domain}: {exc}")
@@ -2857,7 +2825,7 @@ def _check_domain(domain: str, pricing: dict) -> dict | None:
 @app.route("/api/domain/search")
 def domain_search():
     """Check domain availability for a business name query.
-    Uses Porkbun pricing + DNS resolution for availability."""
+    Uses DNS resolution for availability and hardcoded Porkbun prices."""
     query = request.args.get("q", "").strip()
     if not query:
         return jsonify({"results": []})
@@ -2881,10 +2849,8 @@ def domain_search():
         if len(candidates) == 4:
             break
 
-    pricing = _porkbun_get_pricing()
-
     with ThreadPoolExecutor(max_workers=4) as pool:
-        checked = list(pool.map(lambda d: _check_domain(d, pricing), candidates))
+        checked = list(pool.map(_check_domain, candidates))
 
     results = []
     for i, item in enumerate(checked):
