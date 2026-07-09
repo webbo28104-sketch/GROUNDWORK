@@ -2155,6 +2155,7 @@ def admin_generations():
 <body><div class="wrap" style="max-width:1100px;">
 <h1>All generations ({len(gens)})
 <a href="/admin/generate-test" style="float:right;font-size:13px;margin-left:18px;">+ Generate test site</a>
+<a href="/admin/domains" style="float:right;font-size:13px;margin-left:18px;">Domains</a>
 <a href="/admin/logout" style="float:right;font-size:13px;">Log out</a></h1>
 <p class="muted">× deletes the entire account for that email — login, every lead, and every generated site — as if they'd never signed up.</p>
 <table><thead><tr><th>Business</th><th>Email</th><th>Created</th><th>Status</th><th>Links</th><th></th></tr></thead>
@@ -2172,6 +2173,81 @@ async function gwDeleteAccount(email) {{
   return false;
 }}
 </script>
+</body></html>""")
+    finally:
+        db.close()
+
+
+@app.route("/admin/domains")
+@admin_required
+def admin_domains():
+    """At-a-glance view of purchased customer domains: status, purchase date,
+    sale price / cost / margin, and the Porkbun/Cloudflare setup timestamps.
+
+    Cost is looked up from the current _TLD_PRICE_GBP table by TLD rather than
+    stored per-row, since that table *is* our Porkbun wholesale cost (no
+    separate cost field exists on Domain). Today price_gbp (what the customer
+    is charged) is set from that same table with no markup applied — so
+    margin will show as £0.00 for every domain until a markup is introduced
+    in the checkout pricing. This is flagged rather than silently implied.
+    """
+    db = SessionLocal()
+    try:
+        doms = db.query(Domain).order_by(Domain.created_at.desc()).all()
+        status_colors = {
+            "active": ("#DCFCE7", "#166534"),
+            "pending": ("#FEF3C7", "#92400E"),
+            "needs_manual_setup": ("#FEE2E2", "#991B1B"),
+        }
+        row_parts = []
+        for d in doms:
+            tld = ".".join(d.domain.split(".")[1:])
+            cost = _TLD_PRICE_GBP.get(tld)
+            sale = d.price_gbp
+            margin_html = "—"
+            if cost is not None and sale is not None:
+                margin = sale - cost
+                margin_html = f"£{margin:.2f}"
+            bg, fg = status_colors.get(d.status, ("#E6E3DC", "#3A3A38"))
+            status_badge = (
+                f'<span style="background:{bg};color:{fg};font-size:11px;font-weight:700;'
+                f'padding:2px 8px;border-radius:20px;">{escape(d.status)}</span>'
+            )
+            error_note = (
+                f'<div style="font-size:12px;color:#9B2B1A;margin-top:4px;">'
+                f'{escape(d.error_step or "")}: {escape((d.error_message or "")[:200])}</div>'
+                if d.status == "needs_manual_setup" and d.error_message else ""
+            )
+
+            def _ts(val):
+                return val.strftime("%d %b %Y %H:%M") if val else "—"
+
+            row_parts.append(
+                "<tr>"
+                f"<td>{escape(d.domain)}</td>"
+                f"<td>{status_badge}{error_note}</td>"
+                f"<td>{_ts(d.created_at)}</td>"
+                f"<td>{'£%.2f' % sale if sale is not None else '—'}</td>"
+                f"<td>{'£%.2f' % cost if cost is not None else '—'}</td>"
+                f"<td>{margin_html}</td>"
+                f"<td>{escape(d.customer_email or '')}</td>"
+                f"<td>{_ts(d.registered_at)}</td>"
+                f"<td>{_ts(d.cloudflare_connected_at)}</td>"
+                f"<td>{_ts(d.dns_configured_at)}</td>"
+                "</tr>"
+            )
+        rows = "".join(row_parts)
+        total_sale = sum(d.price_gbp or 0 for d in doms)
+        total_cost = sum(_TLD_PRICE_GBP.get(".".join(d.domain.split(".")[1:]), 0) for d in doms)
+        return render_template_string(f"""<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>Admin — domains</title><link rel="icon" type="image/x-icon" href="/favicon.ico"><link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png"><style>{_PAGE_STYLE}</style></head>
+<body><div class="wrap" style="max-width:1300px;">
+<h1>Customer domains ({len(doms)})
+<a href="/admin/generations" style="float:right;font-size:13px;">Generations</a>
+<a href="/admin/logout" style="float:right;font-size:13px;margin-left:18px;">Log out</a></h1>
+<p class="muted">Sale/cost/margin are per-year list prices from the current TLD price table, not the historical price actually charged at purchase time — margin will read £0.00 for every row until a markup is added to checkout pricing (currently price_gbp is set straight from Porkbun's wholesale cost). Totals: £{total_sale:.2f} sold / £{total_cost:.2f} cost.</p>
+<table><thead><tr><th>Domain</th><th>Status</th><th>Purchased</th><th>Sale price</th><th>Cost</th><th>Margin</th><th>Customer</th><th>Registered</th><th>Cloudflare connected</th><th>DNS configured</th></tr></thead>
+<tbody>{rows}</tbody></table></div>
 </body></html>""")
     finally:
         db.close()
