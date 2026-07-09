@@ -6,11 +6,26 @@ link to view previously generated sites), and password reset. All plain,
 single-CTA emails matching the funnel's existing brand.
 """
 import os
-from html import escape
+import re
+from html import escape, unescape
 
 import resend
 
 ACCENT = "#3B82F6"
+
+
+def _html_to_text(html_content: str) -> str:
+    """Derive a plain-text alternative from an email's HTML body. Spam filters
+    (mail-tester included) dock HTML-only emails with no text/plain part, so
+    every send needs one — this isn't meant to be pretty, just a faithful,
+    readable fallback for clients/filters that read it instead of the HTML."""
+    text = re.sub(r'(?i)<(br|/p|/div|/h[1-6]|/tr|/li)\s*/?>', '\n', html_content)
+    text = re.sub(r'(?s)<script.*?</script>|<style.*?</style>', '', text)
+    text = re.sub(r'<[^>]+>', '', text)
+    text = unescape(text)
+    text = re.sub(r'[ \t]+', ' ', text)
+    text = re.sub(r'\n\s*\n+', '\n\n', text)
+    return text.strip()
 
 
 def _send(to_email: str, subject: str, html_content: str, reply_to: str = None,
@@ -31,6 +46,7 @@ def _send(to_email: str, subject: str, html_content: str, reply_to: str = None,
         "to": [to_email],
         "subject": subject,
         "html": html_content,
+        "text": _html_to_text(html_content),
     }
     if reply_to:
         payload["reply_to"] = reply_to
