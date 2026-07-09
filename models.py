@@ -120,6 +120,10 @@ class Domain(Base):
     dns_configured_at = Column(DateTime, nullable=True)
     railway_connected_at = Column(DateTime, nullable=True)  # legacy, no longer written to
     cloudflare_connected_at = Column(DateTime, nullable=True)
+    # Guards against ever sending "your domain is live" twice for the same
+    # domain, independent of whatever caused a re-run (Stripe webhook retry,
+    # manual reprocessing, a future retry-from-failed-step admin action).
+    live_email_sent_at = Column(DateTime, nullable=True)
     error_step = Column(String(100), nullable=True)
     error_message = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
@@ -149,6 +153,7 @@ def init_db():
     _ensure_column(Domain.__tablename__, "dns_configured_at", "TIMESTAMP")
     _ensure_column(Domain.__tablename__, "railway_connected_at", "TIMESTAMP")
     _ensure_column(Domain.__tablename__, "cloudflare_connected_at", "TIMESTAMP")
+    _ensure_column(Domain.__tablename__, "live_email_sent_at", "TIMESTAMP")
     _ensure_column(Domain.__tablename__, "wholesale_gbp", "FLOAT")
     _ensure_column(Domain.__tablename__, "margin_gbp", "FLOAT")
     _ensure_column(Domain.__tablename__, "error_step", "VARCHAR(100)")

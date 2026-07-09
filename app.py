@@ -3217,8 +3217,19 @@ def _handle_domain_order_async(domain: str, site_id: str, customer_email: str,
                                 price_gbp: float, business_name: str,
                                 stripe_payment_id: str, wholesale_gbp: float = None) -> None:
     """Orchestrate domain registration in a background thread.
-    Steps: Porkbun register → Cloudflare custom hostnames → Porkbun DNS.
+    Steps: resolve customer/business info → send order-confirmed email →
+    Porkbun register → Cloudflare custom hostnames → Porkbun DNS.
     On any failure: email admin, mark needs_manual_setup.
+
+    Runs entirely off the webhook's request/response path — including the
+    customer-facing "order confirmed" email — so a slow Resend/Porkbun/
+    Cloudflare call here can never delay the webhook's 200 response and
+    trigger a Stripe retry.
+
+    business_name may be passed in already (e.g. from the manual-reprocess
+    path) or resolved here from site_id if blank; customer_email is the raw
+    value from the Stripe session and gets backfilled from the Generation's
+    email if blank.
 
     wholesale_gbp and the resulting margin are stored on the Domain row at
     purchase time (rather than recomputed later from the current TLD price
@@ -3229,7 +3240,25 @@ def _handle_domain_order_async(domain: str, site_id: str, customer_email: str,
         wholesale_gbp = _tld_price_gbp().get(tld, 0.0)
     margin_gbp = round(price_gbp - wholesale_gbp, 2)
 
-    # Resolve generation FK
+    # Idempotency guard, checked again here (not just in the webhook) since
+    # this function is also called directly from the manual-reprocess path
+    # (bypassing the webhook's own check) — a Stripe retry landing between
+    # that check and this one, or a second manual reprocess, must still be a
+    # no-op rather than a duplicate email + a doomed duplicate-row insert.
+    db = SessionLocal()
+    try:
+        already = db.query(Domain).filter(Domain.domain == domain).first()
+    finally:
+        db.close()
+    if already:
+        app.logger.info(
+            f"_handle_domain_order_async: {domain} already has a Domain row "
+            f"(id={already.id}, status={already.status}) — skipping duplicate run."
+        )
+        return
+
+    # Resolve generation FK, and backfill customer_email/business_name from
+    # it if not already known (the webhook no longer resolves these itself).
     gen_id = None
     if site_id:
         db = SessionLocal()
@@ -3237,8 +3266,24 @@ def _handle_domain_order_async(domain: str, site_id: str, customer_email: str,
             gen = db.query(Generation).join(Lead).filter(Lead.public_id == site_id).first()
             if gen:
                 gen_id = gen.id
+                if not customer_email:
+                    customer_email = gen.email
+                if not business_name:
+                    business_name = gen.business_name or ""
         finally:
             db.close()
+
+    app.logger.info(f"Domain order paid: {domain} site={site_id} email={customer_email}")
+
+    # Confirm to customer that order was received — backgrounded along with
+    # everything else below (see docstring: this used to run synchronously
+    # in the webhook handler, which was itself a latent cause of slow
+    # responses triggering Stripe retries).
+    if customer_email:
+        try:
+            send_domain_order_customer_email(customer_email, domain, business_name)
+        except Exception as exc:
+            app.logger.error(f"Failed to send domain customer email: {exc}")
 
     # Create Domain row
     dom_id = None
@@ -3258,6 +3303,12 @@ def _handle_domain_order_async(domain: str, site_id: str, customer_email: str,
         db.commit()
         dom_id = dom.id
     except Exception as exc:
+        # Almost certainly the same unique-constraint race the idempotency
+        # check above exists to prevent (two near-simultaneous deliveries
+        # both passing that check before either commits) — genuinely rare,
+        # but still surfaced to admin since it means this delivery's work
+        # (Porkbun/Cloudflare/DNS) did NOT happen and needs a human to
+        # confirm the other delivery's run actually completed.
         app.logger.error(f"Failed to create Domain record for {domain}: {exc}")
         try:
             send_domain_setup_failed_email(
@@ -3333,10 +3384,30 @@ def _handle_domain_order_async(domain: str, site_id: str, customer_email: str,
 
     # All steps succeeded
     app.logger.info(f"Domain automation complete: {domain}")
+
+    # Belt-and-suspenders guard on top of the idempotency check earlier in
+    # this function: even if some future code path re-enters this tail end
+    # for a Domain row that already exists (e.g. a retry-from-last-failed-
+    # step admin action), the "your domain is live" email must never go out
+    # twice for the same domain. Check-and-set against the row itself, not
+    # a local variable, since a local flag wouldn't survive across separate
+    # invocations/threads.
+    db3 = SessionLocal()
     try:
-        send_domain_live_email(customer_email, domain, business_name)
-    except Exception as exc:
-        app.logger.error(f"Failed to send domain live email to {customer_email}: {exc}")
+        rec = db3.query(Domain).filter(Domain.id == dom_id).first()
+        already_sent = bool(rec and rec.live_email_sent_at)
+    finally:
+        db3.close()
+
+    if already_sent:
+        app.logger.info(f"Domain live email already sent for {domain} (dom_id={dom_id}) — skipping resend.")
+    else:
+        try:
+            send_domain_live_email(customer_email, domain, business_name)
+            _update(live_email_sent_at=datetime.utcnow())
+        except Exception as exc:
+            app.logger.error(f"Failed to send domain live email to {customer_email}: {exc}")
+
     try:
         send_domain_order_admin_email(domain, price_gbp, customer_email, site_id, automated=True)
     except Exception as exc:
@@ -3485,35 +3556,40 @@ def stripe_webhook():
                 _tld = ".".join(domain.split(".")[1:])
                 wholesale_gbp = _tld_price_gbp().get(_tld, 0.0)
             stripe_payment_id = cs.payment_intent or cs.id or ""
+            raw_customer_email = cs.customer_details.email if cs.customer_details else ""
 
-            customer_email = ""
-            business_name = ""
-            if cs.customer_details:
-                customer_email = cs.customer_details.email or ""
-            if site_id:
-                db = SessionLocal()
-                try:
-                    gen = db.query(Generation).join(Lead).filter(Lead.public_id == site_id).first()
-                    if gen:
-                        if not customer_email:
-                            customer_email = gen.email
-                        business_name = gen.business_name or ""
-                finally:
-                    db.close()
+            # Idempotency guard — Stripe retries webhook deliveries that don't
+            # get a fast 2xx (backoff spans hours; a retry can land long
+            # after the original attempt, e.g. if this endpoint was crashing
+            # at the time and got fixed afterwards). A Domain row already
+            # existing for this domain means an earlier delivery already
+            # claimed it, so this is a duplicate delivery of the same event
+            # — do nothing (no emails, no Porkbun/Cloudflare/DB work) and ack
+            # Stripe so it stops retrying. This one lookup is the only thing
+            # that runs synchronously in the request path.
+            db = SessionLocal()
+            try:
+                already = db.query(Domain).filter(Domain.domain == domain).first()
+            finally:
+                db.close()
+            if already:
+                app.logger.info(
+                    f"Domain order webhook: {domain} already has a Domain row "
+                    f"(id={already.id}, status={already.status}) — skipping duplicate delivery."
+                )
+                return "", 200
 
-            app.logger.info(f"Domain order paid: {domain} site={site_id} email={customer_email}")
-
-            # Immediately confirm to customer that order received
-            if customer_email:
-                try:
-                    send_domain_order_customer_email(customer_email, domain, business_name)
-                except Exception as exc:
-                    app.logger.error(f"Failed to send domain customer email: {exc}")
-
-            # Kick off automation in background — do not block the webhook response
+            # Everything else — customer/business lookup, the customer-facing
+            # "order confirmed" email, and the Porkbun/Cloudflare/DNS pipeline
+            # — runs in the background thread, not here. This function used
+            # to send that customer email synchronously right here; if
+            # Resend was ever slow, that alone could push us past Stripe's
+            # response timeout and cause the exact kind of retry this guard
+            # is protecting against, so it's backgrounded too now, along
+            # with everything else in _handle_domain_order_async.
             t = threading.Thread(
                 target=_handle_domain_order_async,
-                args=(domain, site_id, customer_email, price_gbp, business_name, stripe_payment_id, wholesale_gbp),
+                args=(domain, site_id, raw_customer_email, price_gbp, "", stripe_payment_id, wholesale_gbp),
                 daemon=True,
             )
             t.start()
