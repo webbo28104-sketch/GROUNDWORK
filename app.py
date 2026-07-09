@@ -1,6 +1,8 @@
 import os
 import io
 import re
+import math
+import time
 import json
 import uuid
 import base64
@@ -2182,14 +2184,15 @@ async function gwDeleteAccount(email) {{
 @admin_required
 def admin_domains():
     """At-a-glance view of purchased customer domains: status, purchase date,
-    sale price / cost / margin, and the Porkbun/Cloudflare setup timestamps.
+    sale price / wholesale cost / margin, and the Porkbun/Cloudflare setup
+    timestamps.
 
-    Cost is looked up from the current _TLD_PRICE_GBP table by TLD rather than
-    stored per-row, since that table *is* our Porkbun wholesale cost (no
-    separate cost field exists on Domain). Today price_gbp (what the customer
-    is charged) is set from that same table with no markup applied — so
-    margin will show as £0.00 for every domain until a markup is introduced
-    in the checkout pricing. This is flagged rather than silently implied.
+    Sale price, wholesale cost and margin are all read straight off the
+    Domain row (snapshotted at purchase time in _handle_domain_order_async),
+    not recomputed from the current TLD price table — so historical margin
+    stays accurate even if pricing logic or Porkbun's wholesale prices change
+    later. Older rows purchased before wholesale_gbp/margin_gbp existed will
+    show '—' for those columns rather than a misleading recomputed value.
     """
     db = SessionLocal()
     try:
@@ -2201,13 +2204,9 @@ def admin_domains():
         }
         row_parts = []
         for d in doms:
-            tld = ".".join(d.domain.split(".")[1:])
-            cost = _TLD_PRICE_GBP.get(tld)
             sale = d.price_gbp
-            margin_html = "—"
-            if cost is not None and sale is not None:
-                margin = sale - cost
-                margin_html = f"£{margin:.2f}"
+            cost = d.wholesale_gbp
+            margin_html = f"£{d.margin_gbp:.2f}" if d.margin_gbp is not None else "—"
             bg, fg = status_colors.get(d.status, ("#E6E3DC", "#3A3A38"))
             status_badge = (
                 f'<span style="background:{bg};color:{fg};font-size:11px;font-weight:700;'
@@ -2238,14 +2237,14 @@ def admin_domains():
             )
         rows = "".join(row_parts)
         total_sale = sum(d.price_gbp or 0 for d in doms)
-        total_cost = sum(_TLD_PRICE_GBP.get(".".join(d.domain.split(".")[1:]), 0) for d in doms)
+        total_margin = sum(d.margin_gbp or 0 for d in doms)
         return render_template_string(f"""<!DOCTYPE html><html><head><meta charset="utf-8">
 <title>Admin — domains</title><link rel="icon" type="image/x-icon" href="/favicon.ico"><link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png"><style>{_PAGE_STYLE}</style></head>
 <body><div class="wrap" style="max-width:1300px;">
 <h1>Customer domains ({len(doms)})
 <a href="/admin/generations" style="float:right;font-size:13px;">Generations</a>
 <a href="/admin/logout" style="float:right;font-size:13px;margin-left:18px;">Log out</a></h1>
-<p class="muted">Sale/cost/margin are per-year list prices from the current TLD price table, not the historical price actually charged at purchase time — margin will read £0.00 for every row until a markup is added to checkout pricing (currently price_gbp is set straight from Porkbun's wholesale cost). Totals: £{total_sale:.2f} sold / £{total_cost:.2f} cost.</p>
+<p class="muted">Sale/cost/margin are snapshotted at purchase time per domain, not recomputed from current pricing. Totals: £{total_sale:.2f} sold / £{total_margin:.2f} margin.</p>
 <table><thead><tr><th>Domain</th><th>Status</th><th>Purchased</th><th>Sale price</th><th>Cost</th><th>Margin</th><th>Customer</th><th>Registered</th><th>Cloudflare connected</th><th>DNS configured</th></tr></thead>
 <tbody>{rows}</tbody></table></div>
 </body></html>""")
@@ -2927,20 +2926,78 @@ def update_text_field(job_id):
         db.close()
 
 
-# Pricing from Porkbun /pricing/get (verified 2026-07-08). USD converted at 0.79.
-# All standard domains at these TLDs are flat-rate — no registry-level premiums for
-# .co.uk/.com/.uk/.org.uk. Premium-sounding names (roofing.com) are already registered
-# so WHOIS catches them as taken before payment is possible.
-_TLD_PRICE_GBP = {
-    "co.uk":  round(5.66 * 0.79, 2),    # $5.66/yr
-    "com":    round(11.08 * 0.79, 2),   # $11.08/yr
-    "uk":     round(5.66 * 0.79, 2),    # $5.66/yr
-    "org.uk": round(5.66 * 0.79, 2),    # $5.66/yr
-    "net":    round(12.52 * 0.79, 2),   # $12.52/yr
-    "org":    round(7.98 * 0.79, 2),    # $7.98/yr
-    "biz":    round(6.69 * 0.79, 2),    # $6.69/yr
-    "uk.com": round(22.63 * 0.79, 2),   # $22.63/yr
+# Supported TLDs. All standard domains at these are flat-rate — no
+# registry-level premiums for .co.uk/.com/.uk/.org.uk. Premium-sounding names
+# (roofing.com) are already registered so WHOIS catches them as taken before
+# payment is possible.
+_SUPPORTED_TLDS = ["co.uk", "com", "uk", "org.uk", "net", "org", "biz", "uk.com"]
+
+# USD→GBP conversion applied to Porkbun's (USD) wholesale prices. Porkbun's
+# pricing/get API doesn't offer GBP directly, so this rate is the one manual
+# number left in the pricing flow — everything else (the wholesale prices
+# themselves) is fetched live below, not hardcoded.
+_USD_TO_GBP = 0.79
+
+# Static fallback wholesale costs (GBP), used only if a live Porkbun
+# pricing/get call fails and no prior successful fetch is cached (e.g. cold
+# start with Porkbun briefly down). Verified 2026-07-08 — expect these to
+# drift; they're a safety net, not the source of truth.
+_TLD_PRICE_GBP_FALLBACK = {
+    "co.uk":  round(5.66 * _USD_TO_GBP, 2),
+    "com":    round(11.08 * _USD_TO_GBP, 2),
+    "uk":     round(5.66 * _USD_TO_GBP, 2),
+    "org.uk": round(5.66 * _USD_TO_GBP, 2),
+    "net":    round(12.52 * _USD_TO_GBP, 2),
+    "org":    round(7.98 * _USD_TO_GBP, 2),
+    "biz":    round(6.69 * _USD_TO_GBP, 2),
+    "uk.com": round(22.63 * _USD_TO_GBP, 2),
 }
+
+_porkbun_pricing_cache = {"data": None, "fetched_at": 0.0}
+_PORKBUN_PRICING_TTL_SECONDS = 6 * 3600  # 6h — pricing/get is a heavy-ish call covering every TLD
+
+
+def _tld_price_gbp() -> dict:
+    """Live wholesale cost per supported TLD (GBP), fetched from Porkbun's
+    pricing/get API and cached for _PORKBUN_PRICING_TTL_SECONDS so a burst of
+    domain searches doesn't hammer Porkbun. Falls back to the last
+    successful fetch, then to the static _TLD_PRICE_GBP_FALLBACK table, if
+    Porkbun is unreachable — search/checkout must never hard-fail just
+    because a pricing refresh failed."""
+    now = time.time()
+    cached = _porkbun_pricing_cache["data"]
+    if cached and (now - _porkbun_pricing_cache["fetched_at"] < _PORKBUN_PRICING_TTL_SECONDS):
+        return cached
+    try:
+        result = _porkbun_post("pricing/get")
+        if result.get("status") != "SUCCESS":
+            raise RuntimeError(str(result))
+        pricing = result.get("pricing", {})
+        fresh = {}
+        for tld in _SUPPORTED_TLDS:
+            entry = pricing.get(tld)
+            if not entry:
+                continue
+            usd = float(entry.get("registration", 0))
+            fresh[tld] = round(usd * _USD_TO_GBP, 2)
+        if fresh:
+            _porkbun_pricing_cache["data"] = fresh
+            _porkbun_pricing_cache["fetched_at"] = now
+            return fresh
+        raise RuntimeError("pricing/get returned no matching TLDs")
+    except Exception as exc:
+        app.logger.warning(f"Live Porkbun pricing fetch failed, using {'cached' if cached else 'static fallback'} prices: {exc}")
+        return cached or _TLD_PRICE_GBP_FALLBACK
+
+
+def _sale_price_gbp(wholesale_gbp: float) -> float:
+    """Customer-facing sale price, derived live from wholesale cost rather than
+    hardcoded per TLD: double the wholesale cost, then round up to the nearest
+    value ending in .99. Guarantees >=100% margin on every domain and stays
+    correct automatically as Porkbun's wholesale prices change (see
+    _tld_price_gbp, which fetches those prices live)."""
+    return math.floor(wholesale_gbp * 2) + 0.99
+
 
 _WHOIS_SERVERS = {
     "co.uk":  "whois.nic.uk",
@@ -2985,9 +3042,9 @@ def _whois_available(domain: str) -> bool:
 
 
 def _check_domain(domain: str) -> dict:
-    """Return availability + price for one domain. Never raises — errors get error=True."""
+    """Return availability + sale price for one domain. Never raises — errors get error=True."""
     tld = ".".join(domain.split(".")[1:])
-    price_gbp = _TLD_PRICE_GBP.get(tld, 0.0)
+    price_gbp = _sale_price_gbp(_tld_price_gbp().get(tld, 0.0))
     try:
         available = _whois_available(domain)
         return {"domain": domain, "available": available, "price_gbp": price_gbp}
@@ -3014,7 +3071,7 @@ def domain_search():
 
     if tlds_param:
         tlds = [t.strip().lstrip('.') for t in tlds_param.split(',') if t.strip()]
-        tlds = [t for t in tlds if t in _TLD_PRICE_GBP]
+        tlds = [t for t in tlds if t in _SUPPORTED_TLDS]
     else:
         tlds = ["co.uk", "com", "uk"]
     if not tlds:
@@ -3046,15 +3103,19 @@ def domain_search():
 
 @app.route("/api/domain/confirm")
 def domain_confirm():
-    """Fresh WHOIS availability check + confirmed price. Source of truth for checkout."""
+    """Fresh WHOIS availability check + confirmed sale price. Source of truth for checkout.
+    Availability is checked against the live domain regardless of pricing; the
+    price returned to the customer is always the marked-up sale price, never
+    the wholesale cost used internally for the availability/pricing lookup."""
     domain = request.args.get("domain", "").strip().lower()
     if not domain or "." not in domain:
         return jsonify({"error": "invalid domain"}), 400
 
     tld = ".".join(domain.split(".")[1:])
-    price_gbp = _TLD_PRICE_GBP.get(tld)
-    if price_gbp is None:
+    wholesale_gbp = _tld_price_gbp().get(tld)
+    if wholesale_gbp is None:
         return jsonify({"error": "unsupported TLD"}), 400
+    price_gbp = _sale_price_gbp(wholesale_gbp)
 
     available = _whois_available(domain)
     return jsonify({"domain": domain, "available": available, "price_gbp": price_gbp})
@@ -3074,9 +3135,10 @@ def domain_checkout_session():
         return jsonify({"error": "invalid domain"}), 400
 
     tld = ".".join(domain.split(".")[1:])
-    price_gbp = _TLD_PRICE_GBP.get(tld)
-    if price_gbp is None:
+    wholesale_gbp = _tld_price_gbp().get(tld)
+    if wholesale_gbp is None:
         return jsonify({"error": "unsupported TLD"}), 400
+    price_gbp = _sale_price_gbp(wholesale_gbp)
 
     if not _whois_available(domain):
         return jsonify({"error": "domain_taken",
@@ -3099,7 +3161,8 @@ def domain_checkout_session():
             },
             "quantity": 1,
         }],
-        metadata={"type": "domain", "domain": domain, "site_id": site_id, "price_gbp": str(price_gbp)},
+        metadata={"type": "domain", "domain": domain, "site_id": site_id,
+                  "price_gbp": str(price_gbp), "wholesale_gbp": str(wholesale_gbp)},
         client_reference_id=site_id or domain,
         success_url=f"{SITE_URL}/account?domain_ordered={domain}",
         cancel_url=cancel_url,
@@ -3205,10 +3268,19 @@ def _cloudflare_add_custom_hostname(hostname: str) -> None:
 
 def _handle_domain_order_async(domain: str, site_id: str, customer_email: str,
                                 price_gbp: float, business_name: str,
-                                stripe_payment_id: str) -> None:
+                                stripe_payment_id: str, wholesale_gbp: float = None) -> None:
     """Orchestrate domain registration in a background thread.
     Steps: Porkbun register → Cloudflare custom hostnames → Porkbun DNS.
-    On any failure: email admin, mark needs_manual_setup."""
+    On any failure: email admin, mark needs_manual_setup.
+
+    wholesale_gbp and the resulting margin are stored on the Domain row at
+    purchase time (rather than recomputed later from the current TLD price
+    table) so historical margin stays accurate even if pricing logic or
+    Porkbun's wholesale prices change afterwards."""
+    if wholesale_gbp is None:
+        tld = ".".join(domain.split(".")[1:])
+        wholesale_gbp = _tld_price_gbp().get(tld, 0.0)
+    margin_gbp = round(price_gbp - wholesale_gbp, 2)
 
     # Resolve generation FK
     gen_id = None
@@ -3230,6 +3302,8 @@ def _handle_domain_order_async(domain: str, site_id: str, customer_email: str,
             domain=domain,
             status="pending",
             price_gbp=price_gbp,
+            wholesale_gbp=wholesale_gbp,
+            margin_gbp=margin_gbp,
             stripe_payment_id=stripe_payment_id,
             customer_email=customer_email,
         )
@@ -3452,6 +3526,14 @@ def stripe_webhook():
             domain    = metadata.get("domain", "")
             site_id   = metadata.get("site_id", "")
             price_gbp = float(metadata.get("price_gbp") or 0)
+            wholesale_gbp = metadata.get("wholesale_gbp")
+            if wholesale_gbp is not None:
+                wholesale_gbp = float(wholesale_gbp)
+            else:
+                # Fallback for older sessions created before wholesale_gbp was
+                # added to metadata — recompute from live Porkbun pricing.
+                _tld = ".".join(domain.split(".")[1:])
+                wholesale_gbp = _tld_price_gbp().get(_tld, 0.0)
             stripe_payment_id = cs.payment_intent or cs.id or ""
 
             customer_email = ""
@@ -3481,7 +3563,7 @@ def stripe_webhook():
             # Kick off automation in background — do not block the webhook response
             t = threading.Thread(
                 target=_handle_domain_order_async,
-                args=(domain, site_id, customer_email, price_gbp, business_name, stripe_payment_id),
+                args=(domain, site_id, customer_email, price_gbp, business_name, stripe_payment_id, wholesale_gbp),
                 daemon=True,
             )
             t.start()

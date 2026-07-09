@@ -109,6 +109,11 @@ class Domain(Base):
     status = Column(String(50), nullable=False, default="pending")
     # statuses: pending, active, needs_manual_setup
     price_gbp = Column(Float)
+    # wholesale_gbp/margin_gbp are snapshotted at purchase time (not recomputed
+    # from the current TLD price table later), so historical margin stays
+    # accurate even if pricing logic or Porkbun's wholesale prices change.
+    wholesale_gbp = Column(Float, nullable=True)
+    margin_gbp = Column(Float, nullable=True)
     stripe_payment_id = Column(String(255))
     customer_email = Column(String(255))
     registered_at = Column(DateTime, nullable=True)
@@ -144,6 +149,8 @@ def init_db():
     _ensure_column(Domain.__tablename__, "dns_configured_at", "TIMESTAMP")
     _ensure_column(Domain.__tablename__, "railway_connected_at", "TIMESTAMP")
     _ensure_column(Domain.__tablename__, "cloudflare_connected_at", "TIMESTAMP")
+    _ensure_column(Domain.__tablename__, "wholesale_gbp", "FLOAT")
+    _ensure_column(Domain.__tablename__, "margin_gbp", "FLOAT")
     _ensure_column(Domain.__tablename__, "error_step", "VARCHAR(100)")
     _ensure_column(Domain.__tablename__, "error_message", "TEXT")
 
