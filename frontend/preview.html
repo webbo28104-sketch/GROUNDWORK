@@ -78,7 +78,7 @@ a:focus-visible,button:focus-visible{outline:3px solid #3B82F6;outline-offset:2p
       <p style="margin:0;font-size:16.5px;color:#5C5A56;line-height:1.5;">Ready to go live? We'll publish it to your domain within 24 hours.</p>
     </div>
     <div style="flex:0 1 auto;">
-      <a href="checkout.html" style="display:inline-flex;align-items:center;justify-content:center;background:#3B82F6;color:#fff;font-weight:700;font-size:18px;text-decoration:none;padding:19px 34px;border-radius:11px;box-shadow:0 14px 30px -12px rgba(59,130,246,.6);">Go live — £99 setup + £24.99/mo</a>
+      <a href="checkout.html" id="cta-bottom" style="display:inline-flex;align-items:center;justify-content:center;background:#3B82F6;color:#fff;font-weight:700;font-size:18px;text-decoration:none;padding:19px 34px;border-radius:11px;box-shadow:0 14px 30px -12px rgba(59,130,246,.6);">Go live — £99 setup + £24.99/mo</a>
       <p style="margin:14px 0 0;font-size:14px;color:#5C5A56;text-align:center;">Have a question? <a href="contact.html" style="color:#2257CC;font-weight:600;">Get in touch</a></p>
     </div>
   </div>
@@ -109,6 +109,17 @@ a:focus-visible,button:focus-visible{outline:3px solid #3B82F6;outline-offset:2p
 const params = new URLSearchParams(location.search);
 const jobId = params.get('id');
 const apiBase = window.GROUNDWORK_API || '';
+
+// Both "make it live" CTAs link to checkout.html, which requires ?id= to know
+// which site to activate — without it, checkout shows "No site ID found."
+// Wire the id in immediately (don't wait on the HTML fetch below) so this
+// works even if that fetch is slow or fails.
+if (jobId) {
+  const ctaTop = document.getElementById('cta-top');
+  const ctaBottom = document.getElementById('cta-bottom');
+  if (ctaTop) ctaTop.href = 'checkout.html?id=' + jobId;
+  if (ctaBottom) ctaBottom.href = 'checkout.html?id=' + jobId;
+}
 
 function slugDomain(name){
   const s=String(name||'').toLowerCase().replace(/\bltd\b|\blimited\b/g,'').replace(/&/g,'and').replace(/[^a-z0-9]+/g,'').trim();
