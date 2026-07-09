@@ -3551,8 +3551,11 @@ def stripe_webhook():
 
     if event.type == "checkout.session.completed":
         cs = event.data.object
-        # Stripe SDK v5+ uses attribute access, not dict .get()
-        metadata = cs.metadata or {}
+        # cs itself uses attribute access (StripeObject), but metadata is a
+        # nested StripeObject too — and as of stripe-python v7+, StripeObject
+        # no longer subclasses dict, so it has no .get(). Explicitly convert
+        # to a plain dict before doing dict-style lookups on it.
+        metadata = cs.metadata.to_dict() if cs.metadata else {}
 
         if metadata.get("type") == "domain":
             domain    = metadata.get("domain", "")
