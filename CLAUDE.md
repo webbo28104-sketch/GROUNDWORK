@@ -20,6 +20,7 @@ Groundwork generates AI-built marketing websites for UK trades businesses. A use
 - `RESEND_API_KEY` / `RESEND_FROM_EMAIL` — for verification and resend emails via Resend. If `RESEND_API_KEY` is unset, sends are skipped and logged instead of failing. `RESEND_FROM_EMAIL` must be an address on a domain verified in Resend (DNS-verified) or sends will fail even with a valid API key.
 - `ADMIN_USERNAME` / `ADMIN_PASSWORD` — credentials for `/admin/login`. Unset means admin login always fails.
 - `PORKBUN_API_KEY` / `PORKBUN_SECRET_KEY` — Porkbun API credentials for the `/api/domain/search` endpoint. If unset, the endpoint returns an empty results array.
+- `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ZONE_ID` / `CLOUDFLARE_CNAME_TARGET` — Cloudflare for SaaS credentials used to connect a customer's purchased domain (see "Custom domain automation" below). `CLOUDFLARE_CNAME_TARGET` defaults to `connect.groundworkbuild.com`.
 - `IP_RATE_LIMIT_PER_HOUR` — max form submissions per IP per hour (default `5`).
 - `PORT` — set automatically by Railway.
 
@@ -127,3 +128,17 @@ A relative fetch from a page on `groundworkbuild.com` goes through `_worker.js`'
 ## Design source
 
 Marketing pages were last refreshed from a Claude Design project (`claude.ai/design`), pulled via the `DesignSync` MCP tool. The project's `.dc.html` files are design references in that tool's own component format — not meant to be copied in as-is — recreated here as plain static HTML per the pattern above.
+
+## Custom domain automation (Porkbun → Cloudflare for SaaS → Railway)
+
+When a customer buys a domain (Stripe webhook → `_handle_domain_order_async` in `app.py`), three things happen in order, each recorded on a `Domain` row (`models.py`) so a partial failure can be resumed/diagnosed:
+
+1. **Porkbun registration** (`_porkbun_register_domain`) — buys the domain.
+2. **Cloudflare Custom Hostnames** (`_cloudflare_add_custom_hostname`) — registers the apex domain *and* `www.<domain>` as two separate Custom Hostname objects on our `groundworkbuild.com` zone (Cloudflare matches hostnames exactly; a single config does not cover both apex and www — wildcard custom hostnames are a separate paid tier we're not using). Uses DV SSL with HTTP validation, which Cloudflare's edge completes once the customer's DNS points at our CNAME target.
+3. **Porkbun DNS** (`_porkbun_create_dns`) — same ALIAS-at-root + CNAME-at-www pattern as before, just pointed at `CLOUDFLARE_CNAME_TARGET` (e.g. `connect.groundworkbuild.com`) instead of a Railway-provided target.
+
+**This replaced Railway's native custom domain feature** (`_railway_add_custom_domain`, now removed), because Railway's Hobby plan caps a service at 2 custom domains — Cloudflare for SaaS gives the first 100 free and $0.10/mo each after, with no meaningful cap for our volume. Cloudflare for SaaS is configured at the zone level with a Fallback Origin pointing at this Railway service, so once a Custom Hostname is active, Cloudflare terminates TLS and forwards matching requests straight to Railway — Railway itself doesn't know about the domain.
+
+**Host-based routing now has to handle this app-side.** Previously, `handle_subdomain_request` (the `@app.before_request` hook) only matched `<slug>.groundworkbuild.com` subdomains against `Generation.subdomain` — there was no lookup for a purchased custom domain at all, because Railway's own native custom-domain feature routed that traffic straight to the app without Flask ever needing to inspect the Host header for it. Now that Cloudflare forwards *all* hosts (subdomain, custom apex, custom www) to the same Fallback Origin, the hook also looks up `request.host` (minus a `www.` prefix) against `Domain.domain` where `status == "active"`, and serves the linked `Generation` the same way. A `Domain` row only reaches `status="active"` once DNS is configured (`_handle_domain_order_async`'s step 3) — check the corresponding Custom Hostname shows **Active** in the Cloudflare dashboard if a connected domain 404s instead of serving the site.
+
+The `needs_manual_setup` fallback email (`send_domain_setup_failed_email` in `emails.py`) now gives Cloudflare-specific manual steps (add Custom Hostnames in the Cloudflare dashboard, point Porkbun DNS at the Cloudflare target) instead of the old Railway-dashboard instructions.

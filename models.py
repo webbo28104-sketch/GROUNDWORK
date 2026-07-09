@@ -113,7 +113,8 @@ class Domain(Base):
     customer_email = Column(String(255))
     registered_at = Column(DateTime, nullable=True)
     dns_configured_at = Column(DateTime, nullable=True)
-    railway_connected_at = Column(DateTime, nullable=True)
+    railway_connected_at = Column(DateTime, nullable=True)  # legacy, no longer written to
+    cloudflare_connected_at = Column(DateTime, nullable=True)
     error_step = Column(String(100), nullable=True)
     error_message = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
@@ -142,6 +143,7 @@ def init_db():
     _ensure_column(Domain.__tablename__, "registered_at", "TIMESTAMP")
     _ensure_column(Domain.__tablename__, "dns_configured_at", "TIMESTAMP")
     _ensure_column(Domain.__tablename__, "railway_connected_at", "TIMESTAMP")
+    _ensure_column(Domain.__tablename__, "cloudflare_connected_at", "TIMESTAMP")
     _ensure_column(Domain.__tablename__, "error_step", "VARCHAR(100)")
     _ensure_column(Domain.__tablename__, "error_message", "TEXT")
 

@@ -60,6 +60,9 @@ PORKBUN_API_KEY    = os.environ.get("PORKBUN_API_KEY", "")
 PORKBUN_SECRET_KEY = os.environ.get("PORKBUN_SECRET_KEY", "")
 
 # Railway — GraphQL API for adding custom domains to the service.
+# Retained only as legacy/reference; customer custom domains now go through
+# Cloudflare for SaaS (see below) instead of Railway's native custom domains,
+# since Railway's Hobby plan caps us at 2 domains per service.
 # RAILWAY_SERVICE_ID and RAILWAY_ENVIRONMENT_ID are set automatically by Railway.
 # RAILWAY_API_TOKEN must be added manually: Railway dashboard → Account → Tokens.
 # RAILWAY_CNAME_TARGET: the CNAME target Railway provides for custom domains
@@ -69,6 +72,19 @@ RAILWAY_API_TOKEN      = os.environ.get("RAILWAY_API_TOKEN", "")
 RAILWAY_SERVICE_ID     = os.environ.get("RAILWAY_SERVICE_ID", "")
 RAILWAY_ENVIRONMENT_ID = os.environ.get("RAILWAY_ENVIRONMENT_ID", "")
 RAILWAY_CNAME_TARGET   = os.environ.get("RAILWAY_CNAME_TARGET", "")
+
+# Cloudflare for SaaS — Custom Hostnames API. Used to connect customer-owned
+# domains to our Railway app through Cloudflare's edge (Fallback Origin points
+# at Railway), instead of registering the domain directly with Railway.
+# CLOUDFLARE_API_TOKEN: API token with Zone → SSL and Certificates: Edit +
+#   Zone → Custom Hostnames: Edit permissions on the target zone.
+# CLOUDFLARE_ZONE_ID: the zone ID for groundworkbuild.com.
+# CLOUDFLARE_CNAME_TARGET: the CNAME target customers' DNS should point at
+#   (e.g. "connect.groundworkbuild.com") — set up in Cloudflare for SaaS config.
+CLOUDFLARE_API_URL        = "https://api.cloudflare.com/client/v4"
+CLOUDFLARE_API_TOKEN      = os.environ.get("CLOUDFLARE_API_TOKEN", "")
+CLOUDFLARE_ZONE_ID        = os.environ.get("CLOUDFLARE_ZONE_ID", "")
+CLOUDFLARE_CNAME_TARGET   = os.environ.get("CLOUDFLARE_CNAME_TARGET", "connect.groundworkbuild.com")
 
 # Subdomain routing — every live customer gets <slug>.groundworkbuild.com.
 # _SUBDOMAIN_BASE is derived from SITE_URL so local dev (localhost) doesn't
@@ -453,35 +469,68 @@ _migrate_text_markers()
 
 @app.before_request
 def handle_subdomain_request():
-    """Serve a live customer's site when the request arrives on their subdomain."""
+    """Serve a live customer's site when the request arrives on their subdomain,
+    or on a custom domain connected via Cloudflare for SaaS.
+
+    Custom domains used to be handled entirely by Railway's native custom
+    domain feature, which terminated TLS and routed straight to this service
+    without this app ever needing to know about the `domains` table. Now that
+    Cloudflare for SaaS (Custom Hostnames) sits in front instead, Cloudflare
+    forwards the request to our Fallback Origin (this Railway app) carrying
+    whatever Host header the customer's browser sent — apex domain, www, or
+    subdomain — so this app has to look the Host up itself to know which
+    customer site to serve."""
     host = request.host.split(":")[0].lower()
     suffix = "." + _SUBDOMAIN_BASE
-    if not host.endswith(suffix):
-        return  # main domain or unrelated host — normal routing continues
-    slug = host[: -len(suffix)]
-    if not slug or slug in _RESERVED_SUBDOMAINS:
-        return
+
+    if host.endswith(suffix):
+        slug = host[: -len(suffix)]
+        if not slug or slug in _RESERVED_SUBDOMAINS:
+            return  # main domain or unrelated host — normal routing continues
+        db = SessionLocal()
+        try:
+            gen = db.query(Generation).filter(
+                Generation.subdomain == slug,
+                Generation.status == "live",
+            ).first()
+            if gen:
+                return _inject_badge(gen.html_content), 200, {"Content-Type": "text/html; charset=utf-8"}
+        finally:
+            db.close()
+        return (
+            "<!DOCTYPE html><html><head><meta charset='utf-8'>"
+            "<title>Site not found — Groundwork</title></head>"
+            "<body style='font-family:sans-serif;padding:60px;text-align:center'>"
+            f"<h2>No site found at {slug}.{_SUBDOMAIN_BASE}</h2>"
+            "<p>This address doesn't belong to an active Groundwork site.</p>"
+            "<p><a href='https://groundworkbuild.com'>groundworkbuild.com</a></p>"
+            "</body></html>",
+            404,
+            {"Content-Type": "text/html; charset=utf-8"},
+        )
+
+    if host == _SUBDOMAIN_BASE or host == "www." + _SUBDOMAIN_BASE:
+        return  # our own marketing domain — normal routing continues
+
+    # Not a *.groundworkbuild.com host — check whether it's a customer's own
+    # connected custom domain (apex or www) instead.
+    bare_host = host[4:] if host.startswith("www.") else host
     db = SessionLocal()
     try:
-        gen = db.query(Generation).filter(
-            Generation.subdomain == slug,
-            Generation.status == "live",
+        dom = db.query(Domain).filter(
+            Domain.domain == bare_host,
+            Domain.status == "active",
         ).first()
-        if gen:
-            return _inject_badge(gen.html_content), 200, {"Content-Type": "text/html; charset=utf-8"}
+        if dom and dom.generation_id:
+            gen = db.query(Generation).filter(
+                Generation.id == dom.generation_id,
+                Generation.status == "live",
+            ).first()
+            if gen:
+                return _inject_badge(gen.html_content), 200, {"Content-Type": "text/html; charset=utf-8"}
     finally:
         db.close()
-    return (
-        "<!DOCTYPE html><html><head><meta charset='utf-8'>"
-        "<title>Site not found — Groundwork</title></head>"
-        "<body style='font-family:sans-serif;padding:60px;text-align:center'>"
-        f"<h2>No site found at {slug}.{_SUBDOMAIN_BASE}</h2>"
-        "<p>This address doesn't belong to an active Groundwork site.</p>"
-        "<p><a href='https://groundworkbuild.com'>groundworkbuild.com</a></p>"
-        "</body></html>",
-        404,
-        {"Content-Type": "text/html; charset=utf-8"},
-    )
+    return  # unrelated host (e.g. a Railway healthcheck) — normal routing continues
 
 
 # In-memory job store for in-flight generations: id -> {status, html, error}
@@ -3028,55 +3077,61 @@ def _porkbun_create_dns(domain: str, record_type: str, name: str, content: str) 
         raise RuntimeError(f"Porkbun dns/create ({record_type} {name}): {result.get('message', result)}")
 
 
-def _railway_add_custom_domain(domain: str) -> str:
-    """Add a custom domain to the Railway service. Returns the Railway CNAME target
-    if the API exposes it, otherwise empty string. Raises RuntimeError on failure."""
-    if not RAILWAY_API_TOKEN:
-        raise RuntimeError("RAILWAY_API_TOKEN not set — add it in Railway environment variables")
-    if not RAILWAY_SERVICE_ID or not RAILWAY_ENVIRONMENT_ID:
-        raise RuntimeError("RAILWAY_SERVICE_ID or RAILWAY_ENVIRONMENT_ID not available in environment")
+def _cloudflare_add_custom_hostname(hostname: str) -> None:
+    """Register a customer domain as a Custom Hostname on our Cloudflare zone
+    (Cloudflare for SaaS), using standard DV (domain-validated) SSL validated
+    over HTTP — this works because DNS for the hostname is pointed at our
+    Cloudflare CNAME target, which lets Cloudflare's edge complete the HTTP
+    validation request on the customer's behalf once DNS is live.
 
-    mutation = """
-    mutation customDomainCreate($input: CustomDomainCreateInput!) {
-      customDomainCreate(input: $input) {
-        id
-        domain
-      }
-    }
-    """
-    railway_project_id = os.environ.get("RAILWAY_PROJECT_ID", "")
-    variables = {
-        "input": {
-            "domain": domain,
-            "serviceId": RAILWAY_SERVICE_ID,
-            "environmentId": RAILWAY_ENVIRONMENT_ID,
-            "projectId": railway_project_id,
-        }
-    }
-    payload = json.dumps({"query": mutation, "variables": variables}).encode()
+    Cloudflare matches custom hostnames on the exact hostname (apex vs. www
+    are different hostnames to it; wildcard custom hostnames are a separate,
+    paid SaaS tier) — so apex and www must each be registered as their own
+    Custom Hostname. Call this once per hostname.
+
+    Raises RuntimeError on failure."""
+    if not CLOUDFLARE_API_TOKEN:
+        raise RuntimeError("CLOUDFLARE_API_TOKEN not set — add it in Railway environment variables")
+    if not CLOUDFLARE_ZONE_ID:
+        raise RuntimeError("CLOUDFLARE_ZONE_ID not set — add it in Railway environment variables")
+
+    payload = json.dumps({
+        "hostname": hostname,
+        "ssl": {
+            "method": "http",
+            "type": "dv",
+        },
+    }).encode()
     req = urllib.request.Request(
-        RAILWAY_API_URL,
+        f"{CLOUDFLARE_API_URL}/zones/{CLOUDFLARE_ZONE_ID}/custom_hostnames",
         data=payload,
         headers={
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {RAILWAY_API_TOKEN}",
+            "Authorization": f"Bearer {CLOUDFLARE_API_TOKEN}",
         },
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        result = json.loads(resp.read().decode())
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            result = json.loads(resp.read().decode())
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode(errors="replace")
+        raise RuntimeError(f"Cloudflare custom_hostnames ({hostname}): HTTP {exc.code}: {body}")
 
-    if result.get("errors"):
-        raise RuntimeError(f"Railway customDomainCreate: {result['errors']}")
-
-    return ""  # CNAME target comes from RAILWAY_CNAME_TARGET env var
+    if not result.get("success"):
+        errors = result.get("errors", result)
+        # Code 1406 = hostname already exists as a custom hostname on this zone
+        # (e.g. a retry after a partial earlier failure) — treat as success.
+        if any(e.get("code") == 1406 for e in result.get("errors", []) if isinstance(e, dict)):
+            return
+        raise RuntimeError(f"Cloudflare custom_hostnames ({hostname}): {errors}")
 
 
 def _handle_domain_order_async(domain: str, site_id: str, customer_email: str,
                                 price_gbp: float, business_name: str,
                                 stripe_payment_id: str) -> None:
     """Orchestrate domain registration in a background thread.
-    Steps: Porkbun register → Railway add domain → Porkbun DNS.
+    Steps: Porkbun register → Cloudflare custom hostnames → Porkbun DNS.
     On any failure: email admin, mark needs_manual_setup."""
 
     # Resolve generation FK
@@ -3152,24 +3207,22 @@ def _handle_domain_order_async(domain: str, site_id: str, customer_email: str,
         _fail("porkbun_register", str(exc))
         return
 
-    # Step 2: Add domain to Railway (also gets us the CNAME target)
-    cname_target = RAILWAY_CNAME_TARGET
+    # Step 2: Register domain + www as Custom Hostnames on our Cloudflare zone
+    cname_target = CLOUDFLARE_CNAME_TARGET
     try:
-        api_cname = _railway_add_custom_domain(domain)
-        if api_cname:
-            cname_target = api_cname
-        _railway_add_custom_domain("www." + domain)
-        _update(railway_connected_at=datetime.utcnow())
-        app.logger.info(f"Railway custom domain added: {domain} (cname: {cname_target})")
+        _cloudflare_add_custom_hostname(domain)
+        _cloudflare_add_custom_hostname("www." + domain)
+        _update(cloudflare_connected_at=datetime.utcnow())
+        app.logger.info(f"Cloudflare custom hostnames added: {domain}, www.{domain} (cname: {cname_target})")
     except Exception as exc:
-        _fail("railway_connect", str(exc))
+        _fail("cloudflare_connect", str(exc))
         return
 
     # Step 3: Configure DNS via Porkbun
     if not cname_target:
         _fail("dns_setup",
-              "No CNAME target available. Set RAILWAY_CNAME_TARGET env var "
-              "(find it in Railway Dashboard → Settings → Domains).")
+              "No CNAME target available. Set CLOUDFLARE_CNAME_TARGET env var "
+              "(the Cloudflare for SaaS CNAME target, e.g. connect.groundworkbuild.com).")
         return
 
     try:

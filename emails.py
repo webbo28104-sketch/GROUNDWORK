@@ -233,6 +233,14 @@ def send_domain_setup_failed_email(domain: str, site_id: str, customer_email: st
         <div style="font-size:12px;font-weight:700;color:#9A9893;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;">Error detail</div>
         <div style="font-size:13px;color:#1C1C1C;word-break:break-word;white-space:pre-wrap;">{err_esc}</div>
       </div>
+      <div style="margin-top:16px;background:#F5F3EE;border-radius:8px;padding:14px 16px;">
+        <div style="font-size:12px;font-weight:700;color:#9A9893;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;">Manual setup steps</div>
+        <div style="font-size:13px;color:#1C1C1C;line-height:1.6;">
+          1. In the Cloudflare dashboard, go to the <strong>groundworkbuild.com</strong> zone → SSL/TLS → Custom Hostnames, and add <strong>{d}</strong> and <strong>www.{d}</strong> as separate Custom Hostnames (DV SSL, HTTP validation).<br>
+          2. In Porkbun, point <strong>{d}</strong>'s DNS at our Cloudflare target: an ALIAS record at the root and a CNAME record for <strong>www</strong>, both targeting our Cloudflare for SaaS CNAME target (e.g. <strong>connect.groundworkbuild.com</strong>).<br>
+          3. Wait for both Custom Hostnames to show <strong>Active</strong> in Cloudflare, then mark this Domain row's status <strong>active</strong> in the admin.
+        </div>
+      </div>
     </div>
   </div>
 </div>"""
