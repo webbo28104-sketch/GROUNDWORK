@@ -2141,7 +2141,6 @@ def admin_generations():
                          if g.status == "live" and g.subdomain else "")
 
             gen_domains = domains_by_gen.get(g.id, [])
-            domain_names = " ".join(d.domain for d in gen_domains)
             if gen_domains:
                 domain_cell = "<br>".join(
                     f'<a href="https://{escape(d.domain)}" target="_blank" rel="noopener">{escape(d.domain)}</a> '
@@ -2150,19 +2149,13 @@ def admin_generations():
                 )
             else:
                 domain_cell = '<span class="muted">—</span>'
-            buy_domain_link = (
-                f'<a href="{SITE_URL}/domain-search.html?id={g.lead.public_id}" target="_blank" rel="noopener" '
-                f'style="font-size:12.5px;">Buy/change domain →</a>'
-                if g.lead else ''
-            )
 
             row_parts.append(
-                '<tr id="gen-row-' + str(g.id) + '" data-email="' + str(escape(g.email)) + '" '
-                'data-search="' + str(escape((g.business_name or "") + " " + g.email + " " + domain_names)).lower() + '">'
+                '<tr id="gen-row-' + str(g.id) + '" data-email="' + str(escape(g.email)) + '">'
                 '<td>' + str(escape(g.business_name or "")) + test_badge + "</td><td>" + str(escape(g.email)) + "</td>"
                 "<td>" + g.created_at.strftime("%d %b %Y %H:%M") + "</td>"
                 "<td>" + str(escape(g.status)) + pending_badge + "</td>"
-                "<td>" + domain_cell + "<br>" + buy_domain_link + "</td>"
+                "<td>" + domain_cell + "</td>"
                 '<td>' + apply_link + live_link +
                 '<a href="/admin/generations/' + str(g.id) + '/html" target="_blank" rel="noopener">View HTML</a> · '
                 '<a href="/admin/generations/' + str(g.id) + '/form-data" target="_blank" rel="noopener">Form data</a> · '
@@ -2182,19 +2175,11 @@ def admin_generations():
 <a href="/admin/generate-test" style="float:right;font-size:13px;margin-left:18px;">+ Generate test site</a>
 <a href="/admin/domains" style="float:right;font-size:13px;margin-left:18px;">Domains</a>
 <a href="/admin/logout" style="float:right;font-size:13px;">Log out</a></h1>
-<p class="muted">× deletes the entire account for that email — login, every lead, and every generated site — as if they'd never signed up. "Buy/change domain" opens the real customer-facing domain search/checkout flow (Stripe, Porkbun, Cloudflare) scoped to that one site — use it to connect a real domain to any generation, including the marketing hero examples.</p>
-<input id="gw-search" type="search" placeholder="Search by business name, email or domain…" autocomplete="off"
-  style="width:100%;box-sizing:border-box;padding:10px 14px;border:1px solid #D9D7D0;border-radius:8px;font-size:14.5px;margin-bottom:14px;">
+<p class="muted">× deletes the entire account for that email — login, every lead, and every generated site — as if they'd never signed up. To connect a real domain to any generation (including the marketing hero examples), copy its public id from a "Preview"/"Edit text" link below, then use the domain search page.</p>
+<p><a href="{SITE_URL}/domain-search.html" target="_blank" rel="noopener" style="font-weight:700;">Find/buy a domain →</a></p>
 <table><thead><tr><th>Business</th><th>Email</th><th>Created</th><th>Status</th><th>Domain</th><th>Links</th><th></th></tr></thead>
 <tbody>{rows}</tbody></table></div>
 <script>
-document.getElementById('gw-search').addEventListener('input', (e) => {{
-  const q = e.target.value.trim().toLowerCase();
-  document.querySelectorAll('tbody tr[data-search]').forEach(tr => {{
-    tr.style.display = tr.dataset.search.includes(q) ? '' : 'none';
-  }});
-}});
-
 async function gwDeleteAccount(email) {{
   if (!confirm(`Delete the ENTIRE account for ${{email}}? This removes their login, every lead, and every generated site for this email — cannot be undone.`)) return false;
   try {{
