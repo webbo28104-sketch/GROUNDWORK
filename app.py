@@ -1578,14 +1578,12 @@ def _render_dashboard(email: str) -> str:
         customer_ids = sorted({g.stripe_customer_id for g in gens if g.stripe_customer_id})
         billing_card = _render_billing_section(customer_ids)
 
-        # Pre-fill domain search with the most recent site's business name.
-        # Pick the live site first; fall back to the first draft.
+        # Link straight to the main domain search page, scoped to the
+        # customer's most recent site (live first, else first draft) via
+        # ?id= so a purchase there still connects to the right generation.
         primary_gen = next((g for g in gens if g.status == "live"), gens[0] if gens else None)
-        domain_prefill = ""
-        domain_site_id = ""
-        if primary_gen:
-            domain_prefill = re.sub(r'[^a-z0-9]', '', (primary_gen.business_name or "").lower())
-            domain_site_id = primary_gen.lead.public_id
+        domain_site_id = primary_gen.lead.public_id if primary_gen else ""
+        domain_search_href = "/domain-search.html" + (f"?id={domain_site_id}" if domain_site_id else "")
 
         domain_card = f"""<div class="acct-card">
           <div style="display:flex;align-items:center;gap:12px;margin-bottom:4px;">
@@ -1595,76 +1593,8 @@ def _render_dashboard(email: str) -> str:
             <div style="font-weight:700;font-size:17px;">Get a custom domain</div>
           </div>
           <p style="margin:0 0 14px;font-size:14px;color:#5C5A56;">Replace your Groundwork link with your own web address — e.g. <strong>apexroofing.co.uk</strong>.</p>
-          <div style="display:flex;align-items:center;gap:10px;background:#F5F3EE;border:1.5px solid #D9D7D0;border-radius:10px;padding:0 14px;height:48px;margin-bottom:12px;transition:border-color .15s;" id="gw-domain-box">
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#807E79" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg>
-            <input type="search" id="gw-domain-input" placeholder="Type your business name…" autocomplete="off"
-                   value="{domain_prefill}"
-                   style="flex:1;border:0;outline:0;font-size:15px;font-family:Inter,sans-serif;color:#1C1C1C;background:transparent;">
-          </div>
-          <div id="gw-domain-results" style="display:none;"></div>
-          <div id="gw-domain-loading" style="display:none;font-size:13.5px;color:#9A9893;margin-bottom:8px;">Searching…</div>
-          <div id="gw-domain-error" style="display:none;background:#FEF2F2;border:1px solid #FCA5A5;border-radius:8px;padding:10px 13px;font-size:13.5px;color:#B91C1C;margin-bottom:8px;"></div>
-        </div>
-        <script>
-        (function(){{
-          var SITE_ID = '{domain_site_id}';
-          var input  = document.getElementById('gw-domain-input');
-          var box    = document.getElementById('gw-domain-box');
-          var resEl  = document.getElementById('gw-domain-results');
-          var loadEl = document.getElementById('gw-domain-loading');
-          var errEl  = document.getElementById('gw-domain-error');
-          var timer  = null;
-
-          input.addEventListener('focus',  function(){{ box.style.borderColor='#3B82F6'; }});
-          input.addEventListener('blur',   function(){{ box.style.borderColor='#D9D7D0'; }});
-          input.addEventListener('input',  function(){{
-            clearTimeout(timer);
-            timer = setTimeout(function(){{ gwDomSearch(input.value.trim()); }}, 350);
-          }});
-
-          function setState(s){{
-            resEl.style.display   = s==='results' ? 'block'  : 'none';
-            loadEl.style.display  = s==='loading' ? 'block'  : 'none';
-            errEl.style.display   = s==='error'   ? 'block'  : 'none';
-          }}
-
-          async function gwDomSearch(q){{
-            if (!q) {{ setState(''); resEl.innerHTML=''; return; }}
-            setState('loading');
-            try {{
-              var url = '/api/domain/search?q=' + encodeURIComponent(q);
-              if (SITE_ID) url += '&site_id=' + encodeURIComponent(SITE_ID);
-              var r = await fetch(url);
-              if (!r.ok) throw new Error('err');
-              var data = await r.json();
-              var rows = data.results || [];
-              if (!rows.length) {{ setState(''); resEl.innerHTML=''; return; }}
-              setState('results');
-              resEl.innerHTML = rows.map(function(row){{
-                var avail = row.available;
-                var icon  = avail
-                  ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#1A6B3A" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l4 4 10-10"/></svg>'
-                  : '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#9A9893" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>';
-                var badge = row.best_match ? '<span style="background:#3B82F6;color:#fff;font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;margin-left:6px;">Best match</span>' : '';
-                var btn   = avail
-                  ? '<a href="/domain-checkout.html?domain=' + encodeURIComponent(row.domain) + (SITE_ID ? '&id='+encodeURIComponent(SITE_ID) : '') + '" style="background:#3B82F6;color:#fff;font-weight:700;font-size:13px;border-radius:8px;padding:8px 14px;text-decoration:none;white-space:nowrap;">Select</a>'
-                  : '<span style="font-size:13px;color:#9A9893;font-weight:600;">Taken</span>';
-                return '<div style="display:flex;align-items:center;gap:12px;padding:11px 0;border-top:1px solid #EDEBE5;">'
-                  + '<div style="width:22px;height:22px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;background:' + (avail ? 'rgba(26,107,58,.12)' : 'rgba(154,152,147,.15)') + ';">' + icon + '</div>'
-                  + '<div style="flex:1;min-width:0;">'
-                  +   '<span style="font-weight:700;font-size:14.5px;color:' + (avail ? '#1C1C1C' : '#9A9893') + ';">' + row.domain + '</span>' + badge
-                  +   '<div style="font-size:12.5px;color:' + (avail ? '#5C5A56' : '#9A9893') + ';margin-top:1px;">' + (avail ? '£' + row.price_gbp.toFixed(2) + '/yr' : 'Taken') + '</div>'
-                  + '</div>' + btn + '</div>';
-              }}).join('');
-            }} catch(e) {{
-              setState('error');
-              errEl.textContent = 'Could not reach domain search — try again in a moment.';
-            }}
-          }}
-
-          if (input.value) gwDomSearch(input.value);
-        }})();
-        </script>"""
+          <a href="{domain_search_href}" style="display:inline-block;background:#3B82F6;color:#fff;font-weight:700;font-size:14.5px;text-decoration:none;padding:11px 18px;border-radius:9px;">Find a domain →</a>
+        </div>"""
 
         inner = f"""<div style="display:flex;justify-content:flex-end;margin-bottom:6px;">
           <a href="/account/logout" style="color:#807E79;font-size:13px;text-decoration:none;">Log out</a>
