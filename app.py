@@ -2912,57 +2912,6 @@ def admin_outreach():
     return redirect("/outreach-queue.html")
 
 
-@app.route("/api/admin/outreach/import", methods=["POST"])
-@admin_required
-def admin_outreach_import():
-    """Temporary one-off endpoint: bulk-insert prospects from a JSON array.
-    Deduplicates on google_place_id (ON CONFLICT DO NOTHING).
-    Remove this endpoint after the SQLite→Postgres migration is complete."""
-    from datetime import datetime as _dt
-    rows = request.json
-    if not isinstance(rows, list):
-        return jsonify({"error": "expected a JSON array"}), 400
-
-    _dt_fields = [
-        "approved_at", "account_created_at", "discount_expiry", "sent_at",
-        "opened_at", "clicked_at", "paid_at", "sms_sent_at", "created_at",
-        "processed_at",
-    ]
-
-    def _parse_dt(v):
-        if not v:
-            return None
-        for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S"):
-            try:
-                return _dt.strptime(v, fmt)
-            except ValueError:
-                continue
-        return None
-
-    db = SessionLocal()
-    inserted = skipped = 0
-    try:
-        existing_gids = {
-            r[0] for r in db.query(Prospect.google_place_id)
-            .filter(Prospect.google_place_id.isnot(None))
-            .all()
-        }
-        for row in rows:
-            gid = row.get("google_place_id")
-            if gid and gid in existing_gids:
-                skipped += 1
-                continue
-            for f in _dt_fields:
-                row[f] = _parse_dt(row.get(f))
-            p = Prospect(**{k: v for k, v in row.items() if hasattr(Prospect, k)})
-            db.add(p)
-            inserted += 1
-        db.commit()
-    finally:
-        db.close()
-
-    return jsonify({"inserted": inserted, "skipped": skipped})
-
 
 @app.route("/api/generate/<job_id>/status")
 def job_status(job_id):
