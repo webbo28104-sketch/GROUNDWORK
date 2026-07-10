@@ -1524,6 +1524,20 @@ def _render_dashboard(email: str) -> str:
         gens = db.query(Generation).filter(Generation.email == email).order_by(Generation.created_at.desc()).all()
 
         if gens:
+            # Build a gen_id → most-recent active custom domain lookup so
+            # "View site" can point at the real live URL rather than the preview.
+            gen_ids = [g.id for g in gens]
+            active_domains = (
+                db.query(Domain)
+                .filter(Domain.generation_id.in_(gen_ids), Domain.status == "active")
+                .order_by(Domain.created_at.desc())
+                .all()
+            )
+            gen_domain_map = {}
+            for d in active_domains:
+                if d.generation_id not in gen_domain_map:
+                    gen_domain_map[d.generation_id] = d
+
             card_parts = []
             for g in gens:
                 business_label = g.business_name or "Untitled site"
@@ -1540,6 +1554,20 @@ def _render_dashboard(email: str) -> str:
                     'style="display:inline-block;background:#fff;color:#1C1C1C;font-weight:600;font-size:14px;'
                     'text-decoration:none;border:1px solid #D9D7D0;padding:11px 18px;border-radius:9px;">Edit text</a>'
                 )
+                # For paid/live sites, link directly to their real web address.
+                # Priority: custom domain → groundworkbuild.com subdomain → preview fallback.
+                if g.status == "live":
+                    active_dom = gen_domain_map.get(g.id)
+                    if active_dom:
+                        view_href = "https://" + active_dom.domain
+                    elif g.subdomain:
+                        view_href = "https://" + g.subdomain + ".groundworkbuild.com"
+                    else:
+                        view_href = "/api/generate/" + g.lead.public_id + "/html"
+                    view_label = "Visit site →"
+                else:
+                    view_href = "/api/generate/" + g.lead.public_id + "/html"
+                    view_label = "View site →"
                 card_parts.append(
                     '<div class="acct-card">'
                     '<div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;">'
@@ -1549,9 +1577,9 @@ def _render_dashboard(email: str) -> str:
                     + g.created_at.strftime("%d %b %Y") + " · " + status_label + '</div>'
                     '</div>'
                     '<div style="display:flex;gap:10px;flex-wrap:wrap;">'
-                    '<a href="/api/generate/' + g.lead.public_id + '/html" target="_blank" rel="noopener" '
+                    '<a href="' + view_href + '" target="_blank" rel="noopener" '
                     'style="display:inline-block;background:#fff;color:#1C1C1C;font-weight:700;font-size:14.5px;'
-                    'text-decoration:none;border:1px solid #D9D7D0;padding:11px 18px;border-radius:9px;">View site →</a>'
+                    'text-decoration:none;border:1px solid #D9D7D0;padding:11px 18px;border-radius:9px;">' + view_label + '</a>'
                     + edit_text_link
                     + go_live_link +
                     '</div>'

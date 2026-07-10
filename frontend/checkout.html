@@ -138,6 +138,13 @@ async function loadSubdomainPreview() {
     if (!r.ok) return;
     const d = await r.json();
 
+    // Already paid — send them to their dashboard rather than showing
+    // a payment form they can't and shouldn't use again.
+    if (d.status === 'live') {
+      window.location.href = '/account';
+      return;
+    }
+
     if (d.subdomain_invalid_chars) {
       showSubdomainError(
         'Your company name contains characters (like apostrophes or symbols) that can\'t be used in a web address. ' +
