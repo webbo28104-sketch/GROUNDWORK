@@ -1,22 +1,26 @@
 """
-Outreach pipeline runner — Track A.
+Outreach pipeline runner — Track A (sourcing + queue population).
 
-Runnable both as a module and as a script from the project root:
+Runnable as a module or script from the project root:
     python outreach/pipeline.py --cells 25
     python -m outreach.pipeline --cells 25 --dry-run
 
-What it does (sourcing + qualification only — no sending, no site generation):
+What it does:
   1. Init the DB.
   2. Pick N pending SearchCells (never-searched first).
   3. For each cell: query Google Places, upsert new prospects, stamp the cell.
-  4. For every prospect still at funnel_stage="sourced": run the website vision
-     check, score it, discover an email, and route it to either
-     "awaiting_approval" (email found) or "qualified_no_email".
-  5. Print a summary.
+  4. For every newly sourced prospect:
+       - If it has a website: take a Playwright screenshot and insert a
+         PendingVisionCheck row (screenshot_path may be None if load failed).
+       - If it has no website: set website_status="no_website" immediately
+         (no screenshot or vision queue row needed).
+       - Always insert a PendingEmailDiscovery row.
+       - Advance funnel_stage to "queued".
+  5. Print a summary showing how many prospects are queued for each step.
 
-Every DB write follows the project's try/finally db.close() pattern, and we
-commit after each cell and after each prospect so a crash mid-run never loses
-completed work or re-searches a cell.
+Scoring and approval-queue population happen AFTER Cowork clears both pending
+queues via outreach/apply_result.py — not here. This separates the deterministic
+sourcing work (bash / code) from the AI-judgment work (Cowork session).
 """
 import os
 import sys
@@ -24,32 +28,28 @@ import logging
 import argparse
 from datetime import datetime
 
-# Make the project root importable whether run as a script or a module.
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _PROJECT_ROOT = os.path.dirname(_THIS_DIR)
 for _p in (_PROJECT_ROOT, _THIS_DIR):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-# Load .env if python-dotenv is available; otherwise rely on the ambient env.
 try:
     from dotenv import load_dotenv
     load_dotenv(os.path.join(_PROJECT_ROOT, ".env"))
 except Exception:
     pass
 
-from models import SessionLocal, Prospect, init_db  # noqa: E402
+from models import (  # noqa: E402
+    SessionLocal, Prospect, PendingVisionCheck, PendingEmailDiscovery, init_db,
+)
 
 try:
     from outreach.sourcer import search_places, get_pending_cells, parse_place, upsert_prospect
-    from outreach.vision_check import check_website_status
-    from outreach.email_discovery import find_email
-    from outreach.scorer import score_prospect
-except ImportError:  # pragma: no cover — supports `python outreach/pipeline.py`
+    from outreach.vision_check import take_screenshot
+except ImportError:
     from sourcer import search_places, get_pending_cells, parse_place, upsert_prospect
-    from vision_check import check_website_status
-    from email_discovery import find_email
-    from scorer import score_prospect
+    from vision_check import take_screenshot
 
 logging.basicConfig(
     level=logging.INFO,
@@ -60,9 +60,7 @@ logger = logging.getLogger("outreach.pipeline")
 
 def _source_cells(n_cells, dry_run):
     """Search up to n_cells pending cells and upsert new prospects.
-
-    Returns the number of cells searched and the number of new prospects
-    created."""
+    Returns (cells_searched, new_prospects)."""
     api_key = os.environ.get("GOOGLE_PLACES_API_KEY", "")
     if not api_key:
         logger.warning("GOOGLE_PLACES_API_KEY not set — sourcing will find nothing")
@@ -94,92 +92,128 @@ def _source_cells(n_cells, dry_run):
             cell.search_count = (cell.search_count or 0) + 1
             cell.results_found = len(raw_results)
             cells_searched += 1
-            db.commit()  # commit per cell so progress survives a crash
+            db.commit()
     finally:
         db.close()
 
     return cells_searched, new_prospects
 
 
-def _process_sourced(dry_run):
-    """Website-check, score and email-discover every prospect still at
-    funnel_stage='sourced'. Returns (n_awaiting_approval, n_qualified_no_email)."""
-    n_awaiting = 0
-    n_no_email = 0
+def _queue_pending(dry_run):
+    """Screenshot websites and insert PendingVisionCheck / PendingEmailDiscovery
+    rows for every prospect still at funnel_stage='sourced'.
+    Returns n_queued."""
+    n_queued = 0
 
     db = SessionLocal()
     try:
         sourced = db.query(Prospect).filter(Prospect.funnel_stage == "sourced").all()
-        logger.info("Processing %d newly sourced prospects", len(sourced))
+        logger.info("Queuing %d newly sourced prospects", len(sourced))
 
         for p in sourced:
             if dry_run:
-                logger.info("[dry-run] would process: %s (%s)", p.business_name, p.location)
+                logger.info("[dry-run] would queue: %s (%s)", p.business_name, p.location)
                 continue
 
             try:
-                # Passed the closed-business gate at source time.
                 p.funnel_stage = "gated"
 
-                p.website_status = check_website_status(p.website)
-
-                p.score = score_prospect(p)
-                p.funnel_stage = "scored"
-
-                email, source = find_email(p.business_name, p.location or "", p.website)
-                if email:
-                    p.email = email
-                    p.email_source = source
-                    p.email_found = True
-                    p.funnel_stage = "awaiting_approval"
-                    p.approval_status = "pending"
-                    n_awaiting += 1
+                # Vision check ───────────────────────────────────────────────
+                if p.website and str(p.website).strip():
+                    # Take a screenshot now (deterministic code); the quality
+                    # judgment runs later in Cowork.
+                    screenshot_path = take_screenshot(p.id, p.website)
+                    existing_vc = db.query(PendingVisionCheck).filter(
+                        PendingVisionCheck.prospect_id == p.id
+                    ).first()
+                    if not existing_vc:
+                        db.add(PendingVisionCheck(
+                            prospect_id=p.id,
+                            screenshot_path=screenshot_path,
+                        ))
                 else:
-                    p.email_found = False
-                    p.funnel_stage = "qualified_no_email"
-                    n_no_email += 1
-            except Exception as e:
-                logger.error("Error processing prospect %s (%s): %s", p.id, p.business_name, e)
-                p.error_notes = (p.error_notes or "") + f"\n[process] {e}"
+                    # No website on record — resolve immediately, no queue row.
+                    p.website_status = "no_website"
 
-            p.processed_at = datetime.utcnow()
-            db.commit()  # commit per prospect so partial runs are durable
+                # Email discovery ─────────────────────────────────────────────
+                existing_ed = db.query(PendingEmailDiscovery).filter(
+                    PendingEmailDiscovery.prospect_id == p.id
+                ).first()
+                if not existing_ed:
+                    db.add(PendingEmailDiscovery(
+                        prospect_id=p.id,
+                        business_name=p.business_name,
+                        location=p.location or "",
+                        website=p.website,
+                    ))
+
+                p.funnel_stage = "queued"
+                n_queued += 1
+
+            except Exception as e:
+                logger.error("Error queuing prospect %s (%s): %s", p.id, p.business_name, e)
+                p.error_notes = (p.error_notes or "") + f"\n[queue] {e}"
+
+            db.commit()
     finally:
         db.close()
 
-    return n_awaiting, n_no_email
+    return n_queued
 
 
 def run_pipeline(n_cells=25, dry_run=False):
-    """Run one full Track-A pass. See module docstring."""
+    """Run one full Track-A sourcing + queue-population pass."""
     logger.info("Starting outreach pipeline (n_cells=%d, dry_run=%s)", n_cells, dry_run)
     init_db()
 
     cells_searched, new_prospects = _source_cells(n_cells, dry_run)
-    n_awaiting, n_no_email = _process_sourced(dry_run)
+    n_queued = _queue_pending(dry_run)
+
+    # Count what's waiting for Cowork's judgment
+    db = SessionLocal()
+    try:
+        pending_vision = db.query(PendingVisionCheck).count()
+        pending_email = db.query(PendingEmailDiscovery).count()
+        awaiting_approval = db.query(Prospect).filter(
+            Prospect.funnel_stage == "awaiting_approval"
+        ).count()
+    finally:
+        db.close()
 
     print("")
-    print("=" * 52)
+    print("=" * 56)
     print("Outreach pipeline summary")
-    print("-" * 52)
-    print(f"  Cells searched:          {cells_searched}")
-    print(f"  New prospects sourced:   {new_prospects}")
-    print(f"  Now awaiting approval:   {n_awaiting}")
-    print(f"  Qualified, no email:     {n_no_email}")
-    print("=" * 52)
+    print("-" * 56)
+    print(f"  Cells searched:               {cells_searched}")
+    print(f"  New prospects sourced:        {new_prospects}")
+    print(f"  Queued this run:              {n_queued}")
+    print("-" * 56)
+    print(f"  Pending vision checks (total):{pending_vision:>5}")
+    print(f"  Pending email discovery (total):{pending_email:>3}")
+    print(f"  Awaiting approval (total):    {awaiting_approval}")
+    print("=" * 56)
+    print("")
+    print("Next steps:")
+    print("  Review pending items:  python outreach/apply_result.py pending")
+    print("  Apply a vision result: python outreach/apply_result.py vision <id> <verdict>")
+    print("  Apply an email result: python outreach/apply_result.py email <id> <email|null>")
 
     return {
         "cells_searched": cells_searched,
         "new_prospects": new_prospects,
-        "awaiting_approval": n_awaiting,
-        "qualified_no_email": n_no_email,
+        "queued": n_queued,
+        "pending_vision": pending_vision,
+        "pending_email": pending_email,
+        "awaiting_approval": awaiting_approval,
     }
 
 
 def main():
     parser = argparse.ArgumentParser(description="Groundwork outreach pipeline (Track A)")
-    parser.add_argument("--cells", type=int, default=25, help="number of search cells to process")
-    parser.add_argument("--dry-run", action="store_true", help="log actions without calling APIs or writing prospect data")
+    parser.add_argument("--cells", type=int, default=25,
+                        help="number of search cells to process (default: 25)")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="log actions without calling APIs or writing prospect data")
     args = parser.parse_args()
     run_pipeline(n_cells=args.cells, dry_run=args.dry_run)
 

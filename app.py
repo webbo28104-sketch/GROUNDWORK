@@ -26,7 +26,7 @@ from markupsafe import escape
 from werkzeug.security import generate_password_hash, check_password_hash
 
 from build_prompt import build_prompt
-from models import SessionLocal, Lead, Generation, Account, GenerationImage, Domain, Prospect, SearchCell, init_db
+from models import SessionLocal, Lead, Generation, Account, GenerationImage, Domain, Prospect, SearchCell, PendingVisionCheck, PendingEmailDiscovery, init_db
 from emails import (send_verification_email, send_resend_email, send_password_reset_email,
                     send_support_message_email, send_enquiry_email,
                     send_domain_order_admin_email, send_domain_order_customer_email,

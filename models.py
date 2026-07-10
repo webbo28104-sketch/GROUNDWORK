@@ -193,6 +193,32 @@ class SearchCell(Base):
     __table_args__ = (UniqueConstraint("postcode_area", "trade_search_term", name="uq_search_cells_area_term"),)
 
 
+class PendingVisionCheck(Base):
+    """One row per prospect waiting for a website quality judgment.
+    Cowork reads these rows, views the screenshot, then calls apply_result.py
+    to write the verdict and delete the row."""
+    __tablename__ = "pending_vision_checks"
+
+    id = Column(Integer, primary_key=True)
+    prospect_id = Column(Integer, ForeignKey("prospects.id"), unique=True, nullable=False, index=True)
+    screenshot_path = Column(String(500), nullable=True)  # None if screenshot failed
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class PendingEmailDiscovery(Base):
+    """One row per prospect waiting for an email address to be found.
+    Cowork reads these rows, searches the web, then calls apply_result.py
+    to write the result (found email or null) and delete the row."""
+    __tablename__ = "pending_email_discoveries"
+
+    id = Column(Integer, primary_key=True)
+    prospect_id = Column(Integer, ForeignKey("prospects.id"), unique=True, nullable=False, index=True)
+    business_name = Column(String(255))
+    location = Column(String(255))
+    website = Column(String(500), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
 def _database_url() -> str:
     url = os.environ.get("DATABASE_URL", "")
     # Railway/Heroku-style URLs use the postgres:// scheme; SQLAlchemy 2.x requires postgresql://
@@ -257,6 +283,8 @@ def init_db():
     _ensure_column(SearchCell.__tablename__, "last_searched_at", "TIMESTAMP")
     _ensure_column(SearchCell.__tablename__, "search_count", "INTEGER DEFAULT 0")
     _ensure_column(SearchCell.__tablename__, "results_found", "INTEGER DEFAULT 0")
+    _ensure_column(PendingVisionCheck.__tablename__, "screenshot_path", "VARCHAR(500)")
+    _ensure_column(PendingEmailDiscovery.__tablename__, "website", "VARCHAR(500)")
 
 
 def _ensure_column(table_name: str, column_name: str, ddl_type: str) -> None:
