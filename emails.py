@@ -280,25 +280,30 @@ def send_domain_live_email(to_email: str, domain: str, business_name: str) -> No
     _send(to_email, f"Your domain is live — {escape(domain)}", html)
 
 
-def send_support_message_email(from_email: str, message: str) -> None:
+def send_support_message_email(from_email: str, message: str, *, business_name: str = None, subdomain: str = None) -> None:
     """
     Forwards a message submitted from the account dashboard straight to the
-    support inbox (the same RESEND_FROM_EMAIL address used to send everything
-    else), with reply_to set to the customer's email so replying goes
-    straight back to them rather than to Groundwork's own sending address.
-    Not a templated/CTA email like the others — just the plain message.
+    support inbox, with reply_to set to the customer's email. Includes
+    business name and site URL when available so the team has context.
     """
     support_inbox = os.environ.get("SUPPORT_INBOX_EMAIL", "groundwork-build@outlook.com")
+    meta_rows = f'<p style="margin:0 0 4px;font-size:13.5px;color:#807E79;">From: {escape(from_email)}</p>'
+    if business_name:
+        meta_rows += f'<p style="margin:0 0 4px;font-size:13.5px;color:#807E79;">Business: {escape(business_name)}</p>'
+    if subdomain:
+        site_url = f"{escape(subdomain)}.groundworkbuild.com"
+        meta_rows += f'<p style="margin:0 0 4px;font-size:13.5px;color:#807E79;">Site: <a href="https://{site_url}" style="color:#3B82F6;">{site_url}</a></p>'
+    subject_prefix = f"{business_name} — " if business_name else ""
     html = f"""<div style="font-family:Arial,Helvetica,sans-serif;background:#F5F3EE;padding:32px 20px;">
   <div style="max-width:480px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;">
     <div style="background:#1C1C1C;padding:20px 28px;">
       <span style="color:{ACCENT};font-weight:800;font-size:18px;letter-spacing:-.03em;">Groundwork</span>
     </div>
     <div style="padding:28px;">
-      <h2 style="margin:0 0 6px;font-size:19px;color:#1C1C1C;">New dashboard message</h2>
-      <p style="margin:0 0 18px;font-size:13.5px;color:#807E79;">From: {escape(from_email)}</p>
-      <div style="white-space:pre-wrap;font-size:15px;line-height:1.6;color:#1C1C1C;border-top:1px solid #E6E3DC;padding-top:16px;">{escape(message)}</div>
+      <h2 style="margin:0 0 12px;font-size:19px;color:#1C1C1C;">New dashboard message</h2>
+      {meta_rows}
+      <div style="white-space:pre-wrap;font-size:15px;line-height:1.6;color:#1C1C1C;border-top:1px solid #E6E3DC;padding-top:16px;margin-top:14px;">{escape(message)}</div>
     </div>
   </div>
 </div>"""
-    _send(support_inbox, f"Dashboard message from {from_email}", html, reply_to=from_email)
+    _send(support_inbox, f"{subject_prefix}Dashboard message from {from_email}", html, reply_to=from_email)

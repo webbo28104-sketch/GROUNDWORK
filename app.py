@@ -1525,7 +1525,6 @@ def _render_dashboard(email: str) -> str:
 
         if gens:
             card_parts = []
-            has_images_any = False
             for g in gens:
                 business_label = g.business_name or "Untitled site"
                 status_label = "Live" if g.status == "live" else "Draft — not yet published"
@@ -1541,9 +1540,6 @@ def _render_dashboard(email: str) -> str:
                     'style="display:inline-block;background:#fff;color:#1C1C1C;font-weight:600;font-size:14px;'
                     'text-decoration:none;border:1px solid #D9D7D0;padding:11px 18px;border-radius:9px;">Edit text</a>'
                 )
-                images = db.query(GenerationImage).filter(GenerationImage.generation_id == g.id).all()
-                image_manager = _render_image_manager(g.id, images)
-                has_images_any = has_images_any or bool(images)
                 card_parts.append(
                     '<div class="acct-card">'
                     '<div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;">'
@@ -1560,12 +1556,10 @@ def _render_dashboard(email: str) -> str:
                     + go_live_link +
                     '</div>'
                     '</div>'
-                    + image_manager +
                     '</div>'
                 )
             cards = "".join(card_parts)
         else:
-            has_images_any = False
             cards = '<div class="acct-card"><p style="margin:0;color:#5C5A56;font-size:15px;">No website yet — once you generate one, it\'ll show up here.</p></div>'
 
         # Copy is written for the common case — one account, one generated
@@ -1574,11 +1568,7 @@ def _render_dashboard(email: str) -> str:
         if len(gens) == 1:
             business_label = gens[0].business_name or "Your website"
             headline = f"{escape(business_label)} is ready"
-            subcopy = (
-                "View it any time, swap the logo or photos, or send us a message below if you'd like something changed."
-                if has_images_any else
-                "View it any time, or send us a message below if you'd like something changed."
-            )
+            subcopy = "View it any time, or send us a message if you'd like something changed."
         elif len(gens) > 1:
             headline = "Your sites, all in one place"
             subcopy = f"Every website you've generated with {escape(email)}, ready whenever you need it."
@@ -1665,10 +1655,10 @@ def _render_dashboard(email: str) -> str:
           <h1 style="margin:0 0 8px;font-weight:800;font-size:clamp(24px,3.4vw,32px);letter-spacing:-.02em;">{headline}</h1>
           <p style="margin:0;font-size:15.5px;color:#5C5A56;">{subcopy}</p>
         </div>
+        {support_card}
         {cards}
         {domain_card}
-        {billing_card}
-        {support_card}"""
+        {billing_card}"""
         return render_template_string(_account_page(inner, "Your account"))
     finally:
         db.close()
@@ -1996,7 +1986,14 @@ def api_account_support_message():
         return jsonify({"error": "empty_message"}), 400
     if len(message) > 4000:
         return jsonify({"error": "message_too_long"}), 400
-    send_support_message_email(email, message)
+    db = SessionLocal()
+    try:
+        gen = db.query(Generation).filter(Generation.email == email).order_by(Generation.created_at.desc()).first()
+        business_name = gen.business_name if gen else None
+        subdomain = gen.subdomain if gen else None
+    finally:
+        db.close()
+    send_support_message_email(email, message, business_name=business_name, subdomain=subdomain)
     return jsonify({"status": "sent"})
 
 
