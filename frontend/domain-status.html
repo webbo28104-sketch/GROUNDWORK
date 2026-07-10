@@ -67,11 +67,17 @@ body{margin:0;background:#FAFAF8;font-family:Inter,sans-serif;color:#1C1C1C;}
     </div>
   </div>
 
-  <!-- Error detail (shown only on failure) -->
-  <div class="card" id="error-card" style="display:none;border-color:#FCA5A5;background:#FFF8F8;">
-    <div style="font-weight:700;font-size:15px;color:#991B1B;margin-bottom:6px;">Setup failed — we're on it</div>
-    <p style="margin:0 0 10px;font-size:14px;color:#B91C1C;line-height:1.6;" id="error-detail"></p>
-    <p style="margin:0;font-size:13.5px;color:#5C5A56;">Our team has been notified and will connect your domain manually. You'll receive an email once it's live. If you have questions, contact us at <a href="mailto:groundwork-build@outlook.com" style="color:#3B82F6;">groundwork-build@outlook.com</a>.</p>
+  <!-- Manual handling notice (shown when needs_manual_setup) -->
+  <div class="card" id="error-card" style="display:none;background:#FFFBEB;border-color:#FDE68A;">
+    <div style="display:flex;align-items:flex-start;gap:12px;">
+      <div style="width:34px;height:34px;border-radius:50%;background:#FEF3C7;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#D97706" stroke-width="2.4" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/></svg>
+      </div>
+      <div>
+        <div style="font-weight:700;font-size:15px;color:#92400E;margin-bottom:4px;">Being set up manually</div>
+        <p style="margin:0;font-size:14px;color:#78350F;line-height:1.6;">Our team is connecting your domain and will have it live within one working day. You'll receive an email confirmation once it's ready — no action needed from you.</p>
+      </div>
+    </div>
   </div>
 
   <!-- Live banner (shown when active) -->
@@ -176,7 +182,7 @@ function renderStatus(d) {
 
   const html = steps.map((step, i) => {
     const done  = !!d[step.key];
-    const isErr = !done && errStep && errStep.startsWith(step.errorStep || '___');
+    const isErr = false; // errors shown via manual-handling notice, not per-step
     if (!done && !firstIncomplete) firstIncomplete = i;
 
     let iconHtml, stateClass, labelColor, sublabel;
@@ -211,10 +217,8 @@ function renderStatus(d) {
   document.getElementById('steps-container').innerHTML = html;
 
   // Error card
-  if (d.error_step) {
+  if (d.status === 'needs_manual_setup') {
     document.getElementById('error-card').style.display = 'block';
-    document.getElementById('error-detail').textContent =
-      'Failed at: ' + d.error_step + (d.error_message ? ' — ' + d.error_message : '');
   } else {
     document.getElementById('error-card').style.display = 'none';
   }

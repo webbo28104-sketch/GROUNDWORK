@@ -3867,6 +3867,21 @@ def frontend(path):
     return send_from_directory(frontend_dir, "index.html")
 
 
+@app.route("/admin/one-time-delete-richard-domains", methods=["POST"])
+@admin_required
+def _one_time_delete_richard_domains():
+    db = SessionLocal()
+    try:
+        rows = db.query(Domain).filter(Domain.customer_email == "webbo28104@gmail.com").all()
+        deleted = [r.domain for r in rows]
+        for r in rows:
+            db.delete(r)
+        db.commit()
+        return jsonify({"deleted": deleted})
+    finally:
+        db.close()
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
