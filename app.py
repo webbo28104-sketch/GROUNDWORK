@@ -482,6 +482,27 @@ def handle_subdomain_request():
     whatever Host header the customer's browser sent — apex domain, www, or
     subdomain — so this app has to look the Host up itself to know which
     customer site to serve."""
+    # When a customer's custom domain comes in via Cloudflare for SaaS, the
+    # Cloudflare Transform Rule rewrites the Host header to groundworkbuild.com
+    # (so Railway's edge routes it to this service) and stashes the real
+    # hostname in X-Custom-Domain.  We only trust it when CF-Ray confirms the
+    # request actually came through Cloudflare — prevents local spoofing.
+    cf_custom = request.headers.get("X-Custom-Domain", "").lower().split(":")[0].strip()
+    if cf_custom and request.headers.get("CF-Ray"):
+        bare = cf_custom[4:] if cf_custom.startswith("www.") else cf_custom
+        _db = SessionLocal()
+        try:
+            dom = _db.query(Domain).filter(Domain.domain == bare, Domain.status == "active").first()
+            if dom and dom.generation_id:
+                gen = _db.query(Generation).filter(
+                    Generation.id == dom.generation_id, Generation.status == "live"
+                ).first()
+                if gen:
+                    return _inject_badge(gen.html_content), 200, {"Content-Type": "text/html; charset=utf-8"}
+        finally:
+            _db.close()
+        return  # custom domain header present but no active site — fall through to 404 handling
+
     host = request.host.split(":")[0].lower()
     suffix = "." + _SUBDOMAIN_BASE
 
