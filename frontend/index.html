@@ -172,15 +172,20 @@ a:focus-visible,button:focus-visible{outline:3px solid #3B82F6;outline-offset:2p
     </div>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:26px;">
       <div>
-        <div class="browser-frame" id="pool-frame" style="background:#26241F;border:1px solid #3A362E;box-shadow:0 26px 52px -26px rgba(0,0,0,.5);">
-          <a href="https://pooltec.groundworkbuild.com" target="_blank" rel="noopener" style="display:flex;align-items:center;gap:7px;padding:11px 14px;background:#1E1C18;border-bottom:1px solid #333029;text-decoration:none;"><span style="width:9px;height:9px;border-radius:50%;background:#4A4640;display:block;"></span><span style="width:9px;height:9px;border-radius:50%;background:#4A4640;display:block;"></span><span style="width:9px;height:9px;border-radius:50%;background:#4A4640;display:block;"></span><div style="margin:0 auto;background:#141310;border-radius:6px;padding:4px 16px;"><span style="color:#8B8478;font-size:11.5px;">pooltec.groundworkbuild.com</span></div><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#8B8478" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M14 4h6v6"/><path d="M20 4L10 14"/><path d="M18 14v6H4V6h6"/></svg></a>
-          <div class="browser-scroll" style="height:300px;">
-            <div style="width:100%;height:1232px;position:relative;" id="pool-mount">
-              <iframe src="https://pooltec.groundworkbuild.com" title="Pool Tec — live generated website" loading="lazy" scrolling="no" style="width:1440px;height:4400px;"></iframe>
+        <div class="browser-frame" style="background:#F0EDE7;border:1px solid #E2E0DA;box-shadow:0 26px 52px -26px rgba(0,0,0,.18);display:flex;flex-direction:column;">
+          <div style="display:flex;align-items:center;gap:7px;padding:11px 14px;background:#E8E5DF;border-bottom:1px solid #D9D7D0;"><span style="width:9px;height:9px;border-radius:50%;background:#CCCAC4;display:block;"></span><span style="width:9px;height:9px;border-radius:50%;background:#CCCAC4;display:block;"></span><span style="width:9px;height:9px;border-radius:50%;background:#CCCAC4;display:block;"></span><div style="margin:0 auto;background:#DDDBD5;border-radius:6px;padding:4px 16px;"><span style="color:#9A9893;font-size:11.5px;">your-business.co.uk</span></div></div>
+          <div style="flex:1;height:300px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:32px 24px;text-align:center;">
+            <div style="width:52px;height:52px;border-radius:50%;background:#E2E0DA;display:flex;align-items:center;justify-content:center;">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#9A9893" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/><path d="M6.5 6.5h.01"/></svg>
+            </div>
+            <div>
+              <div style="font-weight:700;font-size:17px;color:#1C1C1C;margin-bottom:8px;">Want your site here?</div>
+              <p style="margin:0 0 16px;font-size:14px;color:#5C5A56;line-height:1.6;">Got a Groundwork site you're proud of? We'd love to feature it as a real example for other trades to see.</p>
+              <a href="mailto:groundwork-build@outlook.com" style="display:inline-block;background:#1C1C1C;color:#fff;font-weight:700;font-size:14px;text-decoration:none;padding:11px 20px;border-radius:9px;">Get in touch →</a>
             </div>
           </div>
         </div>
-        <p style="margin:16px 4px 0;font-size:14px;color:#5C5A56;text-align:center;"><strong style="color:#1C1C1C;">Pool Tec</strong> — swimming pool engineers, Sussex. Scroll to explore, or <a href="https://pooltec.groundworkbuild.com" target="_blank" rel="noopener" style="color:#2257CC;font-weight:600;">open it in full ↗</a></p>
+        <p style="margin:16px 4px 0;font-size:14px;color:#807E79;text-align:center;">Your business could be featured here — <a href="mailto:groundwork-build@outlook.com" style="color:#2257CC;font-weight:600;">email us</a></p>
       </div>
       <div>
         <div class="browser-frame" id="roofing-frame" style="background:#26241F;border:1px solid #3A362E;box-shadow:0 26px 52px -26px rgba(0,0,0,.5);">
@@ -336,7 +341,6 @@ function toggleMenu() {
 // so the 1440px-wide real site renders proportionally at any viewport size.
 const GW_IFRAMES = [
   { frame: 'hero-frame', mount: 'hero-mount', rawW: 1440, rawH: 5300 },
-  { frame: 'pool-frame', mount: 'pool-mount', rawW: 1440, rawH: 4400 },
   { frame: 'roofing-frame', mount: 'roofing-mount', rawW: 1440, rawH: 5900 },
 ];
 
