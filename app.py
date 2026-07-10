@@ -2943,9 +2943,9 @@ def admin_outreach_import():
     inserted = skipped = 0
     try:
         existing_gids = {
-            r[0] for r in db.execute(
-                text("SELECT google_place_id FROM prospects WHERE google_place_id IS NOT NULL")
-            )
+            r[0] for r in db.query(Prospect.google_place_id)
+            .filter(Prospect.google_place_id.isnot(None))
+            .all()
         }
         for row in rows:
             gid = row.get("google_place_id")
