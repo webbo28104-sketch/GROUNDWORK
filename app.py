@@ -26,7 +26,7 @@ from markupsafe import escape
 from werkzeug.security import generate_password_hash, check_password_hash
 
 from build_prompt import build_prompt
-from models import SessionLocal, Lead, Generation, Account, GenerationImage, Domain, init_db
+from models import SessionLocal, Lead, Generation, Account, GenerationImage, Domain, Prospect, SearchCell, init_db
 from emails import (send_verification_email, send_resend_email, send_password_reset_email,
                     send_support_message_email, send_enquiry_email,
                     send_domain_order_admin_email, send_domain_order_customer_email,
@@ -2767,6 +2767,121 @@ def admin_generation_form_data(gen_id):
         return jsonify(gen.lead.form_data if gen.lead else {})
     finally:
         db.close()
+
+
+# ---------------------------------------------------------------------------
+# Outreach approval queue (Track A) — admin-only. Prospects reach
+# funnel_stage="awaiting_approval" once the pipeline has sourced, website-
+# checked, scored and found a genuine email for them; a human then approves or
+# passes on each one via /outreach-queue.html, which drives these endpoints.
+# ---------------------------------------------------------------------------
+@app.route("/api/admin/outreach/queue/next")
+@admin_required
+def admin_outreach_queue_next():
+    db = SessionLocal()
+    try:
+        q = (db.query(Prospect)
+             .filter(Prospect.approval_status == "pending",
+                     Prospect.funnel_stage == "awaiting_approval"))
+        queue_size = q.count()
+        p = q.order_by(Prospect.score.desc().nullslast()).first()
+        if not p:
+            return jsonify({"queue_empty": True, "queue_size": 0})
+        return jsonify({
+            "queue_empty": False,
+            "queue_size": queue_size,
+            "id": p.id,
+            "business_name": p.business_name,
+            "trade": p.trade,
+            "trade_tier": p.trade_tier,
+            "location": p.location,
+            "rating": p.rating,
+            "review_count": p.review_count,
+            "score": p.score,
+            "website_status": p.website_status,
+            "website": p.website,
+            "google_place_id": p.google_place_id,
+            "email": p.email,
+            "funnel_stage": p.funnel_stage,
+            "created_at": p.created_at.isoformat() if p.created_at else None,
+        })
+    finally:
+        db.close()
+
+
+@app.route("/api/admin/outreach/queue/<int:prospect_id>/approve", methods=["POST"])
+@admin_required
+def admin_outreach_approve(prospect_id):
+    db = SessionLocal()
+    try:
+        p = db.get(Prospect, prospect_id)
+        if not p:
+            return jsonify({"error": "not_found"}), 404
+        p.approval_status = "yes"
+        p.approved_at = datetime.utcnow()
+        p.funnel_stage = "approved"
+        db.commit()
+        return jsonify({"status": "ok"})
+    finally:
+        db.close()
+
+
+@app.route("/api/admin/outreach/queue/<int:prospect_id>/reject", methods=["POST"])
+@admin_required
+def admin_outreach_reject(prospect_id):
+    db = SessionLocal()
+    try:
+        p = db.get(Prospect, prospect_id)
+        if not p:
+            return jsonify({"error": "not_found"}), 404
+        p.approval_status = "no"
+        p.funnel_stage = "rejected"
+        db.commit()
+        return jsonify({"status": "ok"})
+    finally:
+        db.close()
+
+
+@app.route("/api/admin/outreach/stats")
+@admin_required
+def admin_outreach_stats():
+    db = SessionLocal()
+    try:
+        today_midnight = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        total_prospects = db.query(Prospect).count()
+        awaiting_approval = db.query(Prospect).filter(
+            Prospect.approval_status == "pending",
+            Prospect.funnel_stage == "awaiting_approval").count()
+        approved = db.query(Prospect).filter(Prospect.approval_status == "yes").count()
+        rejected = db.query(Prospect).filter(Prospect.approval_status == "no").count()
+        qualified_no_email = db.query(Prospect).filter(
+            Prospect.funnel_stage == "qualified_no_email").count()
+        sourced_today = db.query(Prospect).filter(
+            Prospect.created_at >= today_midnight).count()
+        approved_today = db.query(Prospect).filter(
+            Prospect.approval_status == "yes",
+            Prospect.approved_at >= today_midnight).count()
+        rejected_today = db.query(Prospect).filter(
+            Prospect.approval_status == "no",
+            Prospect.processed_at >= today_midnight).count()
+        return jsonify({
+            "total_prospects": total_prospects,
+            "awaiting_approval": awaiting_approval,
+            "approved": approved,
+            "rejected": rejected,
+            "qualified_no_email": qualified_no_email,
+            "sourced_today": sourced_today,
+            "approved_today": approved_today,
+            "rejected_today": rejected_today,
+        })
+    finally:
+        db.close()
+
+
+@app.route("/admin/outreach")
+@admin_required
+def admin_outreach():
+    return redirect("/outreach-queue.html")
 
 
 @app.route("/api/generate/<job_id>/status")

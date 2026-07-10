@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Outreach queue — Groundwork Admin</title>
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
+<link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --accent:#3B82F6; --accent-hover:#2563EB; --dark:#1C1C1C;
+    --ink:#1C1C1C; --muted:#6B7280; --line:#E5E7EB;
+    --bg:#F3F4F6; --card:#1C1C1C; --card-line:#33343A;
+    --green:#10B981; --amber:#F59E0B; --grey:#9CA3AF; --red:#9B2B1A;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+    background:var(--bg); color:var(--ink);
+    min-height:100vh; display:flex; flex-direction:column;
+  }
+  /* Header */
+  header{
+    background:var(--dark); color:#fff;
+    display:flex; align-items:center; justify-content:space-between;
+    padding:14px 24px;
+  }
+  header .logo{font-weight:900; font-size:19px; letter-spacing:-.02em; color:#fff; text-decoration:none;}
+  header .logo span{color:var(--accent);}
+  header nav a{color:#C9CBD1; text-decoration:none; font-size:13px; font-weight:600; margin-left:18px;}
+  header nav a:hover{color:#fff;}
+  /* Layout */
+  main{flex:1; display:flex; flex-direction:column; align-items:center; padding:28px 16px 60px;}
+  .statsbar{
+    font-size:13px; color:var(--muted); font-weight:600;
+    margin-bottom:22px; text-align:center; min-height:18px;
+  }
+  .statsbar b{color:var(--ink); font-weight:800;}
+  /* Card */
+  .card{
+    width:100%; max-width:560px; background:var(--card); color:#fff;
+    border-radius:18px; padding:30px 30px 26px; border:1px solid var(--card-line);
+    box-shadow:0 18px 40px rgba(0,0,0,.18);
+    transition:transform .2s ease, opacity .2s ease;
+  }
+  .card.out-left{transform:translateX(-40px) rotate(-2deg); opacity:0;}
+  .card.out-right{transform:translateX(40px) rotate(2deg); opacity:0;}
+  .badges{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:18px;}
+  .badge{font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.04em;
+    padding:4px 10px; border-radius:999px;}
+  .badge.tier-high{background:rgba(59,130,246,.18); color:#93C5FD;}
+  .badge.tier-medium{background:rgba(245,158,11,.18); color:#FCD34D;}
+  .badge.tier-low{background:rgba(156,163,175,.18); color:#D1D5DB;}
+  .badge.web-none{background:rgba(16,185,129,.18); color:#6EE7B7;}
+  .badge.web-dated{background:rgba(245,158,11,.18); color:#FCD34D;}
+  .badge.web-modern{background:rgba(156,163,175,.18); color:#D1D5DB;}
+  .biz{font-size:28px; font-weight:900; letter-spacing:-.02em; line-height:1.15; margin:0 0 6px;}
+  .loc{color:#B7BAC2; font-size:14px; margin:0 0 16px;}
+  .rating{display:flex; align-items:center; gap:8px; margin-bottom:20px; font-size:14px; color:#E5E7EB;}
+  .rating .stars{color:var(--amber); letter-spacing:1px; font-size:15px;}
+  .rating .rc{color:#9CA3AF;}
+  .scorewrap{display:flex; align-items:flex-end; gap:10px; margin-bottom:8px;}
+  .score{font-size:52px; font-weight:900; line-height:1; letter-spacing:-.03em;}
+  .score small{font-size:20px; font-weight:700; color:#8A8D96;}
+  .scorebar{height:8px; border-radius:999px; background:#33343A; overflow:hidden; margin-bottom:22px;}
+  .scorebar > i{display:block; height:100%; border-radius:999px;}
+  .links{display:flex; gap:16px; flex-wrap:wrap; margin-bottom:24px; font-size:13px;}
+  .links a{color:#93C5FD; text-decoration:none; font-weight:600;}
+  .links a:hover{text-decoration:underline;}
+  .email{font-size:13px; color:#B7BAC2; margin-bottom:20px; word-break:break-all;}
+  .email b{color:#fff; font-weight:700;}
+  .actions{display:flex; gap:12px;}
+  .btn{flex:1; padding:15px 0; border-radius:12px; font-size:16px; font-weight:800;
+    cursor:pointer; border:none; font-family:inherit; transition:filter .12s ease;}
+  .btn:hover{filter:brightness(1.06);}
+  .btn.pass{background:transparent; color:#F3B4A9; border:1.5px solid #6B3A31;}
+  .btn.pass:hover{background:rgba(155,43,26,.15); filter:none;}
+  .btn.approve{background:var(--accent); color:#fff;}
+  .hint{text-align:center; font-size:12px; color:var(--muted); margin-top:14px;}
+  .hint kbd{background:#fff; border:1px solid var(--line); border-bottom-width:2px;
+    border-radius:5px; padding:1px 6px; font-family:inherit; font-size:11px; font-weight:700;}
+  /* States */
+  .state{max-width:560px; text-align:center; color:var(--muted); padding:60px 20px;}
+  .state h2{color:var(--ink); font-size:22px; font-weight:800; margin:0 0 10px;}
+  .state p{margin:0 0 6px; font-size:14px;}
+  .spinner{width:34px; height:34px; border:3px solid var(--line); border-top-color:var(--accent);
+    border-radius:50%; animation:spin .8s linear infinite; margin:0 auto 18px;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+  .hidden{display:none !important;}
+</style>
+</head>
+<body>
+<header>
+  <a class="logo" href="/">Ground<span>work</span></a>
+  <nav>
+    <a href="/admin/generations">Admin</a>
+    <a href="/admin/logout">Log out</a>
+  </nav>
+</header>
+
+<main>
+  <div class="statsbar" id="statsbar">&nbsp;</div>
+
+  <!-- Loading -->
+  <div class="state" id="loadingState">
+    <div class="spinner"></div>
+    <p>Loading queue…</p>
+  </div>
+
+  <!-- Empty -->
+  <div class="state hidden" id="emptyState">
+    <h2>Queue empty</h2>
+    <p>Run the pipeline to source more prospects.</p>
+    <p id="reviewedCount" class="hidden"></p>
+  </div>
+
+  <!-- Card -->
+  <div class="card hidden" id="card">
+    <div class="badges">
+      <span class="badge" id="tierBadge"></span>
+      <span class="badge" id="webBadge"></span>
+    </div>
+    <h1 class="biz" id="bizName"></h1>
+    <p class="loc" id="loc"></p>
+    <div class="rating" id="ratingRow"></div>
+    <div class="scorewrap">
+      <span class="score" id="scoreNum">0<small>/100</small></span>
+    </div>
+    <div class="scorebar"><i id="scoreBar"></i></div>
+    <div class="links" id="links"></div>
+    <div class="email hidden" id="emailRow"></div>
+    <div class="actions">
+      <button class="btn pass" id="passBtn">&#10007; Pass</button>
+      <button class="btn approve" id="approveBtn">&#10003; Approve</button>
+    </div>
+    <div class="hint">
+      <kbd>&larr;</kbd> Pass &nbsp;&middot;&nbsp; Approve <kbd>&rarr;</kbd>
+    </div>
+  </div>
+</main>
+
+<script>
+(function(){
+  var current = null;      // current prospect object
+  var busy = false;        // guard against double-submits
+  var reviewedThisSession = 0;
+
+  var el = {
+    statsbar: document.getElementById('statsbar'),
+    loading: document.getElementById('loadingState'),
+    empty: document.getElementById('emptyState'),
+    reviewedCount: document.getElementById('reviewedCount'),
+    card: document.getElementById('card'),
+    tierBadge: document.getElementById('tierBadge'),
+    webBadge: document.getElementById('webBadge'),
+    bizName: document.getElementById('bizName'),
+    loc: document.getElementById('loc'),
+    ratingRow: document.getElementById('ratingRow'),
+    scoreNum: document.getElementById('scoreNum'),
+    scoreBar: document.getElementById('scoreBar'),
+    links: document.getElementById('links'),
+    emailRow: document.getElementById('emailRow'),
+    passBtn: document.getElementById('passBtn'),
+    approveBtn: document.getElementById('approveBtn')
+  };
+
+  function authGuard(res){
+    if(res.status === 401 || res.status === 403){
+      window.location = '/admin/login?next=/outreach-queue.html';
+      return true;
+    }
+    return false;
+  }
+
+  function esc(s){
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+    });
+  }
+
+  function stars(rating){
+    if(rating == null) return '';
+    var full = Math.round(rating);
+    var out = '';
+    for(var i=0;i<5;i++){ out += (i < full) ? '★' : '☆'; }
+    return out;
+  }
+
+  function tierClass(t){
+    if(t === 'high') return 'tier-high';
+    if(t === 'medium') return 'tier-medium';
+    return 'tier-low';
+  }
+  function tierLabel(t){
+    if(t === 'high') return 'High';
+    if(t === 'medium') return 'Medium';
+    return 'Low';
+  }
+
+  function webInfo(status){
+    if(status === 'no_website')        return {cls:'web-none',   label:'No website'};
+    if(status === 'has_website_dated') return {cls:'web-dated',  label:'Dated'};
+    if(status === 'has_website_modern')return {cls:'web-modern', label:'Modern'};
+    return {cls:'web-modern', label:'Unknown'};
+  }
+
+  function scoreColor(s){
+    if(s == null) return 'var(--grey)';
+    if(s > 70) return 'var(--green)';
+    if(s >= 50) return 'var(--amber)';
+    return 'var(--grey)';
+  }
+
+  function show(node){ node.classList.remove('hidden'); }
+  function hide(node){ node.classList.add('hidden'); }
+
+  function refreshStats(){
+    fetch('/api/admin/outreach/stats', {credentials:'same-origin'})
+      .then(function(res){
+        if(authGuard(res)) return null;
+        return res.json();
+      })
+      .then(function(s){
+        if(!s) return;
+        el.statsbar.innerHTML =
+          '<b>' + (s.awaiting_approval||0) + '</b> in queue &middot; ' +
+          '<b>' + (s.approved_today||0) + '</b> approved today &middot; ' +
+          '<b>' + (s.rejected_today||0) + '</b> rejected today';
+      })
+      .catch(function(){ /* non-fatal */ });
+  }
+
+  function renderCard(p){
+    current = p;
+    el.tierBadge.className = 'badge ' + tierClass(p.trade_tier);
+    el.tierBadge.textContent = esc(p.trade || '') + ' · ' + tierLabel(p.trade_tier);
+
+    var w = webInfo(p.website_status);
+    el.webBadge.className = 'badge ' + w.cls;
+    el.webBadge.textContent = w.label;
+
+    el.bizName.textContent = p.business_name || '(no name)';
+    el.loc.textContent = '📍 ' + (p.location || '');
+
+    if(p.rating != null){
+      el.ratingRow.innerHTML =
+        '<span class="stars">' + stars(p.rating) + '</span>' +
+        '<span>' + Number(p.rating).toFixed(1) + '</span>' +
+        '<span class="rc">(' + (p.review_count || 0) + ' reviews)</span>';
+    } else {
+      el.ratingRow.innerHTML = '<span class="rc">No rating</span>';
+    }
+
+    var score = (p.score == null) ? 0 : Math.round(p.score);
+    el.scoreNum.innerHTML = score + '<small>/100</small>';
+    el.scoreBar.style.width = Math.max(0, Math.min(100, score)) + '%';
+    el.scoreBar.style.background = scoreColor(p.score);
+
+    var links = [];
+    if(p.google_place_id){
+      links.push('<a href="https://www.google.com/maps/place/?q=place_id:' +
+        encodeURIComponent(p.google_place_id) + '" target="_blank" rel="noopener">Google listing ↗</a>');
+    }
+    if(p.website){
+      links.push('<a href="' + esc(p.website) + '" target="_blank" rel="noopener">Website ↗</a>');
+    }
+    el.links.innerHTML = links.join('');
+
+    if(p.email){
+      el.emailRow.innerHTML = 'Email: <b>' + esc(p.email) + '</b>';
+      show(el.emailRow);
+    } else {
+      hide(el.emailRow);
+    }
+
+    el.card.classList.remove('out-left','out-right');
+    hide(el.loading); hide(el.empty); show(el.card);
+  }
+
+  function showEmpty(){
+    current = null;
+    hide(el.loading); hide(el.card); show(el.empty);
+    if(reviewedThisSession > 0){
+      el.reviewedCount.textContent = 'You reviewed ' + reviewedThisSession +
+        ' prospect' + (reviewedThisSession === 1 ? '' : 's') + ' this session.';
+      show(el.reviewedCount);
+    }
+  }
+
+  function loadNext(){
+    fetch('/api/admin/outreach/queue/next', {credentials:'same-origin'})
+      .then(function(res){
+        if(authGuard(res)) return null;
+        return res.json();
+      })
+      .then(function(data){
+        if(!data) return;
+        if(data.queue_empty){ showEmpty(); }
+        else { renderCard(data); }
+      })
+      .catch(function(){
+        el.loading.innerHTML = '<p>Could not load the queue. Refresh to retry.</p>';
+      });
+  }
+
+  function decide(kind){
+    if(busy || !current) return;
+    busy = true;
+    var id = current.id;
+    var url = '/api/admin/outreach/queue/' + id + '/' + (kind === 'approve' ? 'approve' : 'reject');
+
+    // Animate the current card out immediately for a snappy feel.
+    el.card.classList.add(kind === 'approve' ? 'out-right' : 'out-left');
+
+    fetch(url, {method:'POST', credentials:'same-origin'})
+      .then(function(res){
+        if(authGuard(res)) return null;
+        return res.json();
+      })
+      .then(function(r){
+        reviewedThisSession++;
+        // Wait for the exit animation, then swap in the next card.
+        setTimeout(function(){
+          busy = false;
+          loadNext();
+          refreshStats();
+        }, 200);
+      })
+      .catch(function(){
+        busy = false;
+        el.card.classList.remove('out-left','out-right');
+        alert('Action failed — please retry.');
+      });
+  }
+
+  el.approveBtn.addEventListener('click', function(){ decide('approve'); });
+  el.passBtn.addEventListener('click', function(){ decide('reject'); });
+
+  document.addEventListener('keydown', function(e){
+    if(busy || !current) return;
+    var k = e.key;
+    if(k === 'ArrowRight' || k === 'y' || k === 'Y'){ e.preventDefault(); decide('approve'); }
+    else if(k === 'ArrowLeft' || k === 'n' || k === 'N' || k === 'x' || k === 'X'){ e.preventDefault(); decide('reject'); }
+  });
+
+  // Initial load.
+  refreshStats();
+  loadNext();
+})();
+</script>
+</body>
+</html>

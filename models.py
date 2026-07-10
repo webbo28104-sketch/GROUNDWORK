@@ -130,6 +130,69 @@ class Domain(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
+class Prospect(Base):
+    __tablename__ = "prospects"
+
+    id = Column(Integer, primary_key=True)
+    google_place_id = Column(String(255), unique=True, index=True)
+    business_name = Column(String(255))
+    trade = Column(String(100))
+    trade_search_term = Column(String(100))
+    trade_tier = Column(String(20))
+    location = Column(String(255))
+    postcode_area = Column(String(20))
+    rating = Column(Float, nullable=True)
+    review_count = Column(Integer, nullable=True)
+    business_status = Column(String(50))
+    phone = Column(String(50), nullable=True)
+    website = Column(String(500), nullable=True)
+    latitude = Column(Float, nullable=True)
+    longitude = Column(Float, nullable=True)
+    types = Column(JSON, nullable=True)
+    website_status = Column(String(30), nullable=True)
+    score = Column(Float, nullable=True)
+    email = Column(String(255), nullable=True)
+    email_source = Column(String(50), nullable=True)
+    email_found = Column(Boolean, default=False)
+    funnel_stage = Column(String(50), default="sourced")
+    approval_status = Column(String(20), default="pending")
+    approved_at = Column(DateTime, nullable=True)
+    token = Column(String(100), unique=True, nullable=True)
+    account_created_at = Column(DateTime, nullable=True)
+    screenshot_url = Column(String(500), nullable=True)
+    gif_url = Column(String(500), nullable=True)
+    email_version_sent = Column(String(50), nullable=True)
+    sms_version_sent = Column(String(50), nullable=True)
+    touch_count = Column(Integer, default=0)
+    discount_code = Column(String(50), nullable=True)
+    discount_expiry = Column(DateTime, nullable=True)
+    sent_at = Column(DateTime, nullable=True)
+    opened_at = Column(DateTime, nullable=True)
+    clicked_at = Column(DateTime, nullable=True)
+    paid_at = Column(DateTime, nullable=True)
+    sms_sent_at = Column(DateTime, nullable=True)
+    sms_delivered = Column(Boolean, nullable=True)
+    email_unsubscribed = Column(Boolean, default=False)
+    sms_unsubscribed = Column(Boolean, default=False)
+    raw_data = Column(JSON, nullable=True)
+    error_notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    processed_at = Column(DateTime, nullable=True)
+
+
+class SearchCell(Base):
+    __tablename__ = "search_cells"
+
+    id = Column(Integer, primary_key=True)
+    postcode_area = Column(String(20))
+    trade_search_term = Column(String(100))
+    last_searched_at = Column(DateTime, nullable=True)
+    search_count = Column(Integer, default=0)
+    results_found = Column(Integer, default=0)
+
+    __table_args__ = (UniqueConstraint("postcode_area", "trade_search_term", name="uq_search_cells_area_term"),)
+
+
 def _database_url() -> str:
     url = os.environ.get("DATABASE_URL", "")
     # Railway/Heroku-style URLs use the postgres:// scheme; SQLAlchemy 2.x requires postgresql://
@@ -160,6 +223,40 @@ def init_db():
     _ensure_column(Domain.__tablename__, "error_step", "VARCHAR(100)")
     _ensure_column(Domain.__tablename__, "error_message", "TEXT")
     _ensure_column(Domain.__tablename__, "is_internal", "BOOLEAN NOT NULL DEFAULT FALSE")
+    # Prospect / SearchCell columns — create_all() handles brand-new tables, but
+    # these _ensure_column calls backfill columns onto an older prospects table
+    # that predates a given field (same dependency-free migration pattern above).
+    _ensure_column(Prospect.__tablename__, "website_status", "VARCHAR(30)")
+    _ensure_column(Prospect.__tablename__, "score", "FLOAT")
+    _ensure_column(Prospect.__tablename__, "email", "VARCHAR(255)")
+    _ensure_column(Prospect.__tablename__, "email_source", "VARCHAR(50)")
+    _ensure_column(Prospect.__tablename__, "email_found", "BOOLEAN DEFAULT FALSE")
+    _ensure_column(Prospect.__tablename__, "funnel_stage", "VARCHAR(50)")
+    _ensure_column(Prospect.__tablename__, "approval_status", "VARCHAR(20)")
+    _ensure_column(Prospect.__tablename__, "approved_at", "TIMESTAMP")
+    _ensure_column(Prospect.__tablename__, "token", "VARCHAR(100)")
+    _ensure_column(Prospect.__tablename__, "account_created_at", "TIMESTAMP")
+    _ensure_column(Prospect.__tablename__, "screenshot_url", "VARCHAR(500)")
+    _ensure_column(Prospect.__tablename__, "gif_url", "VARCHAR(500)")
+    _ensure_column(Prospect.__tablename__, "email_version_sent", "VARCHAR(50)")
+    _ensure_column(Prospect.__tablename__, "sms_version_sent", "VARCHAR(50)")
+    _ensure_column(Prospect.__tablename__, "touch_count", "INTEGER DEFAULT 0")
+    _ensure_column(Prospect.__tablename__, "discount_code", "VARCHAR(50)")
+    _ensure_column(Prospect.__tablename__, "discount_expiry", "TIMESTAMP")
+    _ensure_column(Prospect.__tablename__, "sent_at", "TIMESTAMP")
+    _ensure_column(Prospect.__tablename__, "opened_at", "TIMESTAMP")
+    _ensure_column(Prospect.__tablename__, "clicked_at", "TIMESTAMP")
+    _ensure_column(Prospect.__tablename__, "paid_at", "TIMESTAMP")
+    _ensure_column(Prospect.__tablename__, "sms_sent_at", "TIMESTAMP")
+    _ensure_column(Prospect.__tablename__, "sms_delivered", "BOOLEAN")
+    _ensure_column(Prospect.__tablename__, "email_unsubscribed", "BOOLEAN DEFAULT FALSE")
+    _ensure_column(Prospect.__tablename__, "sms_unsubscribed", "BOOLEAN DEFAULT FALSE")
+    _ensure_column(Prospect.__tablename__, "raw_data", "JSON")
+    _ensure_column(Prospect.__tablename__, "error_notes", "TEXT")
+    _ensure_column(Prospect.__tablename__, "processed_at", "TIMESTAMP")
+    _ensure_column(SearchCell.__tablename__, "last_searched_at", "TIMESTAMP")
+    _ensure_column(SearchCell.__tablename__, "search_count", "INTEGER DEFAULT 0")
+    _ensure_column(SearchCell.__tablename__, "results_found", "INTEGER DEFAULT 0")
 
 
 def _ensure_column(table_name: str, column_name: str, ddl_type: str) -> None:
