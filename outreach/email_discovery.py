@@ -1,17 +1,46 @@
 """
 Email discovery helpers for the outreach pipeline (Track A).
 
-The Claude web-search step has been removed. The pipeline now inserts a
-PendingEmailDiscovery row for each prospect; Cowork performs the web search
-within its own session and writes the result back via:
+The pipeline inserts a PendingEmailDiscovery row for each prospect; Cowork
+performs the search within its own session and writes the result back via:
     python outreach/apply_result.py email <prospect_id> <found@email.com|null>
 
-The validation helpers below are kept here so apply_result.py can import and
-run them before accepting any submitted email address.
+═══════════════════════════════════════════════════════════════════════════════
+INSTRUCTIONS FOR COWORK — search source order
+═══════════════════════════════════════════════════════════════════════════════
 
-Hard rule (enforced in apply_result.py): only accept emails that were actually
-found on a real web page. Never guess, pattern-match, or infer an address from
-the business name or domain.
+Check sources in this exact order. Stop as soon as a genuine email is found.
+
+  1. The business's own website (if one exists)
+     — look for mailto: links and plain-text addresses on contact/about pages.
+
+  2. Facebook Business Page
+     — search "< business name > < location > Facebook" and check the
+       About/Contact section of any matching page.
+
+  3. UK trade directories — in order:
+       Checkatrade → Yell → TrustATrader → Rated People → Bark →
+       MyBuilder → FreeIndex
+     These commonly list contact emails for businesses without their own site,
+     which is exactly the no_website segment (our highest-scoring prospects).
+
+  4. General web search as a final fallback.
+
+CRITICAL — no_website prospects (website field is null/empty):
+  Step 1 is unavailable by definition. You MUST still check steps 2 and 3
+  before concluding no email exists. A plain Google search alone is not enough
+  for this segment — directories are where their contact details live.
+  If a previous run only tried step 1 or a generic search for a no_website
+  prospect, re-run it explicitly against directories before logging null.
+
+HARD RULE: only submit emails you actually saw on a real page. Never
+  guess, pattern-match, or infer an address (e.g. info@businessname.co.uk).
+  After checking all four source types with nothing found → submit null.
+
+═══════════════════════════════════════════════════════════════════════════════
+
+The validation helpers below are used by apply_result.py before accepting
+any submitted email address.
 """
 import re
 import logging

@@ -51,9 +51,14 @@ For every candidate, tag as one of:
 
 ## 4. Email Discovery (for gated/qualified candidates only, not full raw pool)
 
-- **Method:** Claude web search — look up the business name + location, check Facebook Page and general web search results for a genuine published email
-- **Hard rule:** Never generate/guess a plausible email (e.g. info@businessname.co.uk pattern-matching). Only extract emails actually found in a source. If none found, log as `qualified_no_email` and exclude from that day's send — do not drop the record.
-- Not using a paid tool (Hunter.io etc.) — these rely on a known domain, which no-website businesses don't have by definition. Free/agentic route only for now; revisit only if discovery rate proves too low.
+- **Method**: Claude web search — check sources in this order:
+  1. The business's own website, if one exists (`mailto:` links, plain-text address on contact/about pages)
+  2. Facebook Business Page
+  3. UK trade directories: Checkatrade, Yell, TrustATrader, Rated People, Bark, MyBuilder, FreeIndex — these commonly list contact emails for businesses that don't have their own site, which is exactly the segment most likely to depend on directories rather than a website for bookings
+  4. General web search as a final fallback
+- **Critical for `no_website` prospects specifically**: since step 1 is unavailable for this segment by definition, discovery *must* actively check steps 2-3 rather than defaulting to a plain web search — this segment scores highest (Section 5) precisely because it's the strongest pitch, so a search method that systematically fails on it undermines the whole prioritization. If a no-website prospect's email discovery only attempted step 1 or a generic search, re-run it explicitly against directories before logging as `qualified_no_email`.
+- **Hard rule**: Never generate/guess a plausible email (e.g. info@businessname.co.uk pattern-matching). Only extract emails actually found in a source. If none found after checking all four source types, log as `qualified_no_email` and exclude from that day's send — do not drop the record.
+- **Not using a paid tool** (Hunter.io etc.) — these rely on a known domain, which no-website businesses don't have by definition. Free/agentic route only for now; revisit only if discovery rate proves too low.
 
 ---
 
