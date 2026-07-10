@@ -1606,7 +1606,47 @@ def _render_dashboard(email: str) -> str:
         domain_site_id = primary_gen.lead.public_id if primary_gen else ""
         domain_search_href = "/domain-search.html" + (f"?id={domain_site_id}" if domain_site_id else "")
 
-        domain_card = f"""<div class="acct-card">
+        # Domains purchased by this email
+        purchased_domains = db.query(Domain).filter(
+            Domain.customer_email == email,
+            Domain.is_internal == False,
+        ).order_by(Domain.created_at.desc()).all()
+
+        domain_rows_html = ""
+        for pd in purchased_domains:
+            if pd.status == "active":
+                badge = '<span style="background:#D1FAE5;color:#065F46;font-size:11.5px;font-weight:700;padding:3px 9px;border-radius:20px;">Live</span>'
+            elif pd.status == "needs_manual_setup":
+                badge = '<span style="background:#FEF3C7;color:#92400E;font-size:11.5px;font-weight:700;padding:3px 9px;border-radius:20px;">Setting up</span>'
+            else:
+                badge = '<span style="background:#EAF1FD;color:#1E40AF;font-size:11.5px;font-weight:700;padding:3px 9px;border-radius:20px;">Setting up</span>'
+            domain_rows_html += (
+                f'<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;'
+                f'padding:12px 0;border-bottom:1px solid #F0EDE7;">'
+                f'<div style="display:flex;align-items:center;gap:10px;min-width:0;">'
+                f'{badge}'
+                f'<span style="font-weight:600;font-size:14.5px;word-break:break-all;">{escape(pd.domain)}</span>'
+                f'</div>'
+                f'<a href="/domain-status.html?domain={escape(pd.domain)}" '
+                f'style="flex-shrink:0;font-size:13.5px;font-weight:600;color:#3B82F6;text-decoration:none;">View status →</a>'
+                f'</div>'
+            )
+
+        if domain_rows_html:
+            domain_card = f"""<div class="acct-card">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;">
+            <div style="display:flex;align-items:center;gap:12px;">
+              <div style="width:34px;height:34px;border-radius:9px;background:#EAF1FD;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#3B82F6" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+              </div>
+              <div style="font-weight:700;font-size:17px;">Your domains</div>
+            </div>
+            <a href="{domain_search_href}" style="font-size:13.5px;font-weight:600;color:#3B82F6;text-decoration:none;white-space:nowrap;">+ Add domain</a>
+          </div>
+          <div style="border-top:1px solid #F0EDE7;">{domain_rows_html}</div>
+        </div>"""
+        else:
+            domain_card = f"""<div class="acct-card">
           <div style="display:flex;align-items:center;gap:12px;margin-bottom:4px;">
             <div style="width:34px;height:34px;border-radius:9px;background:#EAF1FD;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
               <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#3B82F6" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
@@ -3132,10 +3172,37 @@ def domain_checkout_session():
         metadata={"type": "domain", "domain": domain, "site_id": site_id,
                   "price_gbp": str(price_gbp), "wholesale_gbp": str(wholesale_gbp)},
         client_reference_id=site_id or domain,
-        success_url=f"{SITE_URL}/account?domain_ordered={domain}",
+        success_url=f"{SITE_URL}/domain-ordered.html?domain={domain}",
         cancel_url=cancel_url,
     )
     return jsonify({"url": cs.url})
+
+
+@app.route("/api/domain/status")
+def api_domain_status():
+    """Public status endpoint for a domain row, keyed by domain name.
+    Returns enough info for the status page to render the pipeline steps."""
+    domain = request.args.get("domain", "").strip().lower()
+    if not domain or "." not in domain:
+        return jsonify({"error": "missing domain"}), 400
+    db = SessionLocal()
+    try:
+        dom = db.query(Domain).filter(Domain.domain == domain).first()
+        if not dom:
+            return jsonify({"error": "not_found"}), 404
+        return jsonify({
+            "domain":                 dom.domain,
+            "status":                 dom.status,
+            "error_step":             dom.error_step,
+            "error_message":          dom.error_message,
+            "registered_at":          dom.registered_at.isoformat() if dom.registered_at else None,
+            "cloudflare_connected_at": dom.cloudflare_connected_at.isoformat() if dom.cloudflare_connected_at else None,
+            "dns_configured_at":      dom.dns_configured_at.isoformat() if dom.dns_configured_at else None,
+            "live_email_sent_at":     dom.live_email_sent_at.isoformat() if dom.live_email_sent_at else None,
+            "created_at":             dom.created_at.isoformat() if dom.created_at else None,
+        })
+    finally:
+        db.close()
 
 
 # ---------------------------------------------------------------------------
