@@ -3779,6 +3779,36 @@ def frontend(path):
     return send_from_directory(frontend_dir, "index.html")
 
 
+@app.route("/admin/one-time-seed-sussex-domain", methods=["POST"])
+@admin_required
+def _one_time_seed_sussex_domain():
+    db = SessionLocal()
+    try:
+        existing = db.query(Domain).filter(Domain.domain == "sussexleadcraftltd.com").first()
+        if existing:
+            return jsonify({"status": "already_exists", "id": existing.id, "domain_status": existing.status})
+        now = datetime.utcnow()
+        d = Domain(
+            generation_id=8,
+            domain="sussexleadcraftltd.com",
+            status="active",
+            price_gbp=8.75,
+            wholesale_gbp=8.75,
+            margin_gbp=0.0,
+            is_internal=True,
+            customer_email="sussexleadcraftltd@gmail.com",
+            registered_at=now,
+            cloudflare_connected_at=now,
+            dns_configured_at=now,
+        )
+        db.add(d)
+        db.commit()
+        db.refresh(d)
+        return jsonify({"status": "created", "id": d.id})
+    finally:
+        db.close()
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)

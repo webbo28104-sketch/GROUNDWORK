@@ -126,6 +126,7 @@ class Domain(Base):
     live_email_sent_at = Column(DateTime, nullable=True)
     error_step = Column(String(100), nullable=True)
     error_message = Column(Text, nullable=True)
+    is_internal = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
@@ -158,6 +159,7 @@ def init_db():
     _ensure_column(Domain.__tablename__, "margin_gbp", "FLOAT")
     _ensure_column(Domain.__tablename__, "error_step", "VARCHAR(100)")
     _ensure_column(Domain.__tablename__, "error_message", "TEXT")
+    _ensure_column(Domain.__tablename__, "is_internal", "BOOLEAN NOT NULL DEFAULT FALSE")
 
 
 def _ensure_column(table_name: str, column_name: str, ddl_type: str) -> None:
