@@ -28,6 +28,8 @@ Automated daily pipeline: source UK trade businesses → qualify → generate a 
 
 ## 3. Website Condition Check
 
+**⚠️ OPEN ISSUE — needs reconfiguration before scaling volume**: the checklist below currently judges only *visual* staleness (layout, design cues, CTA presence, stale content signals). It does not check *content depth* — several businesses tagged `dated` in review have turned out to have more detailed, complete sites (more service pages, real project portfolios, fuller copy) than Groundwork's generator currently produces. Pitching "we'll upgrade you" to a business whose existing site is actually more substantial than the replacement undermines the whole approach. The check needs a second dimension — comparing content completeness against what the generator actually delivers — not just visual polish, so outreach only targets genuinely sub-par sites, not merely visually outdated ones with real substance behind them.
+
 For every candidate, tag as one of:
 
 - `no_website`
