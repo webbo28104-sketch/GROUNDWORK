@@ -1356,6 +1356,79 @@ button{background:#3B82F6;color:#fff;border:0;font-weight:700;padding:12px 22px;
 .badge-test{display:inline-block;background:#B8976A;color:#fff;font-size:10.5px;font-weight:700;letter-spacing:.04em;padding:2px 7px;border-radius:4px;margin-left:8px;vertical-align:middle;}
 """
 
+_ADMIN_STYLE = """
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;}
+body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#F5F3EE;color:#1C1C1C;min-height:100vh;display:flex;flex-direction:column;}
+/* header */
+.adm-header{background:#1C1C1C;border-bottom:1px solid #2C2C2C;position:sticky;top:0;z-index:100;}
+.adm-header-inner{max-width:1400px;margin:0 auto;padding:0 28px;height:64px;display:flex;align-items:center;justify-content:space-between;gap:20px;}
+.adm-logo{display:flex;align-items:center;gap:10px;text-decoration:none;}
+.adm-logo span{color:#fff;font-weight:800;font-size:19px;letter-spacing:-.03em;}
+.adm-badge{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;background:#2C2C2C;color:#9A9893;padding:3px 7px;border-radius:5px;margin-left:2px;}
+.adm-nav{display:flex;align-items:center;gap:4px;}
+.adm-nav a{color:#9A9893;text-decoration:none;font-size:13px;font-weight:600;padding:6px 11px;border-radius:7px;transition:background .12s,color .12s;}
+.adm-nav a:hover{background:#2C2C2C;color:#fff;}
+.adm-nav a.active{background:#2C2C2C;color:#fff;}
+.adm-nav .adm-logout{color:#6B7280;margin-left:6px;}
+/* content */
+.adm-main{flex:1;max-width:1400px;margin:0 auto;width:100%;padding:32px 28px 72px;}
+.adm-title{font-size:22px;font-weight:800;letter-spacing:-.02em;margin:0 0 4px;}
+.adm-sub{color:#5C5A56;font-size:13.5px;margin:0 0 24px;}
+.adm-sub a{color:#3B82F6;text-decoration:none;font-weight:600;}
+.adm-sub a:hover{text-decoration:underline;}
+/* table card */
+.adm-card{background:#fff;border:1px solid #E2E0DA;border-radius:14px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.04);}
+table{width:100%;border-collapse:collapse;font-size:13.5px;}
+th{text-align:left;padding:11px 14px;background:#FAFAF8;border-bottom:1px solid #E2E0DA;color:#5C5A56;font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap;}
+td{text-align:left;padding:11px 14px;border-bottom:1px solid #F0EDE8;vertical-align:middle;}
+tr:last-child td{border-bottom:none;}
+tr:hover td{background:#FAFAF8;}
+a{color:#3B82F6;text-decoration:none;}
+a:hover{text-decoration:underline;}
+.muted{color:#9A9893;font-size:13px;}
+.badge-test{display:inline-block;background:#B8976A;color:#fff;font-size:10px;font-weight:700;letter-spacing:.04em;padding:2px 7px;border-radius:4px;margin-left:6px;vertical-align:middle;}
+.status-pill{display:inline-block;font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;letter-spacing:.02em;}
+"""
+
+_GW_LOGO_SVG = '<svg viewBox="0 0 48 48" width="28" height="28" fill="none"><path d="M 37 13.1 A 17 17 0 1 0 41 24 L 27 24" stroke="#3B82F6" stroke-width="4.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M 30.9 18.2 A 9 9 0 1 0 30.9 29.8" stroke="#3B82F6" stroke-width="4.6" stroke-linecap="round"/></svg>'
+
+def _admin_page(title: str, content: str, active: str = "") -> str:
+    """Wrap admin content in the shared dark-header shell."""
+    nav_items = [
+        ("Sites",    "/admin/generations",    "generations"),
+        ("Domains &amp; margins", "/admin/domains", "domains"),
+        ("Outreach", "/outreach-queue.html",  "outreach"),
+    ]
+    nav_html = "".join(
+        f'<a href="{href}" class="{"active" if active == key else ""}">{label}</a>'
+        for label, href, key in nav_items
+    )
+    return f"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{title} — Groundwork Admin</title>
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
+<link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>{_ADMIN_STYLE}</style></head>
+<body>
+<header class="adm-header">
+  <div class="adm-header-inner">
+    <div style="display:flex;align-items:center;gap:14px;">
+      <a class="adm-logo" href="/index.html">{_GW_LOGO_SVG}<span>Groundwork</span></a>
+      <span class="adm-badge">Admin</span>
+    </div>
+    <nav class="adm-nav">
+      {nav_html}
+      <a href="/admin/logout" class="adm-logout">Log out</a>
+    </nav>
+  </div>
+</header>
+<main class="adm-main">{content}</main>
+</body></html>"""
+
 # Shared nav/footer markup so /account and other Flask-rendered pages match the
 # static frontend pages' look, since there's no shared CSS file in this repo —
 # every page (including frontend/index.html) inlines its own styles.
@@ -2184,18 +2257,21 @@ def admin_generations():
                 'style="color:#9B2B1A;font-weight:800;text-decoration:none;">×</a></td></tr>'
             )
         rows = "".join(row_parts)
-        return render_template_string(f"""<!DOCTYPE html><html><head><meta charset="utf-8">
-<title>Admin — generations</title><link rel="icon" type="image/x-icon" href="/favicon.ico"><link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png"><style>{_PAGE_STYLE}</style></head>
-<body><div class="wrap" style="max-width:1250px;">
-<h1>All generations ({len(gens)})
-<a href="/admin/generate-test" style="float:right;font-size:13px;margin-left:18px;">+ Generate test</a>
-<a href="/outreach-queue.html" style="float:right;font-size:13px;margin-left:18px;">Outreach queue</a>
-<a href="/admin/domains" style="float:right;font-size:13px;margin-left:18px;">Domains &amp; margins</a>
-<a href="/admin/logout" style="float:right;font-size:13px;margin-left:18px;">Log out</a></h1>
-<p class="muted">× deletes the entire account for that email — login, every lead, and every generated site — as if they'd never signed up. To connect a real domain to any generation (including the marketing hero examples), copy its public id from a "Preview"/"Edit text" link below, then use the domain search page.</p>
-<p><a href="{SITE_URL}/domain-search.html" target="_blank" rel="noopener" style="font-weight:700;">Find/buy a domain →</a></p>
-<table><thead><tr><th>Business</th><th>Email</th><th>Created</th><th>Status</th><th>Domain</th><th>Links</th><th></th></tr></thead>
-<tbody>{rows}</tbody></table></div>
+        content = f"""
+<h1 class="adm-title">All sites <span style="color:#9A9893;font-weight:600;font-size:17px;">({len(gens)})</span></h1>
+<p class="adm-sub">
+  × removes the entire account — login, every lead, and every generated site.
+  To connect a domain, grab the public id from Preview/Edit below, then use
+  <a href="{SITE_URL}/domain-search.html" target="_blank" rel="noopener">domain search →</a>
+  &nbsp;·&nbsp;
+  <a href="/admin/generate-test">+ Generate test site</a>
+</p>
+<div class="adm-card">
+<table><thead><tr>
+  <th>Business</th><th>Email</th><th>Created</th><th>Status</th><th>Domain</th><th>Links</th><th></th>
+</tr></thead>
+<tbody>{rows}</tbody></table>
+</div>
 <script>
 async function gwDeleteAccount(email) {{
   if (!confirm(`Delete the ENTIRE account for ${{email}}? This removes their login, every lead, and every generated site for this email — cannot be undone.`)) return false;
@@ -2208,8 +2284,8 @@ async function gwDeleteAccount(email) {{
   }}
   return false;
 }}
-</script>
-</body></html>""")
+</script>"""
+        return render_template_string(_admin_page("Sites", content, active="generations"))
     finally:
         db.close()
 
@@ -2272,17 +2348,22 @@ def admin_domains():
         rows = "".join(row_parts)
         total_sale = sum(d.price_gbp or 0 for d in doms)
         total_margin = sum(d.margin_gbp or 0 for d in doms)
-        return render_template_string(f"""<!DOCTYPE html><html><head><meta charset="utf-8">
-<title>Admin — domains</title><link rel="icon" type="image/x-icon" href="/favicon.ico"><link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png"><style>{_PAGE_STYLE}</style></head>
-<body><div class="wrap" style="max-width:1300px;">
-<h1>Customer domains &amp; margins ({len(doms)})
-<a href="/outreach-queue.html" style="float:right;font-size:13px;margin-left:18px;">Outreach queue</a>
-<a href="/admin/generations" style="float:right;font-size:13px;margin-left:18px;">Generations</a>
-<a href="/admin/logout" style="float:right;font-size:13px;margin-left:18px;">Log out</a></h1>
-<p class="muted">Sale/cost/margin are snapshotted at purchase time per domain, not recomputed from current pricing. Totals: £{total_sale:.2f} sold / £{total_margin:.2f} margin.</p>
-<table><thead><tr><th>Domain</th><th>Status</th><th>Purchased</th><th>Sale price</th><th>Cost</th><th>Margin</th><th>Customer</th><th>Registered</th><th>Cloudflare connected</th><th>DNS configured</th></tr></thead>
-<tbody>{rows}</tbody></table></div>
-</body></html>""")
+        content = f"""
+<h1 class="adm-title">Customer domains <span style="color:#9A9893;font-weight:600;font-size:17px;">({len(doms)})</span></h1>
+<p class="adm-sub">
+  Sale/cost/margin snapshotted at purchase time — not recomputed from current pricing.
+  &nbsp;·&nbsp; <strong style="color:#1C1C1C;">£{total_sale:.2f}</strong> sold
+  &nbsp;·&nbsp; <strong style="color:#1C1C1C;">£{total_margin:.2f}</strong> margin
+</p>
+<div class="adm-card">
+<table><thead><tr>
+  <th>Domain</th><th>Status</th><th>Purchased</th>
+  <th>Sale</th><th>Cost</th><th>Margin</th>
+  <th>Customer</th><th>Registered</th><th>Cloudflare</th><th>DNS</th>
+</tr></thead>
+<tbody>{rows}</tbody></table>
+</div>"""
+        return render_template_string(_admin_page("Domains &amp; margins", content, active="domains"))
     finally:
         db.close()
 
