@@ -2188,9 +2188,10 @@ def admin_generations():
 <title>Admin — generations</title><link rel="icon" type="image/x-icon" href="/favicon.ico"><link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png"><style>{_PAGE_STYLE}</style></head>
 <body><div class="wrap" style="max-width:1250px;">
 <h1>All generations ({len(gens)})
-<a href="/admin/generate-test" style="float:right;font-size:13px;margin-left:18px;">+ Generate test site</a>
-<a href="/admin/domains" style="float:right;font-size:13px;margin-left:18px;">Domains</a>
-<a href="/admin/logout" style="float:right;font-size:13px;">Log out</a></h1>
+<a href="/admin/generate-test" style="float:right;font-size:13px;margin-left:18px;">+ Generate test</a>
+<a href="/outreach-queue.html" style="float:right;font-size:13px;margin-left:18px;">Outreach queue</a>
+<a href="/admin/domains" style="float:right;font-size:13px;margin-left:18px;">Domains &amp; margins</a>
+<a href="/admin/logout" style="float:right;font-size:13px;margin-left:18px;">Log out</a></h1>
 <p class="muted">× deletes the entire account for that email — login, every lead, and every generated site — as if they'd never signed up. To connect a real domain to any generation (including the marketing hero examples), copy its public id from a "Preview"/"Edit text" link below, then use the domain search page.</p>
 <p><a href="{SITE_URL}/domain-search.html" target="_blank" rel="noopener" style="font-weight:700;">Find/buy a domain →</a></p>
 <table><thead><tr><th>Business</th><th>Email</th><th>Created</th><th>Status</th><th>Domain</th><th>Links</th><th></th></tr></thead>
@@ -2274,8 +2275,9 @@ def admin_domains():
         return render_template_string(f"""<!DOCTYPE html><html><head><meta charset="utf-8">
 <title>Admin — domains</title><link rel="icon" type="image/x-icon" href="/favicon.ico"><link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png"><style>{_PAGE_STYLE}</style></head>
 <body><div class="wrap" style="max-width:1300px;">
-<h1>Customer domains ({len(doms)})
-<a href="/admin/generations" style="float:right;font-size:13px;">Generations</a>
+<h1>Customer domains &amp; margins ({len(doms)})
+<a href="/outreach-queue.html" style="float:right;font-size:13px;margin-left:18px;">Outreach queue</a>
+<a href="/admin/generations" style="float:right;font-size:13px;margin-left:18px;">Generations</a>
 <a href="/admin/logout" style="float:right;font-size:13px;margin-left:18px;">Log out</a></h1>
 <p class="muted">Sale/cost/margin are snapshotted at purchase time per domain, not recomputed from current pricing. Totals: £{total_sale:.2f} sold / £{total_margin:.2f} margin.</p>
 <table><thead><tr><th>Domain</th><th>Status</th><th>Purchased</th><th>Sale price</th><th>Cost</th><th>Margin</th><th>Customer</th><th>Registered</th><th>Cloudflare connected</th><th>DNS configured</th></tr></thead>
