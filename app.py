@@ -2995,6 +2995,229 @@ def admin_outreach():
     return redirect("/outreach-queue.html")
 
 
+# ---------------------------------------------------------------------------
+# Outreach judgment API — bearer-token-authenticated endpoints for Cowork to
+# perform vision and email discovery judgments over plain HTTPS without needing
+# local database or filesystem access.
+#
+# Auth: Authorization: Bearer <OUTREACH_API_TOKEN>
+#   (separate from the session-cookie admin_required used by the dashboard UI)
+# ---------------------------------------------------------------------------
+
+def _check_outreach_token():
+    """Return a 401 response if the request doesn't carry a valid bearer token,
+    or None if auth passes. Call at the top of each judgment endpoint."""
+    expected = os.environ.get("OUTREACH_API_TOKEN", "")
+    if not expected:
+        return jsonify({"error": "OUTREACH_API_TOKEN not configured on server"}), 500
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer ") or auth[len("Bearer "):] != expected:
+        return jsonify({"error": "Unauthorized"}), 401
+    return None
+
+
+def _outreach_finalize(db, prospect):
+    """Mirror of apply_result.py _try_finalize — score and advance stage when
+    both pending queues are clear for this prospect."""
+    from outreach.scorer import score_prospect as _score
+    vision_pending = db.query(PendingVisionCheck).filter(
+        PendingVisionCheck.prospect_id == prospect.id).first()
+    email_pending = db.query(PendingEmailDiscovery).filter(
+        PendingEmailDiscovery.prospect_id == prospect.id).first()
+    if vision_pending or email_pending:
+        return  # still waiting on the other side
+    prospect.score = _score(prospect)
+    if prospect.email_found:
+        prospect.funnel_stage = "awaiting_approval"
+        prospect.approval_status = "pending"
+    else:
+        prospect.funnel_stage = "qualified_no_email"
+    prospect.processed_at = datetime.utcnow()
+    db.commit()
+
+
+@app.route("/api/admin/outreach/pending")
+def outreach_pending():
+    """Return all prospects currently in the pending vision-check or email-
+    discovery queues, with enough detail for Cowork to judge them over HTTP."""
+    denied = _check_outreach_token()
+    if denied:
+        return denied
+
+    db = SessionLocal()
+    try:
+        vision_rows = (
+            db.query(PendingVisionCheck, Prospect)
+            .join(Prospect, PendingVisionCheck.prospect_id == Prospect.id)
+            .order_by(PendingVisionCheck.id)
+            .all()
+        )
+        email_rows = (
+            db.query(PendingEmailDiscovery, Prospect)
+            .join(Prospect, PendingEmailDiscovery.prospect_id == Prospect.id)
+            .order_by(PendingEmailDiscovery.id)
+            .all()
+        )
+
+        pending_vision = [
+            {
+                "vision_check_id": vc.id,
+                "prospect_id": p.id,
+                "business_name": p.business_name,
+                "trade": p.trade,
+                "trade_tier": p.trade_tier,
+                "location": p.location,
+                "website": p.website,
+                "rating": p.rating,
+                "review_count": p.review_count,
+                "phone": p.phone,
+                "google_place_id": p.google_place_id,
+                "queued_at": vc.created_at.isoformat() if vc.created_at else None,
+            }
+            for vc, p in vision_rows
+        ]
+
+        pending_email = [
+            {
+                "email_discovery_id": ed.id,
+                "prospect_id": p.id,
+                "business_name": p.business_name,
+                "trade": p.trade,
+                "trade_tier": p.trade_tier,
+                "location": p.location,
+                "postcode_area": p.postcode_area,
+                "website": p.website,
+                "website_status": p.website_status,
+                "phone": p.phone,
+                "google_place_id": p.google_place_id,
+                "queued_at": ed.created_at.isoformat() if ed.created_at else None,
+            }
+            for ed, p in email_rows
+        ]
+
+        return jsonify({
+            "pending_vision": pending_vision,
+            "pending_email": pending_email,
+            "counts": {
+                "pending_vision": len(pending_vision),
+                "pending_email": len(pending_email),
+            },
+        })
+    finally:
+        db.close()
+
+
+@app.route("/api/admin/outreach/apply-vision", methods=["POST"])
+def outreach_apply_vision():
+    """Apply a website vision-check verdict for a prospect.
+    Body: {"prospect_id": <int>, "website_status": <str>}
+    Valid website_status values: no_website | has_website_dated | has_website_modern
+    """
+    denied = _check_outreach_token()
+    if denied:
+        return denied
+
+    body = request.get_json(silent=True) or {}
+    prospect_id = body.get("prospect_id")
+    website_status = body.get("website_status")
+
+    valid_statuses = {"no_website", "has_website_dated", "has_website_modern"}
+    if not prospect_id or website_status not in valid_statuses:
+        return jsonify({
+            "error": "prospect_id (int) and website_status (one of: "
+                     + ", ".join(sorted(valid_statuses)) + ") are required"
+        }), 400
+
+    db = SessionLocal()
+    try:
+        p = db.get(Prospect, prospect_id)
+        if not p:
+            return jsonify({"error": f"Prospect {prospect_id} not found"}), 404
+
+        p.website_status = website_status
+        deleted = db.query(PendingVisionCheck).filter(
+            PendingVisionCheck.prospect_id == prospect_id).delete()
+        db.commit()
+
+        _outreach_finalize(db, p)
+
+        return jsonify({
+            "status": "ok",
+            "prospect_id": p.id,
+            "business_name": p.business_name,
+            "website_status": website_status,
+            "vision_row_deleted": bool(deleted),
+            "funnel_stage": p.funnel_stage,
+        })
+    finally:
+        db.close()
+
+
+@app.route("/api/admin/outreach/apply-email", methods=["POST"])
+def outreach_apply_email():
+    """Apply an email discovery result for a prospect.
+    Body: {"prospect_id": <int>, "email": <str|null>, "source": <str>}
+    Hard rule: only submit emails found on a real page — guessed addresses
+    (pattern-matched from business name/domain) are rejected.
+    """
+    denied = _check_outreach_token()
+    if denied:
+        return denied
+
+    from outreach.email_discovery import is_valid_email, looks_like_guess
+
+    body = request.get_json(silent=True) or {}
+    prospect_id = body.get("prospect_id")
+    email_raw = body.get("email")  # may be None/null
+    source = body.get("source", "web_search")
+    force = bool(body.get("force", False))
+
+    if not prospect_id:
+        return jsonify({"error": "prospect_id is required"}), 400
+
+    email = None if not email_raw else str(email_raw).strip()
+
+    db = SessionLocal()
+    try:
+        p = db.get(Prospect, prospect_id)
+        if not p:
+            return jsonify({"error": f"Prospect {prospect_id} not found"}), 404
+
+        if email:
+            if not is_valid_email(email):
+                return jsonify({"error": f"'{email}' is not a valid email address"}), 422
+            if not force and looks_like_guess(email, p.business_name, p.website):
+                return jsonify({
+                    "error": (
+                        f"'{email}' looks like a pattern-match guess for '{p.business_name}'. "
+                        "Only submit addresses actually found on a real page. "
+                        "Pass force=true to override."
+                    )
+                }), 422
+            p.email = email
+            p.email_source = source
+            p.email_found = True
+        else:
+            p.email_found = False
+
+        deleted = db.query(PendingEmailDiscovery).filter(
+            PendingEmailDiscovery.prospect_id == prospect_id).delete()
+        db.commit()
+
+        _outreach_finalize(db, p)
+
+        return jsonify({
+            "status": "ok",
+            "prospect_id": p.id,
+            "business_name": p.business_name,
+            "email": p.email,
+            "email_found": p.email_found,
+            "email_row_deleted": bool(deleted),
+            "funnel_stage": p.funnel_stage,
+        })
+    finally:
+        db.close()
+
 
 @app.route("/api/generate/<job_id>/status")
 def job_status(job_id):
