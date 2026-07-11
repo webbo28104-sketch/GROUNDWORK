@@ -22,11 +22,19 @@ Apply an email discovery result:
     python outreach/apply_result.py email <prospect_id> <email_or_null>
 
     email_or_null: a real email address, or the literal word "null"
-    Optional: --source web_search|facebook  (default: web_search)
+    Optional: --source web_search|facebook|checkatrade|yell|directory  (default: web_search)
 
     Hard rule: only submit emails you actually found on a real page.
     The script rejects addresses that look like pattern-match guesses.
     Use --force to bypass the guess check if you're certain it's real.
+
+Reset qualified_no_email prospects back into the pending email queue:
+    python outreach/apply_result.py requeue-email <prospect_id>
+    python outreach/apply_result.py requeue-email --all-no-email
+
+    Clears the previous null result and inserts a fresh PendingEmailDiscovery
+    row so the email search can be re-run (e.g. with updated directory-first
+    logic). Vision check result and website_status are untouched.
 
 Examples:
     python outreach/apply_result.py pending
@@ -34,7 +42,9 @@ Examples:
     python outreach/apply_result.py vision 43 no_website
     python outreach/apply_result.py email 42 hello@johnsmith.co.uk
     python outreach/apply_result.py email 43 null
-    python outreach/apply_result.py email 44 info@biz.com --source facebook
+    python outreach/apply_result.py email 44 info@biz.com --source checkatrade
+    python outreach/apply_result.py requeue-email 43
+    python outreach/apply_result.py requeue-email --all-no-email
 """
 import sys, os, argparse, logging
 from datetime import datetime
@@ -237,6 +247,75 @@ def cmd_email(prospect_id, email_raw, source="web_search", force=False):
         db.close()
 
 
+def cmd_requeue_email(prospect_id=None, all_no_email=False):
+    """Reset qualified_no_email prospects back into the pending email queue.
+
+    Clears the old null result and inserts a fresh PendingEmailDiscovery row
+    so the search can be re-run. Vision check result and website_status are
+    left untouched — only the email side is reset.
+    """
+    db = SessionLocal()
+    try:
+        if all_no_email:
+            prospects = (
+                db.query(Prospect)
+                .filter(Prospect.funnel_stage == "qualified_no_email")
+                .order_by(Prospect.id)
+                .all()
+            )
+            if not prospects:
+                print("No qualified_no_email prospects found — nothing to requeue.")
+                return
+        else:
+            p = db.get(Prospect, prospect_id)
+            if not p:
+                print(f"ERROR: Prospect {prospect_id} not found", file=sys.stderr)
+                sys.exit(1)
+            if p.funnel_stage != "qualified_no_email":
+                print(
+                    f"ERROR: Prospect {prospect_id} ({p.business_name}) is at stage "
+                    f"'{p.funnel_stage}', not 'qualified_no_email' — nothing to requeue.",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+            prospects = [p]
+
+        requeued = 0
+        skipped = 0
+        for p in prospects:
+            # Skip if a PendingEmailDiscovery row already exists (already requeued).
+            existing = db.query(PendingEmailDiscovery).filter(
+                PendingEmailDiscovery.prospect_id == p.id
+            ).first()
+            if existing:
+                print(f"  Skip: prospect {p.id} ({p.business_name}) — already in pending queue")
+                skipped += 1
+                continue
+
+            # Clear the previous null result.
+            p.email = None
+            p.email_source = None
+            p.email_found = False
+            p.funnel_stage = "queued"
+            p.processed_at = None
+
+            db.add(PendingEmailDiscovery(
+                prospect_id=p.id,
+                business_name=p.business_name,
+                location=p.location or "",
+                website=p.website,
+            ))
+            requeued += 1
+            print(f"  Requeued: prospect {p.id} ({p.business_name}) — website_status={p.website_status}")
+
+        db.commit()
+
+        print(f"\n{requeued} requeued, {skipped} skipped (already pending).")
+        print("Run 'python outreach/apply_result.py pending' to see the updated queue.")
+    finally:
+        db.close()
+
+
 # ─── CLI ─────────────────────────────────────────────────────────────────────
 
 def main():
@@ -282,6 +361,23 @@ def main():
         help="Bypass the guess-detection check (use only when you're certain the email is real)",
     )
 
+    rq = sub.add_parser(
+        "requeue-email",
+        help="Reset qualified_no_email prospects back into the pending email queue",
+    )
+    rq_target = rq.add_mutually_exclusive_group(required=True)
+    rq_target.add_argument(
+        "prospect_id",
+        type=int,
+        nargs="?",
+        help="ID of a single qualified_no_email prospect to requeue",
+    )
+    rq_target.add_argument(
+        "--all-no-email",
+        action="store_true",
+        help="Requeue every current qualified_no_email prospect at once",
+    )
+
     args = parser.parse_args()
 
     if args.command == "pending":
@@ -290,6 +386,11 @@ def main():
         cmd_vision(args.prospect_id, args.verdict)
     elif args.command == "email":
         cmd_email(args.prospect_id, args.email_or_null, source=args.source, force=args.force)
+    elif args.command == "requeue-email":
+        cmd_requeue_email(
+            prospect_id=args.prospect_id,
+            all_no_email=args.all_no_email,
+        )
 
 
 if __name__ == "__main__":
