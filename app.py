@@ -3764,23 +3764,21 @@ def domain_checkout_session():
         return jsonify({"error": "domain_taken",
                         "message": "This domain was registered by someone else just now. Please choose another."}), 409
 
-    # Porkbun pre-flight: validate availability, pricing, account funds, and
-    # eligibility via a dry run before creating a Stripe session. If Porkbun
-    # would reject the real registration, we don't let the customer pay for it.
+    # Porkbun pre-flight dry run: validates availability, pricing, account funds,
+    # and eligibility without charging or creating anything. If Porkbun would
+    # reject the real registration, we don't let the customer pay for it.
     # Skipped if Porkbun keys aren't configured (dev/test environments).
     if PORKBUN_API_KEY and PORKBUN_SECRET_KEY:
         try:
-            preflight_pennies = _porkbun_check_price_pennies(domain)
+            preflight_cents = _porkbun_check_price_cents(domain)
         except RuntimeError as exc:
             return jsonify({"error": "domain_unavailable", "message": str(exc)}), 409
-        dry = _porkbun_post("domain/create", {
-            "domain": domain,
-            "years": 1,
+        dry = _porkbun_post(f"domain/create/{domain}", {
+            "cost": preflight_cents,
             "agreeToTerms": "yes",
-            "amount": preflight_pennies,
             "dryRun": True,
         })
-        if dry.get("status") != "SUCCESS":
+        if dry.get("status") != "SUCCESS" or not dry.get("wouldSucceed"):
             return jsonify({
                 "error": "preflight_failed",
                 "message": dry.get("message", "This domain cannot be registered right now. Please try a different domain."),
@@ -3866,12 +3864,13 @@ def _porkbun_post(endpoint: str, extra: dict = None) -> dict:
         raise RuntimeError(f"Porkbun HTTP {exc.code} on {endpoint}: {body or '(empty body)'}") from exc
 
 
-def _porkbun_check_price_pennies(domain: str) -> int:
-    """Fresh domain/check call — returns current registration price in USD pennies (cents).
-    Raises RuntimeError if the domain is unavailable or the API call fails."""
-    result = _porkbun_post("domain/check", {"domain": domain})
+def _porkbun_check_price_cents(domain: str) -> int:
+    """Fresh domain/checkDomain call — returns current registration price in USD cents.
+    Raises RuntimeError if the domain is unavailable or the API call fails.
+    Domain is a URL path segment per Porkbun v3 API."""
+    result = _porkbun_post(f"domain/checkDomain/{domain}")
     if result.get("status") != "SUCCESS":
-        raise RuntimeError(f"Porkbun domain/check: {result.get('message', result)}")
+        raise RuntimeError(f"Porkbun domain/checkDomain: {result.get('message', result)}")
     resp = result.get("response", {})
     if resp.get("avail") not in ("yes", True, 1):
         raise RuntimeError(f"Domain {domain} is not available according to Porkbun")
@@ -3882,15 +3881,14 @@ def _porkbun_check_price_pennies(domain: str) -> int:
 def _porkbun_register_domain(domain: str) -> None:
     """Register a domain for 1 year via Porkbun. Raises RuntimeError on failure.
 
-    Always sends agreeToTerms and locks in the price from a fresh domain/check
-    call (in USD pennies) so an unexpected price change between checkout and
-    webhook fires a hard error rather than a silent overcharge."""
-    price_pennies = _porkbun_check_price_pennies(domain)
-    result = _porkbun_post("domain/create", {
-        "domain": domain,
-        "years": 1,
+    Gets a fresh price from checkDomain immediately before registering and
+    passes it as `cost` (integer USD cents) so an unexpected price change
+    between Stripe checkout and webhook fires a hard error, not a silent
+    overcharge. Domain is a URL path segment per Porkbun v3 API."""
+    cost_cents = _porkbun_check_price_cents(domain)
+    result = _porkbun_post(f"domain/create/{domain}", {
+        "cost": cost_cents,
         "agreeToTerms": "yes",
-        "amount": price_pennies,
     })
     if result.get("status") != "SUCCESS":
         raise RuntimeError(f"Porkbun domain/create: {result.get('message', result)}")
