@@ -3956,6 +3956,49 @@ def _cloudflare_add_custom_hostname(hostname: str) -> None:
         raise RuntimeError(f"Cloudflare custom_hostnames ({hostname}): {errors}")
 
 
+def _cloudflare_ssl_status(hostname: str) -> str | None:
+    """Return the ssl.status string for a Custom Hostname, or None if not found.
+    Cloudflare issues SSL async after hostname creation; poll until 'active'."""
+    req = urllib.request.Request(
+        f"{CLOUDFLARE_API_URL}/zones/{CLOUDFLARE_ZONE_ID}/custom_hostnames?hostname={hostname}",
+        headers={
+            "Authorization": f"Bearer {CLOUDFLARE_API_TOKEN}",
+            "Content-Type": "application/json",
+        },
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            result = json.loads(resp.read().decode())
+    except Exception as exc:
+        app.logger.warning(f"Cloudflare SSL status check failed for {hostname}: {exc}")
+        return None
+    results = result.get("result", [])
+    if not results:
+        return None
+    return results[0].get("ssl", {}).get("status")
+
+
+def _cloudflare_wait_for_ssl(hostname: str, timeout_secs: int = 600, poll_interval: int = 15) -> None:
+    """Block until the Custom Hostname's SSL certificate reaches 'active'.
+    Must be called after DNS is configured so Cloudflare's HTTP validation
+    request can reach our edge. Raises RuntimeError on timeout or terminal failure."""
+    deadline = time.monotonic() + timeout_secs
+    last_status = None
+    while time.monotonic() < deadline:
+        last_status = _cloudflare_ssl_status(hostname)
+        app.logger.info(f"Cloudflare SSL status for {hostname}: {last_status}")
+        if last_status == "active":
+            return
+        if last_status in ("expired", "deleted"):
+            raise RuntimeError(f"Cloudflare SSL for {hostname} reached terminal state: {last_status}")
+        time.sleep(poll_interval)
+    raise RuntimeError(
+        f"Cloudflare SSL for {hostname} did not become active within {timeout_secs // 60} minutes "
+        f"(last status: {last_status})"
+    )
+
+
 def _handle_domain_order_async(domain: str, site_id: str, customer_email: str,
                                 price_gbp: float, business_name: str,
                                 stripe_payment_id: str, wholesale_gbp: float = None) -> None:
@@ -4098,12 +4141,13 @@ def _handle_domain_order_async(domain: str, site_id: str, customer_email: str,
         _fail("porkbun_register", str(exc))
         return
 
-    # Step 2: Register domain + www as Custom Hostnames on our Cloudflare zone
+    # Step 2: Register domain + www as Custom Hostnames on our Cloudflare zone.
+    # cloudflare_connected_at is NOT set here — SSL issuance is async and we
+    # only mark it complete after polling confirms ssl.status == "active" (Step 4).
     cname_target = CLOUDFLARE_CNAME_TARGET
     try:
         _cloudflare_add_custom_hostname(domain)
         _cloudflare_add_custom_hostname("www." + domain)
-        _update(cloudflare_connected_at=datetime.utcnow())
         app.logger.info(f"Cloudflare custom hostnames added: {domain}, www.{domain} (cname: {cname_target})")
     except Exception as exc:
         _fail("cloudflare_connect", str(exc))
@@ -4119,10 +4163,24 @@ def _handle_domain_order_async(domain: str, site_id: str, customer_email: str,
     try:
         _porkbun_create_dns(domain, "ALIAS", "", cname_target)   # apex/root
         _porkbun_create_dns(domain, "CNAME", "www", cname_target)
-        _update(dns_configured_at=datetime.utcnow(), status="active")
+        _update(dns_configured_at=datetime.utcnow())
         app.logger.info(f"DNS configured for {domain} → {cname_target}")
     except Exception as exc:
         _fail("dns_setup", str(exc))
+        return
+
+    # Step 4: Wait for Cloudflare SSL to become active. HTTP validation requires
+    # DNS to already be pointing at our Cloudflare zone (set in Step 3 above),
+    # so this poll must come after DNS is configured — not immediately after
+    # hostname creation. On timeout, fall back to needs_manual_setup so the admin
+    # is notified; the domain/DNS are already live and SSL usually resolves on its
+    # own, but the "active" status and live email are withheld until confirmed.
+    try:
+        _cloudflare_wait_for_ssl(domain, timeout_secs=600, poll_interval=15)
+        _update(cloudflare_connected_at=datetime.utcnow(), status="active")
+        app.logger.info(f"Cloudflare SSL active for {domain}")
+    except Exception as exc:
+        _fail("ssl_activation", str(exc))
         return
 
     # All steps succeeded
