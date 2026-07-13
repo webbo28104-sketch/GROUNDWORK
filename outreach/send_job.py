@@ -65,11 +65,16 @@ def send_initial_touch(db, p, now, remaining_ramp=None):
     check entirely, since a single manual test send shouldn't be blocked by
     or count against the day's approved volume).
 
-    Returns True if at least one channel was actually sent to.
+    Returns {"touched": bool, "email_id": str|None} — email_id is the
+    Resend-assigned id if an email actually sent (None if only SMS sent, or
+    nothing sent). Callers that only care whether something sent should
+    check result["touched"], not truthiness of the whole dict (always
+    truthy, since it's a non-empty dict either way).
     """
     ensure_link_identity(db, p)
     phone_only = not p.email_found
     touched = False
+    email_id = None
     unlimited = remaining_ramp is None
 
     if phone_only:
@@ -86,7 +91,7 @@ def send_initial_touch(db, p, now, remaining_ramp=None):
                 "initial", business_name=p.business_name,
                 preview_link=_preview_link(p), unsubscribe_link=_unsubscribe_link(p),
             )
-            send_outreach_email(p.email, msg["subject"], msg["body"], _unsubscribe_link(p))
+            email_id = send_outreach_email(p.email, msg["subject"], msg["body"], _unsubscribe_link(p))
             if not unlimited:
                 remaining_ramp["email"] -= 1
             record_sends("email", 1, now, db=db)
@@ -103,7 +108,7 @@ def send_initial_touch(db, p, now, remaining_ramp=None):
             touched = True
 
     if not touched:
-        return False
+        return {"touched": False, "email_id": None}
 
     p.funnel_stage = "sent"
     p.funnel_substage = "sent"
@@ -113,7 +118,7 @@ def send_initial_touch(db, p, now, remaining_ramp=None):
     p.last_touch_at = now
     p.touch_count = 1
     db.commit()
-    return True
+    return {"touched": True, "email_id": email_id}
 
 
 def fill_initial_sends(remaining_ramp, now):
@@ -127,8 +132,11 @@ def fill_initial_sends(remaining_ramp, now):
         for p in candidates:
             if remaining_ramp["email"] <= 0 and remaining_ramp["sms"] <= 0:
                 break
-            if send_initial_touch(db, p, now, remaining_ramp):
+            result = send_initial_touch(db, p, now, remaining_ramp)
+            if result["touched"]:
                 sent += 1
+                if result["email_id"]:
+                    logger.info("Prospect %s: email sent, resend id=%s", p.id, result["email_id"])
 
         logger.info("Initial sends: %d, ramp remaining after — email: %d, sms: %d",
                     sent, remaining_ramp["email"], remaining_ramp["sms"])

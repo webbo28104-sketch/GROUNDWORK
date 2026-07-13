@@ -76,8 +76,8 @@ def main():
             sys.exit(1)
 
         now = datetime.utcnow()
-        sent = send_initial_touch(db, p, now, remaining_ramp=None)
-        if not sent:
+        result = send_initial_touch(db, p, now, remaining_ramp=None)
+        if not result["touched"]:
             print(f"Prospect {p.id}: no eligible channel to send on (opted out, or missing contact info).", file=sys.stderr)
             sys.exit(1)
 
@@ -85,6 +85,7 @@ def main():
         print(f"\nTest send complete for prospect {p.id} ({p.business_name}).")
         if p.email:
             print(f"  Email sent to: {p.email}")
+            print(f"  Resend id:     {result['email_id'] or '(none returned — check the [emails] log line above for the failure)'}")
         if p.phone:
             print(f"  SMS sent to:   {p.phone}")
         print(f"  Claim link:    {BASE_URL}/claim/{p.token}")

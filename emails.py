@@ -281,7 +281,7 @@ def send_domain_live_email(to_email: str, domain: str, business_name: str) -> No
 
 
 def send_outreach_email(to_email: str, subject: str, plain_body: str, unsubscribe_link: str,
-                        reply_to: str = None) -> None:
+                        reply_to: str = None) -> str:
     """
     Cold outreach / follow-up send (outreach/followup.py, outreach/templates.py).
     Sent from a separate subdomain (Section 15 deliverability) via
@@ -301,6 +301,13 @@ def send_outreach_email(to_email: str, subject: str, plain_body: str, unsubscrib
 
     Body is plain text (matches the finalized template copy exactly, per the
     content-accuracy rule) — no branded button wrapper, just line breaks.
+
+    Returns the Resend-assigned email id on success, or None on failure/skip
+    — previously this was discarded entirely (resend.Emails.send(...) called
+    but its return value never captured), so a caller had no way to prove a
+    specific send actually happened beyond "no exception was raised." Every
+    caller (outreach/send_job.py, outreach/followup.py, outreach/send_test.py)
+    should log/print this id, not just call the function and move on.
     """
     api_key = os.environ.get("RESEND_API_KEY")
     from_email = os.environ.get("OUTREACH_RESEND_FROM_EMAIL", os.environ.get("RESEND_FROM_EMAIL", "groundwork-build@outlook.com"))
@@ -308,7 +315,7 @@ def send_outreach_email(to_email: str, subject: str, plain_body: str, unsubscrib
 
     if not api_key:
         print(f"[emails] RESEND_API_KEY not set — skipping outreach send of '{subject}' to {to_email}")
-        return
+        return None
 
     html_body = escape(plain_body).replace("\n", "<br>")
     html = f"""<div style="font-family:Arial,Helvetica,sans-serif;background:#F5F3EE;padding:32px 20px;">
@@ -319,7 +326,7 @@ def send_outreach_email(to_email: str, subject: str, plain_body: str, unsubscrib
 
     resend.api_key = api_key
     try:
-        resend.Emails.send({
+        result = resend.Emails.send({
             "from": from_email,
             "to": [to_email],
             "subject": subject,
@@ -331,8 +338,12 @@ def send_outreach_email(to_email: str, subject: str, plain_body: str, unsubscrib
                 "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
             },
         })
+        email_id = result.get("id") if isinstance(result, dict) else getattr(result, "id", None)
+        print(f"[emails] outreach email sent to {to_email}: resend id={email_id}")
+        return email_id
     except Exception as exc:
         print(f"[emails] failed to send outreach email '{subject}' to {to_email}: {exc}")
+        return None
 
 
 def send_support_message_email(from_email: str, message: str, *, business_name: str = None, subdomain: str = None) -> None:
