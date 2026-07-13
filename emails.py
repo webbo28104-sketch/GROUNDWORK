@@ -280,18 +280,31 @@ def send_domain_live_email(to_email: str, domain: str, business_name: str) -> No
     _send(to_email, f"Your domain is live — {escape(domain)}", html)
 
 
-def send_outreach_email(to_email: str, subject: str, plain_body: str, unsubscribe_link: str) -> None:
+def send_outreach_email(to_email: str, subject: str, plain_body: str, unsubscribe_link: str,
+                        reply_to: str = None) -> None:
     """
     Cold outreach / follow-up send (outreach/followup.py, outreach/templates.py).
     Sent from a separate subdomain (Section 15 deliverability) via
     OUTREACH_RESEND_FROM_EMAIL, not the transactional RESEND_FROM_EMAIL used
     by the rest of this file — keeps cold-outreach sender reputation isolated
     from the transactional generation-flow emails.
+
+    reply_to defaults to OUTREACH_REPLY_TO_EMAIL (falling back to a literal
+    reply@groundworkbuild.com on the root domain) — deliberately NOT the
+    same address as `from`. Replies don't carry the sending subdomain's
+    reputation risk (they're not bulk/cold sends), so there's no reason
+    they need to land on the isolated subdomain — and landing them on the
+    root domain instead means Cloudflare Email Routing only needs a rule
+    on the root zone, which its guided rule-builder actually supports
+    (confirmed: the domain picker there only offers the root zone, not
+    arbitrary subdomains — see Section 11a).
+
     Body is plain text (matches the finalized template copy exactly, per the
     content-accuracy rule) — no branded button wrapper, just line breaks.
     """
     api_key = os.environ.get("RESEND_API_KEY")
     from_email = os.environ.get("OUTREACH_RESEND_FROM_EMAIL", os.environ.get("RESEND_FROM_EMAIL", "groundwork-build@outlook.com"))
+    reply_to = reply_to or os.environ.get("OUTREACH_REPLY_TO_EMAIL", "reply@groundworkbuild.com")
 
     if not api_key:
         print(f"[emails] RESEND_API_KEY not set — skipping outreach send of '{subject}' to {to_email}")
@@ -312,6 +325,7 @@ def send_outreach_email(to_email: str, subject: str, plain_body: str, unsubscrib
             "subject": subject,
             "html": html,
             "text": plain_body,
+            "reply_to": reply_to,
             "headers": {
                 "List-Unsubscribe": f"<{unsubscribe_link}>",
                 "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
