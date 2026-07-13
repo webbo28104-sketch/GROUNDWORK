@@ -18,6 +18,78 @@ const RAILWAY_ORIGIN = "https://web-production-748b1.up.railway.app";
 // and no static file of that name exists in frontend/ to collide with.
 const BACKEND_PREFIXES = ["/api/", "/verify/", "/account", "/admin", "/webhook/"];
 
+// ── Inbound email (Section 11a's reply-capture kill-switch) ──────────────
+//
+// Cloudflare Email Routing, once a routing rule on the outreach sending
+// domain is pointed at this same Worker, invokes email() (a separate
+// handler from fetch() — one Worker script can export both) for every
+// inbound message. There's no separate Wrangler project for this: it's
+// the existing `groundwork` worker, already git-linked/auto-deployed, with
+// a second handler added — no new deploy pipeline to stand up.
+//
+// Deliberately dependency-free (no postal-mime or similar): this project
+// has zero npm dependencies today (no package.json), and introducing one
+// purely to parse MIME would add real risk to a deploy pipeline this
+// script has no way to test against directly. Handles the common case —
+// a single-part message, or two-part multipart/alternative (text/plain +
+// text/html) from a mainstream client (Gmail, Outlook, Apple Mail all send
+// this shape) — including quoted-printable and base64 decoding. It is NOT
+// a fully spec-compliant MIME parser (nested multipart/mixed with
+// attachments, unusual charsets, etc. aren't handled) — good enough for
+// detecting a short human reply, not a general-purpose mail client.
+function decodeContentTransfer(headers, body) {
+  const cte = ((headers.match(/^Content-Transfer-Encoding:\s*(.+)$/im) || [, ""])[1] || "").trim().toLowerCase();
+  if (cte === "base64") {
+    try {
+      return atob(body.replace(/\s+/g, ""));
+    } catch {
+      return body;
+    }
+  }
+  if (cte === "quoted-printable") {
+    return body
+      .replace(/=\r?\n/g, "")
+      .replace(/=([0-9A-Fa-f]{2})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+  }
+  return body;
+}
+
+function splitHeadersAndBody(chunk) {
+  const idx = chunk.indexOf("\r\n\r\n");
+  if (idx === -1) return { headers: chunk, body: "" };
+  return { headers: chunk.slice(0, idx), body: chunk.slice(idx + 4) };
+}
+
+async function extractPlainText(rawStream) {
+  const raw = await new Response(rawStream).text();
+  const { headers, body } = splitHeadersAndBody(raw);
+
+  const contentType = (headers.match(/^Content-Type:\s*(.+)$/im) || [, ""])[1] || "";
+  const boundaryMatch = contentType.match(/boundary="?([^";]+)"?/i);
+
+  if (!boundaryMatch) {
+    return decodeContentTransfer(headers, body).trim();
+  }
+
+  const boundary = boundaryMatch[1];
+  const parts = body.split(`--${boundary}`).slice(1, -1);
+  let plainPart = null;
+  let htmlPart = null;
+
+  for (const part of parts) {
+    const { headers: pHeaders, body: pBody } = splitHeadersAndBody(part);
+    if (/text\/plain/i.test(pHeaders) && plainPart === null) {
+      plainPart = decodeContentTransfer(pHeaders, pBody);
+    } else if (/text\/html/i.test(pHeaders) && htmlPart === null) {
+      htmlPart = decodeContentTransfer(pHeaders, pBody);
+    }
+  }
+
+  if (plainPart !== null) return plainPart.trim();
+  if (htmlPart !== null) return htmlPart.replace(/<[^>]+>/g, " ").trim();
+  return "";
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -30,5 +102,28 @@ export default {
     }
 
     return env.ASSETS.fetch(request);
+  },
+
+  async email(message, env, ctx) {
+    let text = "";
+    try {
+      text = await extractPlainText(message.raw);
+    } catch (err) {
+      text = "";
+    }
+
+    try {
+      await fetch(`${RAILWAY_ORIGIN}/api/webhooks/email-inbound`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Groundwork-Email-Secret": env.EMAIL_INBOUND_SHARED_SECRET || "",
+        },
+        body: JSON.stringify({ from: message.from, text }),
+      });
+    } catch (err) {
+      // Swallow — nothing useful to retry against from here. Doesn't
+      // reject the message, so Cloudflare still accepts it normally.
+    }
   },
 };

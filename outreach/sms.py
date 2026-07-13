@@ -8,6 +8,8 @@ because Twilio isn't configured there.
 """
 import os
 
+BASE_URL = os.environ.get("GROUNDWORK_PUBLIC_URL", "https://groundworkbuild.com")
+
 
 def send_outreach_sms(to_phone: str, body: str) -> None:
     account_sid = os.environ.get("TWILIO_ACCOUNT_SID")
@@ -26,6 +28,14 @@ def send_outreach_sms(to_phone: str, body: str) -> None:
 
     try:
         client = Client(account_sid, auth_token)
-        client.messages.create(to=to_phone, from_=from_number, body=body)
+        # status_callback (Section 15's SMS health signal) — Twilio POSTs
+        # delivery status (delivered/failed/undelivered/...) to this URL as
+        # it learns it, verified there the same way as the inbound webhook
+        # (app.py:sms_status_webhook). Feeds outreach/ramp.py's
+        # get_health_signal("sms").
+        client.messages.create(
+            to=to_phone, from_=from_number, body=body,
+            status_callback=f"{BASE_URL}/api/webhooks/sms-status",
+        )
     except Exception as exc:
         print(f"[sms] failed to send SMS to {to_phone}: {exc}")

@@ -1,6 +1,7 @@
 import os
 import io
 import re
+import hmac
 import math
 import time
 import json
@@ -26,12 +27,12 @@ from markupsafe import escape
 from werkzeug.security import generate_password_hash, check_password_hash
 
 from build_prompt import build_prompt
-from models import SessionLocal, Lead, Generation, Account, GenerationImage, Domain, Prospect, SearchCell, PendingVisionCheck, PendingEmailDiscovery, init_db
+from models import SessionLocal, Lead, Generation, Account, GenerationImage, Domain, Prospect, SearchCell, PendingVisionCheck, PendingEmailDiscovery, SmsDeliveryEvent, EmailEventLog, init_db
 from emails import (send_verification_email, send_resend_email, send_password_reset_email,
                     send_support_message_email, send_enquiry_email,
                     send_domain_order_admin_email, send_domain_order_customer_email,
                     send_domain_setup_failed_email, send_domain_live_email)
-from outreach.reply_handling import handle_inbound_sms
+from outreach.reply_handling import handle_inbound_sms, handle_inbound_email
 
 app = Flask(__name__, static_folder="frontend", static_url_path="")
 app.logger.setLevel(logging.INFO)
@@ -4715,6 +4716,130 @@ def sms_inbound_webhook():
     # Empty TwiML response — no auto-reply sent back.
     return ('<?xml version="1.0" encoding="UTF-8"?><Response></Response>', 200,
             {"Content-Type": "text/xml"})
+
+
+@app.route("/api/webhooks/email-inbound", methods=["POST"])
+def email_inbound_webhook():
+    """
+    Receiver for the Cloudflare Email Worker (frontend/_worker.js:email()) —
+    closes Section 11a's reply-capture gap. Cloudflare Email Routing (once a
+    routing rule on the outreach sending domain points at that Worker, a
+    dashboard step outside this codebase) invokes the Worker's email()
+    handler for every inbound message; it POSTs the parsed {from, text}
+    here as JSON.
+
+    Authenticated with a shared secret (EMAIL_INBOUND_SHARED_SECRET, set as
+    a Cloudflare Worker secret AND a Railway env var — both sides need the
+    same value) rather than a signature scheme, since Cloudflare Email
+    Workers have no built-in request-signing equivalent to Twilio's
+    X-Twilio-Signature. Fails closed if unset, same as the SMS webhook.
+    """
+    shared_secret = os.environ.get("EMAIL_INBOUND_SHARED_SECRET")
+    if not shared_secret:
+        app.logger.error("email_inbound_webhook: EMAIL_INBOUND_SHARED_SECRET not set — rejecting request")
+        return "", 503
+
+    provided = request.headers.get("X-Groundwork-Email-Secret", "")
+    if not provided or not hmac.compare_digest(provided, shared_secret):
+        app.logger.warning("email_inbound_webhook: invalid or missing shared secret")
+        return "", 403
+
+    data = request.get_json(silent=True) or {}
+    from_email = (data.get("from") or "").strip().lower()
+    body = data.get("text") or ""
+
+    db = SessionLocal()
+    try:
+        prospect = handle_inbound_email(db, from_email, body)
+        if not prospect:
+            app.logger.warning(f"email_inbound_webhook: no prospect matched for {from_email}")
+    finally:
+        db.close()
+
+    return jsonify({"status": "ok"}), 200
+
+
+@app.route("/api/webhooks/sms-status", methods=["POST"])
+def sms_status_webhook():
+    """
+    Twilio status-callback webhook (Section 15's SMS health signal) —
+    registered per-message via status_callback in outreach/sms.py. Same
+    signature verification as the inbound SMS webhook (fails closed if
+    TWILIO_AUTH_TOKEN unset). Just logs the raw event; outreach/ramp.py's
+    get_health_signal("sms") aggregates these rows into a rolling delivery
+    rate.
+    """
+    from twilio.request_validator import RequestValidator
+
+    auth_token = os.environ.get("TWILIO_AUTH_TOKEN")
+    if not auth_token:
+        app.logger.error("sms_status_webhook: TWILIO_AUTH_TOKEN not set — rejecting request")
+        return "", 503
+
+    signature = request.headers.get("X-Twilio-Signature", "")
+    validator = RequestValidator(auth_token)
+    if not validator.validate(request.url, request.form.to_dict(), signature):
+        app.logger.warning("sms_status_webhook: invalid Twilio signature")
+        return "", 403
+
+    db = SessionLocal()
+    try:
+        db.add(SmsDeliveryEvent(
+            message_sid=request.form.get("MessageSid", ""),
+            to_phone=request.form.get("To", ""),
+            status=request.form.get("MessageStatus", ""),
+        ))
+        db.commit()
+    finally:
+        db.close()
+
+    return "", 200
+
+
+@app.route("/api/webhooks/resend-events", methods=["POST"])
+def resend_events_webhook():
+    """
+    Resend webhook (Section 15's email health signal — the interim proxy
+    for Postmaster Tools). Resend signs webhook payloads via Svix; verified
+    with the `svix` package rather than hand-rolling HMAC, to avoid getting
+    a security-relevant detail subtly wrong. Just logs the raw event;
+    outreach/ramp.py's get_health_signal("email") aggregates these rows
+    into a rolling complaint rate.
+    """
+    secret = os.environ.get("RESEND_WEBHOOK_SECRET")
+    if not secret:
+        app.logger.error("resend_events_webhook: RESEND_WEBHOOK_SECRET not set — rejecting request")
+        return "", 503
+
+    try:
+        from svix.webhooks import Webhook, WebhookVerificationError
+    except ImportError:
+        app.logger.error("resend_events_webhook: svix package not installed — rejecting request")
+        return "", 503
+
+    try:
+        payload = Webhook(secret).verify(request.get_data(), dict(request.headers))
+    except WebhookVerificationError:
+        app.logger.warning("resend_events_webhook: signature verification failed")
+        return "", 403
+
+    event_type = payload.get("type", "")
+    data = payload.get("data", {}) or {}
+    to_list = data.get("to") or []
+    to_email = (to_list[0] if to_list else data.get("email", "")) or ""
+
+    db = SessionLocal()
+    try:
+        db.add(EmailEventLog(
+            resend_email_id=data.get("email_id"),
+            to_email=to_email,
+            event_type=event_type,
+        ))
+        db.commit()
+    finally:
+        db.close()
+
+    return jsonify({"status": "ok"}), 200
 
 
 def _extract_gw_text_fields(html: str) -> list:

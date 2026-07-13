@@ -2,29 +2,34 @@
 Groundwork outreach — dynamic send ramp + circuit-breakers
 (docs/outreach-pipeline-spec.md Section 15).
 
-REAL STATE, CHECKED BEFORE WRITING THIS FILE:
-  - Google Postmaster Tools API access: NOT wired up anywhere in this
-    codebase. No credentials, no client, no polling job.
-  - Twilio delivery-receipt data: NOT wired up anywhere in this codebase.
-    No StatusCallback URL is registered on any Twilio send, so Twilio has
-    nowhere to report delivery outcomes back to.
-  - Resend bounce/complaint webhooks (the interim proxy Section 15 names
-    for email): NOT wired up either — no /api/webhooks/resend-events route
-    exists.
+REAL STATE:
+  - Twilio delivery-receipt data: WIRED. outreach/sms.py registers a
+    status_callback on every send; app.py:sms_status_webhook logs each
+    callback to SmsDeliveryEvent (Twilio-signature-verified).
+  - Resend bounce/complaint webhooks: WIRED. app.py:resend_events_webhook
+    (Svix-signature-verified) logs each event to EmailEventLog. Requires a
+    webhook actually registered in the Resend dashboard pointing at
+    /api/webhooks/resend-events, and RESEND_WEBHOOK_SECRET set to match —
+    infrastructure-side steps outside this codebase, same category as the
+    Cloudflare Email Routing rule in Section 11a.
+  - Google Postmaster Tools API access: still NOT wired — needs manual
+    domain verification in the Postmaster dashboard first (a human step,
+    not a code change). Not used below; email health is computed entirely
+    from the Resend interim proxy Section 15 already names for this.
 
-get_health_signal() below is the single seam where all of that would
-plug in. Until it's wired, it always returns None ("unknown"), and the
-ramp deliberately HOLDS FLAT rather than advancing on missing data —
-advancing a send-volume ramp on fabricated health data would be worse than
-not advancing at all. Wiring Postmaster/Twilio/Resend-events is a
-prerequisite for this module ever doing anything beyond "stay at the
-week-1 floor," not a nice-to-have.
+get_health_signal() returns None ("unknown") whenever there isn't yet
+enough real data to compute a rate from (e.g. zero sends logged in the
+window) — the ramp deliberately HOLDS FLAT on unknown, rather than
+advancing on fabricated/absent data. Real volume needs to actually flow
+through the wired webhooks above before this stops returning None.
 """
 import os
 import logging
 from datetime import datetime, timedelta
 
-from models import SessionLocal, RampState, DailySendCount
+from sqlalchemy import func
+
+from models import SessionLocal, RampState, DailySendCount, SmsDeliveryEvent, EmailEventLog, Prospect
 
 logger = logging.getLogger("outreach.ramp")
 
@@ -52,21 +57,84 @@ def _volume_for_week(table, week_number, floor):
     return int(last_volume * (growth ** extra_weeks))
 
 
-def get_health_signal(channel):
-    """
-    Returns a dict describing this channel's health, or None if unknown.
+def _total_sent(db, channel, start, end):
+    """Total sends of this channel recorded in DailySendCount within
+    [start, end] inclusive — the denominator for a rate. Dates are compared
+    as 'YYYY-MM-DD' strings, same format DailySendCount stores (day
+    granularity, so the end date itself must be included, not excluded —
+    a caller passing today as `end` means "through today")."""
+    rows = db.query(DailySendCount).filter(
+        DailySendCount.channel == channel,
+        DailySendCount.send_date >= start.strftime("%Y-%m-%d"),
+        DailySendCount.send_date <= end.strftime("%Y-%m-%d"),
+    ).all()
+    return sum(r.count for r in rows)
 
-    NOT WIRED to any real data source (see module docstring) — always
-    returns None right now. Structured this way (single function, clear
-    return contract) so plugging in Postmaster Tools / Twilio / Resend
-    events later is a one-function change, not a rewrite of this module.
 
-    Expected shape once wired:
-      email: {"spam_rate": float}
-      sms:   {"delivery_rate": float, "delivery_rate_baseline": float,
-              "opt_out_rate_today": float}
+def get_health_signal(channel, now=None):
     """
-    return None
+    Returns a dict describing this channel's health, or None if there isn't
+    yet enough real data in the trailing window to compute a rate from.
+
+    email: {"spam_rate": float} — complaints (EmailEventLog) / total sent
+      (DailySendCount) over the trailing 7 days.
+    sms: {"delivery_rate": float, "delivery_rate_baseline": float,
+      "opt_out_rate_today": float} — delivered/total distinct message_sids
+      (SmsDeliveryEvent) for the trailing 7 days vs. the 7 days before
+      that (the "baseline" the circuit-breaker trigger compares against,
+      per Section 15/10b), plus today's opt-outs / today's sends.
+    """
+    now = now or datetime.utcnow()
+    db = SessionLocal()
+    try:
+        if channel == "email":
+            week_ago = now - timedelta(days=7)
+            total_sent = _total_sent(db, "email", week_ago, now)
+            if total_sent == 0:
+                return None
+            complaints = db.query(EmailEventLog).filter(
+                EmailEventLog.event_type.in_(["email.complained", "complained"]),
+                EmailEventLog.created_at >= week_ago,
+                EmailEventLog.created_at <= now,
+            ).count()
+            return {"spam_rate": complaints / total_sent}
+
+        # sms
+        def _delivery_rate(start, end):
+            total = db.query(func.count(func.distinct(SmsDeliveryEvent.message_sid))).filter(
+                SmsDeliveryEvent.created_at >= start, SmsDeliveryEvent.created_at <= end,
+            ).scalar() or 0
+            if total == 0:
+                return None
+            delivered = db.query(func.count(func.distinct(SmsDeliveryEvent.message_sid))).filter(
+                SmsDeliveryEvent.created_at >= start, SmsDeliveryEvent.created_at <= end,
+                SmsDeliveryEvent.status == "delivered",
+            ).scalar() or 0
+            return delivered / total
+
+        week_ago = now - timedelta(days=7)
+        two_weeks_ago = now - timedelta(days=14)
+        current_rate = _delivery_rate(week_ago, now)
+        baseline_rate = _delivery_rate(two_weeks_ago, week_ago)
+        if current_rate is None or baseline_rate is None:
+            # No baseline yet (e.g. still in week 1) — can't evaluate the
+            # "dropped N points from baseline" trigger meaningfully.
+            return None
+
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        opt_outs_today = db.query(Prospect).filter(
+            Prospect.sms_unsubscribed_at.isnot(None), Prospect.sms_unsubscribed_at >= today_start,
+        ).count()
+        sent_today = _total_sent(db, "sms", today_start, now)
+        opt_out_rate_today = (opt_outs_today / sent_today) if sent_today else 0.0
+
+        return {
+            "delivery_rate": current_rate,
+            "delivery_rate_baseline": baseline_rate,
+            "opt_out_rate_today": opt_out_rate_today,
+        }
+    finally:
+        db.close()
 
 
 def _get_or_create_state(db, channel):
@@ -94,13 +162,13 @@ def advance_or_hold(channel, now=None):
     db = SessionLocal()
     try:
         state = _get_or_create_state(db, channel)
-        signal = get_health_signal(channel)
+        signal = get_health_signal(channel, now)
         state.last_checked_at = now
 
         if signal is None:
             logger.warning(
-                "ramp[%s]: health signal unknown (Postmaster/Twilio/Resend-events not wired) "
-                "— holding at %d/day, NOT advancing", channel, state.daily_volume
+                "ramp[%s]: health signal unknown (not enough real send/event data yet in the "
+                "trailing window) — holding at %d/day, NOT advancing", channel, state.daily_volume
             )
             db.commit()
             return state.daily_volume
