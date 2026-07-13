@@ -3,9 +3,13 @@ Groundwork outreach — dynamic send ramp + circuit-breakers
 (docs/outreach-pipeline-spec.md Section 15).
 
 REAL STATE:
-  - Twilio delivery-receipt data: WIRED. outreach/sms.py registers a
-    status_callback on every send; app.py:sms_status_webhook logs each
-    callback to SmsDeliveryEvent (Twilio-signature-verified).
+  - SMS delivery-status data: WIRED, via Esendex (not Twilio — see
+    outreach/sms.py's module docstring for the provider change and why
+    this is a poll, not a push webhook). outreach/sms_status_poll.py logs
+    to SmsDeliveryEvent the same way the old Twilio webhook did — this
+    function's query logic below needed ZERO changes for the provider
+    switch, since it only ever read from SmsDeliveryEvent, never from
+    Twilio-specific fields.
   - Resend bounce/complaint webhooks: WIRED. app.py:resend_events_webhook
     (Svix-signature-verified) logs each event to EmailEventLog. Requires a
     webhook actually registered in the Resend dashboard pointing at

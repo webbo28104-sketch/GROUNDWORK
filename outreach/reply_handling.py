@@ -5,8 +5,11 @@ Section 11a).
 Shared logic for both inbound channels: match the sender to a Prospect, then
 either permanently opt them out (stop-intent keyword) or pause the automated
 sequence for human review (any other reply). Channel-specific transport
-(Twilio webhook route, future email-inbound transport) calls into this module
-rather than duplicating the matching/decision logic.
+(app.py's sms-inbound and email-inbound webhook routes) calls into this
+module rather than duplicating the matching/decision logic — this module has
+no provider-specific code in it at all (SMS provider moved from Twilio to
+Esendex without any change here; see outreach/sms.py and app.py's
+sms_inbound_webhook for what actually changed).
 """
 import re
 import logging
@@ -75,6 +78,27 @@ def handle_inbound_sms(db, from_phone, body):
         logger.warning("Inbound SMS from unmatched number %s — no prospect found", from_phone)
         return None
     _apply_reply(prospect, body, "sms")
+    db.commit()
+    return prospect
+
+
+def handle_forced_sms_stop(db, from_phone):
+    """
+    Esendex's webhook can classify a message as a "stop" event itself
+    (its own opt-out detection, separate from ours) — when it does, honor
+    that directly rather than re-running is_stop_intent() against the
+    (possibly absent/reformatted) message body, since Esendex has already
+    made the classification. Still needs to land in our own Prospect row
+    so run_followups()/send_job.py actually respect it — Esendex opting
+    someone out on its side doesn't by itself stop us from queuing a send.
+    """
+    prospect = find_prospect_by_phone(db, from_phone)
+    if not prospect:
+        logger.warning("Forced SMS stop from unmatched number %s — no prospect found", from_phone)
+        return None
+    prospect.sms_unsubscribed = True
+    prospect.sms_unsubscribed_at = datetime.utcnow()
+    logger.info("Prospect %s: Esendex-classified stop event — opted out permanently", prospect.id)
     db.commit()
     return prospect
 

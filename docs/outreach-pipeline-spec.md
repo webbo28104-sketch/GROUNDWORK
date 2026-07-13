@@ -227,12 +227,32 @@ See Section 11 for the follow-up Stage A/B/C/D copy (email + SMS).
 Runs as a parallel channel to email, same qualified prospect pool (no separate gating) — sent to companies and sole traders per the risk decision in Section 2.
 
 - **Source:** phone number already comes from the Places API Enterprise tier pull (Section 1) — no separate discovery step needed, unlike email
-- **Provider:** Twilio — ~4–5p per UK SMS, plus ~£1/month number rental
-- **Compliance setup** (one-off, before first send): UK A2P sender registration with Twilio — required for promotional SMS
+- **Provider:** Esendex (UK-based, ICO-registered) — the actual decision, corrected from an earlier build that was mistakenly implemented against Twilio (see "Provider correction" below). Plivo is a fallback only if Esendex's API proves difficult in practice — not built preemptively.
+- **Compliance setup** (one-off, before first send): whatever sender-ID/registration Esendex itself requires for promotional SMS — not the Twilio A2P process this section originally named, which no longer applies
 - **Content:** shorter version of the email templates — same core message (preview link, key features, £99+£24.99/month), single CTA link
-- **Unsubscribe:** handled via STOP keyword reply — Twilio auto-suppresses future sends once registered, but the webhook must be caught and written back to the prospect record
+- **Unsubscribe:** handled via STOP keyword reply, and Esendex's own "stop" webhook event — both feed the same Prospect.sms_unsubscribed flag (see `outreach/reply_handling.py:handle_forced_sms_stop` for the latter)
 - Unsubscribe is channel-specific: an SMS opt-out does not imply an email opt-out, and vice versa — track separately (see schema, Section 13)
 - **Follow-up sequence** (Section 11): same trigger logic and timing, but can route through SMS instead of/alongside email
+
+### Provider correction: Twilio → Esendex
+
+All SMS integration code (`outreach/sms.py`, the inbound webhook, stop-keyword detection, delivery-status feed) was originally built against Twilio's API in an earlier pass. That was a mistake — the actual decision is Esendex as primary, Plivo as a fallback only if Esendex proves difficult. **No Twilio account exists or will be set up.** Reworked entirely; here's what changed structurally versus what carried over untouched.
+
+**Carried over completely unchanged — provider-agnostic by design, confirmed still true:**
+- `outreach/reply_handling.py` — `STOP_KEYWORDS`, `is_stop_intent()`, `find_prospect_by_phone()`/`find_prospect_by_email()`, `_apply_reply()`, `handle_inbound_sms()`, `handle_inbound_email()`. None of this ever referenced Twilio; it operates on a phone number and a message body string, regardless of transport. Zero changes.
+- `outreach/ramp.py:get_health_signal("sms")` — reads only from `SmsDeliveryEvent` (message_sid/status/created_at), never anything Twilio-specific. Zero changes.
+- `send_job.py`/`followup.py`'s import of `send_outreach_sms` from `outreach.sms` — same function name, same call signature at the two send-sites (`(to_phone, body)` in, message id out). Callers didn't need touching beyond capturing the returned id for tracking (see below).
+- The whole follow-up timing/channel-logic layer (`outreach/followup.py`'s stage/timing rules, email-track-gets-both-channels logic) — has no provider awareness at all.
+
+**Changed structurally, not just re-pointed at a different API:**
+1. **Sending** (`outreach/sms.py:send_outreach_sms`) — Esendex's Message Dispatcher (`POST https://api.esendex.com/v1.0/messagedispatcher`, HTTP Basic Auth, XML body/response) replaces Twilio's `Client.messages.create()`. Confirmed against Esendex's public docs. Requires `ESENDEX_USERNAME`, `ESENDEX_PASSWORD`, `ESENDEX_ACCOUNT_REFERENCE` env vars (not set anywhere yet — you'll need real Esendex credentials before any send works).
+2. **Delivery status is now a POLL, not a PUSH.** This is the biggest structural difference. Twilio let you register a per-send `status_callback` URL; Esendex has no confirmed equivalent for plain SMS — its only documented "account"-product webhook events are `inbound` and `stop` (delivery events like `delivered`/`failed` are documented solely under the separate Rich Content API product, for RCS/WhatsApp, not the plain-SMS path used here). Built instead as `outreach/sms_status_poll.py`, which polls Esendex's Message Headers API (`GET /v1.0/messageheaders/{id}`) for any message whose last known status isn't terminal, and logs changes to the same `SmsDeliveryEvent` table the old webhook wrote to — `get_health_signal("sms")` needed zero changes as a result. Run this periodically (`python -m outreach.sms_status_poll`) — hourly is a reasonable cadence given Esendex typically resolves delivery within minutes; the old code polled/logged nothing between the once-daily `send_job.py` run and this is a real gap until scheduled.
+3. **Inbound webhook auth changed.** Twilio's `X-Twilio-Signature` HMAC scheme has no confirmed Esendex equivalent — replaced with a shared-secret query parameter embedded in the callback URL you register with Esendex (`?secret=...`, checked against `ESENDEX_WEBHOOK_SECRET`), the same pattern already used for the Cloudflare email webhook's `EMAIL_INBOUND_SHARED_SECRET`. Fails closed if unset.
+4. **Esendex's own "stop" classification is honored directly**, bypassing keyword matching — `outreach/reply_handling.py:handle_forced_sms_stop()` (new), called when Esendex's webhook reports `eventId: "stop"` rather than re-running `is_stop_intent()` against a message Esendex has already classified.
+
+**Not fully confirmed — flagged, not guessed silently:** Esendex's webhook event *envelope* (`productId`/`eventId`/`eventVersion`/`eventTime`/`data`, and that `productId: "account"` covers `inbound`/`stop`) is confirmed from their public docs. The exact field names *inside* `data` for these two event types were **not** — Esendex doesn't publish a field-level schema for them. `app.py:sms_inbound_webhook` parses defensively (tries several plausible key names for the phone number and message body) and logs the full raw payload on every request specifically so this can be verified and tightened against a real captured payload before being trusted blindly — the same honesty pattern used for the Cloudflare email Worker's MIME parser (Section 11a).
+
+**Also not done:** the Esendex webhook *subscription itself* isn't created by any code here — that's an account-side setup step (via Esendex's dashboard or a one-time API call once real credentials exist), the same category of "still on you" step as the Cloudflare Email Routing rule.
 
 ---
 
@@ -390,9 +410,9 @@ On any reply, regardless of channel:
 
 Matching logic lives in `outreach/reply_handling.py` (`handle_inbound_sms` / `handle_inbound_email`), shared across channels so channel-specific transports only need to call into it.
 
-### SMS — built and wired
+### SMS — built via Esendex webhooks (reworked from an earlier Twilio-based build — see Section 10a's "Provider correction")
 
-Twilio supports inbound message webhooks natively. `/api/webhooks/sms-inbound` (`app.py`) is registered as the "A MESSAGE COMES IN" webhook URL on the outreach Twilio number. Verifies `X-Twilio-Signature` against `TWILIO_AUTH_TOKEN` (fails closed) before matching the `From` number to a prospect (last-10-digits match) and calling `handle_inbound_sms`.
+`/api/webhooks/sms-inbound` (`app.py`) parses Esendex's webhook event array, routing `eventId: "inbound"` to `handle_inbound_sms` and `eventId: "stop"` to the new `handle_forced_sms_stop` (Esendex's own opt-out classification, honored directly rather than re-run through keyword matching). Secured by a shared-secret query parameter (`?secret=...` vs. `ESENDEX_WEBHOOK_SECRET`) rather than a signature scheme — Esendex has no documented HMAC equivalent to Twilio's `X-Twilio-Signature`. Fails closed if unset. See Section 10a for exactly which parts of this are confirmed against Esendex's docs versus defensively best-effort (the event envelope shape is confirmed; exact field names inside individual events' `data` are not).
 
 ### Email — built via Cloudflare Email Routing → Email Worker
 
@@ -520,7 +540,7 @@ The biggest risk to this pipeline is emails landing in spam, not generation cost
 
 ### Implementation status — checked directly, not assumed
 
-- **Twilio delivery-receipt data: WIRED.** `outreach/sms.py:send_outreach_sms` registers `status_callback=f"{BASE_URL}/api/webhooks/sms-status"` on every send; `app.py:sms_status_webhook` (Twilio-signature-verified, fails closed) logs each callback to a new `SmsDeliveryEvent` row.
+- **SMS delivery-status data: WIRED, via Esendex — as a poll, not a push.** No Twilio account exists (see Section 10a's "Provider correction"). `outreach/sms_status_poll.py` polls Esendex's Message Headers API for any recently-sent message not yet in a terminal status, logging changes to `SmsDeliveryEvent` — the same table, same schema, same downstream consumer (`get_health_signal`) as before the provider switch. **Needs to actually be scheduled to run periodically** (hourly is reasonable) — nothing currently invokes it automatically.
 - **Resend bounce/complaint webhooks: WIRED**, but needs a dashboard step. `app.py:resend_events_webhook` (`/api/webhooks/resend-events`) verifies Resend's Svix-signed payloads (the `svix` package, not hand-rolled HMAC) and logs each event to a new `EmailEventLog` row. **This requires a webhook actually registered in the Resend dashboard** pointing at that URL, and `RESEND_WEBHOOK_SECRET` set to match the signing secret Resend gives you when you create it — a one-time dashboard action, same category as the Cloudflare Email Routing rule in Section 11a.
 - **Google Postmaster Tools API access:** still NOT wired — needs manual domain verification in the Postmaster dashboard first (postmaster.google.com, DNS TXT record), which is a human step, not a code change. Email health below is computed entirely from the Resend interim proxy this section already names for it — not blocked on Postmaster.
 

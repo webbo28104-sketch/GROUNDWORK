@@ -27,12 +27,12 @@ from markupsafe import escape
 from werkzeug.security import generate_password_hash, check_password_hash
 
 from build_prompt import build_prompt
-from models import SessionLocal, Lead, Generation, Account, GenerationImage, Domain, Prospect, SearchCell, PendingVisionCheck, PendingEmailDiscovery, SmsDeliveryEvent, EmailEventLog, init_db
+from models import SessionLocal, Lead, Generation, Account, GenerationImage, Domain, Prospect, SearchCell, PendingVisionCheck, PendingEmailDiscovery, EmailEventLog, init_db
 from emails import (send_verification_email, send_resend_email, send_password_reset_email,
                     send_support_message_email, send_enquiry_email,
                     send_domain_order_admin_email, send_domain_order_customer_email,
                     send_domain_setup_failed_email, send_domain_live_email)
-from outreach.reply_handling import handle_inbound_sms, handle_inbound_email
+from outreach.reply_handling import handle_inbound_sms, handle_inbound_email, handle_forced_sms_stop
 
 app = Flask(__name__, static_folder="frontend", static_url_path="")
 app.logger.setLevel(logging.INFO)
@@ -4678,44 +4678,71 @@ def stripe_webhook():
 @app.route("/api/webhooks/sms-inbound", methods=["POST"])
 def sms_inbound_webhook():
     """
-    Twilio messaging webhook — set as the 'A MESSAGE COMES IN' webhook URL
-    on the outreach SMS number. Handles the reply-triggered kill-switch
-    (docs/outreach-pipeline-spec.md Section 11a): STOP-family keyword ->
-    permanent opt-out; any other reply -> pause the sequence for a human
-    to look at.
+    Esendex webhook receiver (docs/outreach-pipeline-spec.md Section 11a) —
+    replaces the earlier Twilio-based implementation. No Twilio account
+    exists; Esendex is the primary SMS provider.
 
-    Signature-verified using TWILIO_AUTH_TOKEN so this endpoint can't be
-    spoofed to opt out / pause arbitrary prospects. If TWILIO_AUTH_TOKEN
-    isn't set, the request is rejected (fail closed, not open) rather than
-    silently skipping verification.
+    Esendex's webhook payload is a JSON array of events, e.g.:
+      [{"productId": "account", "eventId": "inbound"|"stop",
+        "eventVersion": "1", "eventTime": "...", "data": {...}}, ...]
+    — confirmed from Esendex's public docs. The event ENVELOPE shape above
+    is confirmed; the exact field names inside `data` for "inbound"/"stop"
+    specifically were NOT confirmable from available documentation (Esendex
+    doesn't publish a field-level schema for these). Parsing below tries
+    several plausible key names and logs the full raw payload on every
+    request — check that log after the first real inbound reply/stop event
+    reaches this endpoint and tighten the key list to match reality; this
+    is flagged, not silently guessed.
+
+    Auth: no documented HMAC/signature scheme for Esendex webhooks (unlike
+    Twilio's X-Twilio-Signature) — secured instead by a shared-secret query
+    parameter embedded in the callback URL registered with Esendex
+    (?secret=..., checked against ESENDEX_WEBHOOK_SECRET). Fails closed if
+    unset.
     """
-    from twilio.request_validator import RequestValidator
-
-    auth_token = os.environ.get("TWILIO_AUTH_TOKEN")
-    if not auth_token:
-        app.logger.error("sms_inbound_webhook: TWILIO_AUTH_TOKEN not set — rejecting request")
+    shared_secret = os.environ.get("ESENDEX_WEBHOOK_SECRET")
+    if not shared_secret:
+        app.logger.error("sms_inbound_webhook: ESENDEX_WEBHOOK_SECRET not set — rejecting request")
         return "", 503
 
-    signature = request.headers.get("X-Twilio-Signature", "")
-    validator = RequestValidator(auth_token)
-    if not validator.validate(request.url, request.form.to_dict(), signature):
-        app.logger.warning("sms_inbound_webhook: invalid Twilio signature")
+    if not hmac.compare_digest(request.args.get("secret", ""), shared_secret):
+        app.logger.warning("sms_inbound_webhook: invalid or missing secret query param")
         return "", 403
 
-    from_phone = request.form.get("From", "")
-    body = request.form.get("Body", "")
+    events = request.get_json(silent=True) or []
+    app.logger.info(f"sms_inbound_webhook: raw payload: {events}")
 
     db = SessionLocal()
     try:
-        prospect = handle_inbound_sms(db, from_phone, body)
-        if not prospect:
-            app.logger.warning(f"sms_inbound_webhook: no prospect matched for {from_phone}")
+        for event in events if isinstance(events, list) else [events]:
+            if not isinstance(event, dict) or event.get("productId") != "account":
+                continue
+
+            event_id = event.get("eventId")
+            data = event.get("data") or {}
+            from_phone = (
+                data.get("originator") or data.get("from") or data.get("sender")
+                or data.get("phoneNumber") or data.get("mobileNumber") or ""
+            )
+            body = data.get("body") or data.get("messageText") or data.get("message") or data.get("text") or ""
+
+            if not from_phone:
+                app.logger.warning(f"sms_inbound_webhook: could not extract a phone number from event: {event}")
+                continue
+
+            if event_id == "stop":
+                prospect = handle_forced_sms_stop(db, from_phone)
+            elif event_id == "inbound":
+                prospect = handle_inbound_sms(db, from_phone, body)
+            else:
+                continue
+
+            if not prospect:
+                app.logger.warning(f"sms_inbound_webhook: no prospect matched for {from_phone}")
     finally:
         db.close()
 
-    # Empty TwiML response — no auto-reply sent back.
-    return ('<?xml version="1.0" encoding="UTF-8"?><Response></Response>', 200,
-            {"Content-Type": "text/xml"})
+    return jsonify({"status": "ok"}), 200
 
 
 @app.route("/api/webhooks/email-inbound", methods=["POST"])
@@ -4757,43 +4784,6 @@ def email_inbound_webhook():
         db.close()
 
     return jsonify({"status": "ok"}), 200
-
-
-@app.route("/api/webhooks/sms-status", methods=["POST"])
-def sms_status_webhook():
-    """
-    Twilio status-callback webhook (Section 15's SMS health signal) —
-    registered per-message via status_callback in outreach/sms.py. Same
-    signature verification as the inbound SMS webhook (fails closed if
-    TWILIO_AUTH_TOKEN unset). Just logs the raw event; outreach/ramp.py's
-    get_health_signal("sms") aggregates these rows into a rolling delivery
-    rate.
-    """
-    from twilio.request_validator import RequestValidator
-
-    auth_token = os.environ.get("TWILIO_AUTH_TOKEN")
-    if not auth_token:
-        app.logger.error("sms_status_webhook: TWILIO_AUTH_TOKEN not set — rejecting request")
-        return "", 503
-
-    signature = request.headers.get("X-Twilio-Signature", "")
-    validator = RequestValidator(auth_token)
-    if not validator.validate(request.url, request.form.to_dict(), signature):
-        app.logger.warning("sms_status_webhook: invalid Twilio signature")
-        return "", 403
-
-    db = SessionLocal()
-    try:
-        db.add(SmsDeliveryEvent(
-            message_sid=request.form.get("MessageSid", ""),
-            to_phone=request.form.get("To", ""),
-            status=request.form.get("MessageStatus", ""),
-        ))
-        db.commit()
-    finally:
-        db.close()
-
-    return "", 200
 
 
 @app.route("/api/webhooks/resend-events", methods=["POST"])

@@ -238,8 +238,13 @@ class PendingEmailDiscovery(Base):
 
 
 class SmsDeliveryEvent(Base):
-    """One row per Twilio delivery status-callback received (Section 15's
-    SMS health signal). See app.py:sms_status_webhook, outreach/ramp.py."""
+    """One row per observed Esendex message status — an initial 'submitted'
+    row at send time, then later rows as outreach/sms_status_poll.py polls
+    and observes changes (Esendex has no per-send push callback, unlike
+    Twilio's status_callback this table was originally built against — see
+    outreach/sms.py's module docstring). Section 15's SMS health signal.
+    message_sid holds an Esendex message id despite the Twilio-era column
+    name — left as-is to avoid a schema rename disrupting existing rows."""
     __tablename__ = "sms_delivery_events"
 
     id = Column(Integer, primary_key=True)

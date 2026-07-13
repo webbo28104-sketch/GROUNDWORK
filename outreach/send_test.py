@@ -16,7 +16,7 @@ Usage:
     python -m outreach.send_test --business-name "Test Roofing Ltd" --email you@example.com
     python -m outreach.send_test --business-name "Test Roofing Ltd" --phone "+447900000000"
 
-Real send — costs a real Resend/Twilio send just like production. Prints
+Real send — costs a real Resend/Esendex send just like production. Prints
 the resulting /claim/<token> link so you can immediately click through it
 yourself to test the full claim -> generation -> preview loop end to end.
 """

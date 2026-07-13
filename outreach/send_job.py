@@ -18,7 +18,7 @@ import os
 import logging
 from datetime import datetime
 
-from models import SessionLocal, Prospect, init_db
+from models import SessionLocal, Prospect, SmsDeliveryEvent, init_db
 from emails import send_outreach_email
 from outreach.sms import send_outreach_sms
 from outreach.templates import render_email, render_sms
@@ -41,6 +41,20 @@ def _short_code(p):
 
 def _unsubscribe_link(p):
     return f"{BASE_URL}/unsubscribe/{p.token}"
+
+
+def _record_sms_submitted(db, message_id, to_phone):
+    """
+    Log the initial 'submitted' state for a sent SMS, keyed by Esendex's
+    message id, so outreach/sms_status_poll.py has something to poll a
+    later status against. Esendex has no per-send push callback the way
+    Twilio did (see outreach/sms.py's module docstring) — this row is what
+    makes the poll-based approach work at all; skipped entirely if the send
+    itself failed (message_id is None).
+    """
+    if not message_id:
+        return
+    db.add(SmsDeliveryEvent(message_sid=message_id, to_phone=to_phone, status="submitted"))
 
 
 def _eligible_initial_send_query(db):
@@ -80,7 +94,8 @@ def send_initial_touch(db, p, now, remaining_ramp=None):
     if phone_only:
         if p.phone and not p.sms_unsubscribed and (unlimited or remaining_ramp["sms"] > 0):
             body = render_sms("initial", business_name=p.business_name, short_code=_short_code(p))
-            send_outreach_sms(p.phone, body)
+            sms_id = send_outreach_sms(p.phone, body)
+            _record_sms_submitted(db, sms_id, p.phone)
             if not unlimited:
                 remaining_ramp["sms"] -= 1
             record_sends("sms", 1, now, db=db)
@@ -101,7 +116,8 @@ def send_initial_touch(db, p, now, remaining_ramp=None):
         # touch if a phone number is on record.
         if p.phone and not p.sms_unsubscribed and (unlimited or remaining_ramp["sms"] > 0):
             body = render_sms("initial", business_name=p.business_name, short_code=_short_code(p))
-            send_outreach_sms(p.phone, body)
+            sms_id = send_outreach_sms(p.phone, body)
+            _record_sms_submitted(db, sms_id, p.phone)
             if not unlimited:
                 remaining_ramp["sms"] -= 1
             record_sends("sms", 1, now, db=db)
