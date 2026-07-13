@@ -383,32 +383,50 @@ Stage A and Stage B (pre-click — `sent`/`opened` substages) must never claim t
 
 ## 11a. Reply Capture (kill-switch) — blocks the sequence going live
 
-**Hard gate:** `run_followups()` (`outreach/followup.py`) refuses to send anything unless the env var `OUTREACH_REPLY_CAPTURE_READY=true` is set. This defaults to unset (blocked) and must only be flipped once both channels below are live *and verified end-to-end* — a real inbound reply observed to actually opt-out/pause a real test prospect, not just once the code merges.
-
 On any reply, regardless of channel:
 
-- **Stop-intent keyword** (STOP, UNSUBSCRIBE, CANCEL, QUIT, etc. — case-insensitive, see `outreach/reply_handling.py:STOP_KEYWORDS`) → permanent opt-out on that channel (`sms_unsubscribed` / `email_unsubscribed`).
+- **Stop-intent keyword** (STOP, UNSUBSCRIBE, CANCEL, QUIT, etc. — case-insensitive, see `outreach/reply_handling.py:STOP_KEYWORDS`) → permanent opt-out on that channel (`sms_unsubscribed` / `email_unsubscribed`, each stamped with a `*_unsubscribed_at` timestamp).
 - **Any other reply** → `funnel_substage = "replied"`, which pauses the sequence — this value is deliberately outside the set `run_followups()` queries against, so a replied prospect is automatically excluded without a separate check. A human should look at these, not keep getting scripted follow-ups.
 
 Matching logic lives in `outreach/reply_handling.py` (`handle_inbound_sms` / `handle_inbound_email`), shared across channels so channel-specific transports only need to call into it.
 
 ### SMS — built and wired
 
-Twilio supports inbound message webhooks natively. `/api/webhooks/sms-inbound` (`app.py`) is registered as the "A MESSAGE COMES IN" webhook URL on the outreach Twilio number. Verifies `X-Twilio-Signature` against `TWILIO_AUTH_TOKEN` (fails closed — rejects with 503 if the token isn't set, rather than skipping verification) before matching the `From` number to a prospect (last-10-digits match, so UK national/international formatting differences don't matter) and calling `handle_inbound_sms`.
+Twilio supports inbound message webhooks natively. `/api/webhooks/sms-inbound` (`app.py`) is registered as the "A MESSAGE COMES IN" webhook URL on the outreach Twilio number. Verifies `X-Twilio-Signature` against `TWILIO_AUTH_TOKEN` (fails closed) before matching the `From` number to a prospect (last-10-digits match) and calling `handle_inbound_sms`.
 
-### Email — NOT built. Resend has no inbound-parsing product.
+### Email — built via Cloudflare Email Routing → Email Worker
 
-Checked directly: Resend's product is outbound send plus webhooks *about* your own outbound sends (delivered/bounced/complained/opened/clicked) — it has no inbound-parsing, inbound-routing, or "receive email" capability at all. There is no Resend-native way to wire this the same way as the Twilio webhook.
+Resend has no inbound-parsing product (confirmed directly — its product is outbound send plus webhooks about your own outbound sends), so this uses the Cloudflare option from the three previously reported: `frontend/_worker.js` (the existing, already git-linked/auto-deployed `groundwork` Worker — not a new project) now also exports an `email(message, env, ctx)` handler alongside its existing `fetch()` handler. On every inbound message, once a Cloudflare Email Routing rule points at this Worker (see "what's still on you" below), it:
 
-Real options, for you to choose between (not built — reporting only, per instruction not to build a workaround):
+1. Parses the raw MIME message into a plain-text body. **Deliberately dependency-free** — no `postal-mime` or similar — since this project has zero npm dependencies today (no `package.json`) and introducing one purely for this would add real risk to a deploy pipeline untestable from here. Handles the common case (single-part, or two-part `multipart/alternative` with `text/plain`+`text/html`, from Gmail/Outlook/Apple Mail), including quoted-printable/base64 decoding. **Not** a fully spec-compliant MIME parser — nested `multipart/mixed` with attachments or unusual charsets aren't handled. **Reviewed carefully but not executable-tested** — no Node/JS runtime was available in this environment to actually run it, only Python. Verify it against a real test reply before relying on it (see the test-send tool, Section 18).
+2. POSTs `{from, text}` to `/api/webhooks/email-inbound` (`app.py`), authenticated with a shared secret (`X-Groundwork-Email-Secret` header vs. `EMAIL_INBOUND_SHARED_SECRET`) — Cloudflare Email Workers have no built-in request-signing equivalent to Twilio's, so a shared secret is the mechanism here. Fails closed (503) if the secret isn't set on the Railway side.
+3. `email_inbound_webhook` calls `handle_inbound_email` — the same shared reply_handling logic SMS already uses.
 
-1. **Cloudflare Email Routing → Email Worker** — since `groundworkbuild.com` is already on Cloudflare (per CLAUDE.md), this is the most natural fit: no new vendor. Cloudflare Email Routing can route inbound mail on the outreach subdomain to an Email Worker, which can POST the parsed message straight to a new Flask endpoint (mirroring the SMS webhook shape). Free, same infra the domain already lives in.
-2. **Dedicated receiving inbox + polling** — a plain mailbox (e.g. a Gmail/Outlook address) receives replies, and a periodic job polls it via IMAP, matching by `From` address. No new inbound-parsing vendor, but adds polling latency and IMAP-credential handling.
-3. **A separate inbound-parsing service** (Mailgun Routes, Postmark Inbound, SendGrid Inbound Parse) run *alongside* Resend purely for inbound — Resend keeps doing outbound sends, a second vendor's MX/webhook handles inbound only. Real-time, but a second vendor relationship and another DNS/MX configuration to keep straight from Resend's.
+**What's still on you (dashboard/account steps, not code):**
 
-`outreach/reply_handling.py:handle_inbound_email` is already implemented and ready to be called by whichever transport is chosen — only the transport itself needs building.
+1. Enable Cloudflare Email Routing for the outreach sending domain.
+2. Add a routing rule (catch-all, or the specific address your templates' "reply to this email" points at) → "Send to a Worker" → the existing `groundwork` Worker.
+3. Set `EMAIL_INBOUND_SHARED_SECRET` as a Cloudflare Worker secret (`wrangler secret put`, or the dashboard's Variables/Secrets UI) **and** as a Railway env var, to the same value.
+4. Set `RESEND_WEBHOOK_SECRET` similarly if not already done for Section 15's bounce/complaint webhook (see below) — separate secret, same idea.
 
-**Until email inbound is wired and `OUTREACH_REPLY_CAPTURE_READY=true`, follow-ups will not send** — this is enforced in code (see above), not just documented here.
+**A known fidelity gap, not a bug:** `is_stop_intent()` (reused as-is, per instruction) does an exact match against the whole normalized message body — tuned for SMS's typical one-word replies. A verbose email reply ("Please stop emailing me. On Mon, ... wrote: > ...") won't match it, so it falls through to the "any other reply" branch instead of the stricter permanent-opt-out branch. This isn't dangerous — every reply still either opts out or pauses the sequence, never gets ignored — but a real "please stop" email won't auto-suppress future sends the way a bare "STOP" SMS does; a human reviewing "replied" prospects would need to notice and manually opt them out. Worth knowing before assuming stop-detection is equally reliable on both channels.
+
+### The `OUTREACH_REPLY_CAPTURE_READY` flag — confirmed scope
+
+**It's a single global flag, not per-channel** — `run_followups()` (`outreach/followup.py`) checks one boolean that gates both channels together, all-or-nothing. There's no way to enable it for SMS only. Flip it to `true` only once email reply-capture above is actually deployed (the dashboard steps) **and verified end-to-end** — a real inbound reply (e.g. via the test-send tool, Section 18) observed to actually opt-out/pause a real test prospect, not just once the code merges.
+
+**A related gap, flagged rather than silently fixed:** this flag only gates `run_followups()` (scheduled follow-up touches) — it does **not** gate `fill_initial_sends()` (`outreach/send_job.py`), which sends initial emails regardless of this flag's value. A reply to an *initial* email is just as much a signal a human should see as a reply to a follow-up, and initial sends can legitimately get replies too. Whether to also gate initial sends behind this flag is a real decision, not applied here without confirming first.
+
+---
+
+## 11b. One-click unsubscribe
+
+Built and tested (`app.py:unsubscribe`, `outreach/send_job.py`, `emails.py`):
+
+- **`/unsubscribe/<token>`** — reuses the same per-prospect `token` `/claim/<token>` uses (same prospect identity either way; a second token wasn't introduced for this). `GET` (the "click here to unsubscribe" text link in the email body) sets `email_unsubscribed = true` + `email_unsubscribed_at` immediately, no login, no confirmation click, then shows a plain landing page. `POST` (what a mail client sends automatically when it honors the `List-Unsubscribe-Post` header, RFC 8058) does the same thing and returns a bare 200, no page. An unknown/missing token gets the identical response either way — doesn't leak whether a token is valid.
+- **`{unsubscribe_link}` resolves correctly everywhere it's used** — `outreach/send_job.py:_unsubscribe_link` and the identical function threaded through `outreach/followup.py` both build `{BASE_URL}/unsubscribe/{p.token}`; every template (Section 10/11) that renders `{unsubscribe_link}` gets this real URL.
+- **`List-Unsubscribe`/`List-Unsubscribe-Post` headers** — already present on every `send_outreach_email` call (`emails.py`), pointing at the same URL passed as `unsubscribe_link`. No template/caller had to change for this.
+- Verified: `GET` unsubscribes and shows the landing page; `POST` (the one-click header path) returns 200 with an empty body and has the same effect; an unknown token returns the same response as a valid one.
 
 ---
 
@@ -498,13 +516,17 @@ The biggest risk to this pipeline is emails landing in spam, not generation cost
 
 ### Implementation status — checked directly, not assumed
 
-- **Google Postmaster Tools API access:** NOT wired up anywhere in this codebase. No credentials, no client, no polling job.
-- **Twilio delivery-receipt data:** NOT wired up. No `StatusCallback` URL is registered on any Twilio send, so Twilio has nowhere to report delivery outcomes back to.
-- **Resend bounce/complaint webhooks** (the interim proxy this section names for email spam-rate signal): NOT wired up — no `/api/webhooks/resend-events` route exists.
+- **Twilio delivery-receipt data: WIRED.** `outreach/sms.py:send_outreach_sms` registers `status_callback=f"{BASE_URL}/api/webhooks/sms-status"` on every send; `app.py:sms_status_webhook` (Twilio-signature-verified, fails closed) logs each callback to a new `SmsDeliveryEvent` row.
+- **Resend bounce/complaint webhooks: WIRED**, but needs a dashboard step. `app.py:resend_events_webhook` (`/api/webhooks/resend-events`) verifies Resend's Svix-signed payloads (the `svix` package, not hand-rolled HMAC) and logs each event to a new `EmailEventLog` row. **This requires a webhook actually registered in the Resend dashboard** pointing at that URL, and `RESEND_WEBHOOK_SECRET` set to match the signing secret Resend gives you when you create it — a one-time dashboard action, same category as the Cloudflare Email Routing rule in Section 11a.
+- **Google Postmaster Tools API access:** still NOT wired — needs manual domain verification in the Postmaster dashboard first (postmaster.google.com, DNS TXT record), which is a human step, not a code change. Email health below is computed entirely from the Resend interim proxy this section already names for it — not blocked on Postmaster.
 
-`outreach/ramp.py:get_health_signal(channel)` is the single seam all three would plug into. It currently always returns `None` ("unknown"), and the ramp **holds flat rather than advancing on missing data** — deliberately, since advancing send volume on fabricated health data would be worse than not advancing. Wiring one of the three integrations above is a prerequisite for the ramp ever doing more than sitting at the week-1 floor, not a nice-to-have. `outreach/ramp.py` implements the rest of this section's logic (weekly advancement, circuit-breaker trip-and-reset, two fully independent per-channel ramps) and is ready to use real data the moment `get_health_signal` is wired.
+`outreach/ramp.py:get_health_signal(channel)` now computes real rates from the above:
 
-**Known gap even once wired:** circuit-breaker *recovery* (Section 10b: "spam rate must hold below 0.1% for 7 consecutive days") needs a rolling history of daily signal values to evaluate — that history isn't stored anywhere yet. `advance_or_hold()` currently just holds a tripped breaker at the floor indefinitely and logs that consecutive-day tracking is missing, rather than fabricating a recovery.
+- **email:** complaint count (`EmailEventLog`, trailing 7 days) ÷ total sends (`DailySendCount`, trailing 7 days) → `spam_rate`.
+- **sms:** delivered ÷ total distinct `message_sid`s (`SmsDeliveryEvent`) for the trailing 7 days (`delivery_rate`) vs. the 7 days before that (`delivery_rate_baseline`, what the circuit-breaker trigger compares against per Section 10b), plus today's opt-outs (`Prospect.sms_unsubscribed_at`) ÷ today's sends (`opt_out_rate_today`).
+- Returns `None` ("unknown") whenever there isn't yet enough real data in the window (e.g. zero sends logged) — the ramp still **holds flat rather than advancing on missing/insufficient data**, same principle as before, now genuinely exercised by real volume rather than permanently true. Verified with synthetic event data during this build (no data → `None`; 1 complaint / 100 sends → `spam_rate: 0.01`; 30/50 delivered current vs. 45/50 baseline → correct rates).
+
+**Known gap even once real volume flows:** circuit-breaker *recovery* (Section 10b: "spam rate must hold below 0.1% for 7 consecutive days") needs a rolling history of daily signal values to evaluate — that history isn't stored anywhere yet (only raw events, not a computed-and-stored daily rate). `advance_or_hold()` currently just holds a tripped breaker at the floor indefinitely and logs that consecutive-day tracking is missing, rather than fabricating a recovery.
 
 ### Dynamic send ramp (email)
 
@@ -570,3 +592,19 @@ Build the funnel dashboard and ramp status first — they're needed from day one
 | Volume at end of month 3 (if ramp holds clean) | ~1,200–1,800 sends/month email + SMS |
 | Projected MRR at month-3 volume | ~£135–£200/mo (0.475% conversion, 5% churn) |
 | Levers for faster growth | Healthy ramp (spam rate stays clean), improve conversion, reduce churn |
+
+---
+
+## 18. Manual Test Send
+
+`outreach/send_test.py` — sends the real initial template through the real pipeline (`ensure_link_identity`, `render_email`/`render_sms`, `send_outreach_email`/`send_outreach_sms`, the same funnel-state updates the batch job makes) to exactly one prospect, independent of `send_job.py`'s ramp/eligibility logic — **not** ramp-limited, **not** gated by anything else in the batch:
+
+```
+python -m outreach.send_test --prospect-id 42
+python -m outreach.send_test --business-name "Test Roofing Ltd" --email you@example.com
+python -m outreach.send_test --business-name "Test Roofing Ltd" --phone "+447900000000"
+```
+
+A real send — costs a real Resend/Twilio send just like production. Prints the resulting `/claim/<token>` (and `/s/<short_code>`) link so you can immediately click through the full claim → generation → preview loop yourself.
+
+**A real bug found and fixed while building this:** `outreach/ramp.py:record_sends()` used to always open its own DB session, which caused genuine `"database is locked"` failures under SQLite when called from within a caller (`send_job.py`, `followup.py`) that already had a session open mid-transaction — reproduced directly while testing this tool, not theoretical. Fixed by having `record_sends()` accept and reuse the caller's session (`db=` parameter), with every real call site updated to pass theirs through.
