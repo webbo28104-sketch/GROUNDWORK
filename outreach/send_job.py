@@ -56,9 +56,69 @@ def _eligible_initial_send_query(db):
     ).order_by(Prospect.score.desc())
 
 
+def send_initial_touch(db, p, now, remaining_ramp=None):
+    """
+    Send the initial-template touch to one prospect on whichever channel(s)
+    apply, and mark it sent. Shared by fill_initial_sends (the automated
+    daily batch, ramp-limited) and outreach/send_test.py (a manual one-off
+    test send, NOT ramp-limited — pass remaining_ramp=None to skip the ramp
+    check entirely, since a single manual test send shouldn't be blocked by
+    or count against the day's approved volume).
+
+    Returns True if at least one channel was actually sent to.
+    """
+    ensure_link_identity(db, p)
+    phone_only = not p.email_found
+    touched = False
+    unlimited = remaining_ramp is None
+
+    if phone_only:
+        if p.phone and not p.sms_unsubscribed and (unlimited or remaining_ramp["sms"] > 0):
+            body = render_sms("initial", business_name=p.business_name, short_code=_short_code(p))
+            send_outreach_sms(p.phone, body)
+            if not unlimited:
+                remaining_ramp["sms"] -= 1
+            record_sends("sms", 1, now, db=db)
+            touched = True
+    else:
+        if not p.email_unsubscribed and (unlimited or remaining_ramp["email"] > 0):
+            msg = render_email(
+                "initial", business_name=p.business_name,
+                preview_link=_preview_link(p), unsubscribe_link=_unsubscribe_link(p),
+            )
+            send_outreach_email(p.email, msg["subject"], msg["body"], _unsubscribe_link(p))
+            if not unlimited:
+                remaining_ramp["email"] -= 1
+            record_sends("email", 1, now, db=db)
+            touched = True
+        # Email-track prospects get both channels in parallel, same as the
+        # follow-up sequence's channel logic — SMS piggybacks on the same
+        # touch if a phone number is on record.
+        if p.phone and not p.sms_unsubscribed and (unlimited or remaining_ramp["sms"] > 0):
+            body = render_sms("initial", business_name=p.business_name, short_code=_short_code(p))
+            send_outreach_sms(p.phone, body)
+            if not unlimited:
+                remaining_ramp["sms"] -= 1
+            record_sends("sms", 1, now, db=db)
+            touched = True
+
+    if not touched:
+        return False
+
+    p.funnel_stage = "sent"
+    p.funnel_substage = "sent"
+    p.sent_at = now
+    p.sent_at_dow = now.weekday()
+    p.sent_at_hour = now.hour
+    p.last_touch_at = now
+    p.touch_count = 1
+    db.commit()
+    return True
+
+
 def fill_initial_sends(remaining_ramp, now):
     """Consume whatever's left of remaining_ramp on new initial sends,
-    top-scored first. Mutates and returns remaining_ramp."""
+    top-scored first."""
     db = SessionLocal()
     sent = 0
     try:
@@ -67,50 +127,8 @@ def fill_initial_sends(remaining_ramp, now):
         for p in candidates:
             if remaining_ramp["email"] <= 0 and remaining_ramp["sms"] <= 0:
                 break
-
-            ensure_link_identity(db, p)
-            phone_only = not p.email_found
-            touched = False
-
-            if phone_only:
-                if p.phone and not p.sms_unsubscribed and remaining_ramp["sms"] > 0:
-                    body = render_sms("initial", business_name=p.business_name, short_code=_short_code(p))
-                    send_outreach_sms(p.phone, body)
-                    remaining_ramp["sms"] -= 1
-                    record_sends("sms", 1, now)
-                    touched = True
-            else:
-                if not p.email_unsubscribed and remaining_ramp["email"] > 0:
-                    msg = render_email(
-                        "initial", business_name=p.business_name,
-                        preview_link=_preview_link(p), unsubscribe_link=_unsubscribe_link(p),
-                    )
-                    send_outreach_email(p.email, msg["subject"], msg["body"], _unsubscribe_link(p))
-                    remaining_ramp["email"] -= 1
-                    record_sends("email", 1, now)
-                    touched = True
-                # Email-track prospects get both channels in parallel, same
-                # as the follow-up sequence's channel logic — SMS piggybacks
-                # on the same touch if a phone number is on record.
-                if p.phone and not p.sms_unsubscribed and remaining_ramp["sms"] > 0:
-                    body = render_sms("initial", business_name=p.business_name, short_code=_short_code(p))
-                    send_outreach_sms(p.phone, body)
-                    remaining_ramp["sms"] -= 1
-                    record_sends("sms", 1, now)
-                    touched = True
-
-            if not touched:
-                continue
-
-            p.funnel_stage = "sent"
-            p.funnel_substage = "sent"
-            p.sent_at = now
-            p.sent_at_dow = now.weekday()
-            p.sent_at_hour = now.hour
-            p.last_touch_at = now
-            p.touch_count = 1
-            sent += 1
-            db.commit()
+            if send_initial_touch(db, p, now, remaining_ramp):
+                sent += 1
 
         logger.info("Initial sends: %d, ramp remaining after — email: %d, sms: %d",
                     sent, remaining_ramp["email"], remaining_ramp["sms"])

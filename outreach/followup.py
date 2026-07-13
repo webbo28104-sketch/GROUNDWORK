@@ -191,8 +191,8 @@ def run_followups(remaining_ramp, unsubscribe_link_fn, preview_link_fn, short_co
 
             remaining_ramp["email"] -= email_used
             remaining_ramp["sms"] -= sms_used
-            record_sends("email", email_used, now)
-            record_sends("sms", sms_used, now)
+            record_sends("email", email_used, now, db=db)
+            record_sends("sms", sms_used, now, db=db)
             fired += 1
             db.commit()
 

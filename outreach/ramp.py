@@ -235,16 +235,25 @@ def get_remaining_ramp_today(channel, now=None):
         db.close()
 
 
-def record_sends(channel, n, now=None):
+def record_sends(channel, n, now=None, db=None):
     """Increment today's send counter for a channel by n. Call this after
     every actual send (follow-up or initial) so get_remaining_ramp_today
-    reflects reality."""
+    reflects reality.
+
+    Accepts an optional existing db session — every real caller
+    (outreach/send_job.py, outreach/followup.py) already holds one open
+    for the prospect it's touching, and opening a second SessionLocal()
+    here while that one is mid-transaction caused real "database is
+    locked" failures under SQLite (found while testing outreach/send_test.py;
+    reproducible, not a fluke). Falls back to managing its own session only
+    when called standalone (e.g. directly from a shell/test)."""
     if n <= 0:
         return
     now = now or datetime.utcnow()
     today = now.strftime("%Y-%m-%d")
 
-    db = SessionLocal()
+    owns_session = db is None
+    db = db or SessionLocal()
     try:
         row = db.query(DailySendCount).filter(
             DailySendCount.channel == channel, DailySendCount.send_date == today
@@ -255,4 +264,5 @@ def record_sends(channel, n, now=None):
         row.count += n
         db.commit()
     finally:
-        db.close()
+        if owns_session:
+            db.close()
