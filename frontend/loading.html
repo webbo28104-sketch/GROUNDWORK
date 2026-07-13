@@ -68,12 +68,16 @@ let done = false;
 const bar = document.getElementById('progress-bar');
 const msg = document.getElementById('status-msg');
 
-// Animate fake progress until done (capped at 95%). Paced to reach 95%
-// around 2:40 (160s) — the actual average generation time — so the bar
-// isn't sitting stalled at 95% for a long tail waiting on the real result.
+// Animate fake progress until done (capped at 95%). Confirmed testing puts
+// real generation at 150-300s (not a fixed average) — paced to reach 95%
+// around 4:40 (280s), near the slow end of that range, so the bar isn't
+// sitting stalled at 95% for as long on a slow generation. This is still a
+// SIMULATED bar with no real backend step data behind it — a genuinely
+// accurate progress indicator (server reports which step it's actually on)
+// is a separate follow-up build, not done here.
 const fakeTimer = setInterval(() => {
   if(done) return;
-  fakeProgress = Math.min(fakeProgress + (fakeProgress < 50 ? 0.25 : fakeProgress < 80 ? 0.1 : 0.05), 95);
+  fakeProgress = Math.min(fakeProgress + (fakeProgress < 50 ? 0.111 : fakeProgress < 80 ? 0.0667 : 0.03), 95);
   bar.style.width = fakeProgress + '%';
   bar.parentElement.setAttribute('aria-valuenow', Math.round(fakeProgress));
   const step = [...STEPS].reverse().find(s => fakeProgress >= s.at);

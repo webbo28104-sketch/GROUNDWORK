@@ -280,6 +280,47 @@ def send_domain_live_email(to_email: str, domain: str, business_name: str) -> No
     _send(to_email, f"Your domain is live — {escape(domain)}", html)
 
 
+def send_outreach_email(to_email: str, subject: str, plain_body: str, unsubscribe_link: str) -> None:
+    """
+    Cold outreach / follow-up send (outreach/followup.py, outreach/templates.py).
+    Sent from a separate subdomain (Section 15 deliverability) via
+    OUTREACH_RESEND_FROM_EMAIL, not the transactional RESEND_FROM_EMAIL used
+    by the rest of this file — keeps cold-outreach sender reputation isolated
+    from the transactional generation-flow emails.
+    Body is plain text (matches the finalized template copy exactly, per the
+    content-accuracy rule) — no branded button wrapper, just line breaks.
+    """
+    api_key = os.environ.get("RESEND_API_KEY")
+    from_email = os.environ.get("OUTREACH_RESEND_FROM_EMAIL", os.environ.get("RESEND_FROM_EMAIL", "groundwork-build@outlook.com"))
+
+    if not api_key:
+        print(f"[emails] RESEND_API_KEY not set — skipping outreach send of '{subject}' to {to_email}")
+        return
+
+    html_body = escape(plain_body).replace("\n", "<br>")
+    html = f"""<div style="font-family:Arial,Helvetica,sans-serif;background:#F5F3EE;padding:32px 20px;">
+  <div style="max-width:480px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;">
+    <div style="padding:28px;font-size:15px;line-height:1.6;color:#1C1C1C;">{html_body}</div>
+  </div>
+</div>"""
+
+    resend.api_key = api_key
+    try:
+        resend.Emails.send({
+            "from": from_email,
+            "to": [to_email],
+            "subject": subject,
+            "html": html,
+            "text": plain_body,
+            "headers": {
+                "List-Unsubscribe": f"<{unsubscribe_link}>",
+                "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+            },
+        })
+    except Exception as exc:
+        print(f"[emails] failed to send outreach email '{subject}' to {to_email}: {exc}")
+
+
 def send_support_message_email(from_email: str, message: str, *, business_name: str = None, subdomain: str = None) -> None:
     """
     Forwards a message submitted from the account dashboard straight to the

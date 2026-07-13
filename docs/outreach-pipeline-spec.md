@@ -142,6 +142,35 @@ One model, one job:
 
 ---
 
+## 9a. Click-to-generation flow — implementation status
+
+**Built and tested** (`app.py`, `models.py`, `outreach/link_identity.py`):
+
+- **`Prospect.token`** (magic-link credential) and **`Prospect.short_code`** (for `/s/<short_code>`) are generated at the point a send is queued — `outreach/link_identity.py:ensure_link_identity()`, called from both `outreach/send_job.py:fill_initial_sends()` and `outreach/followup.py:_fire_touch()` (defensively, for any legacy row that reaches a follow-up without one).
+- **`/s/<short_code>`** (`app.py:short_link`) — looks up the `Prospect` by `short_code`, 302-redirects to `/claim/<token>`. A plain server-side redirect, unchanged by the fixes below — it extends cleanly to the phone-only page too, since `/claim/<token>` is the one that branches, not the short link (see below).
+- **`/claim/<token>`** (`app.py:claim`) — **no password/account barrier before seeing anything**, per the fix. Looks up the `Prospect` by `token`; if the prospect has no email on file (phone-only track), redirects to `/claim/<token>/email` instead. Otherwise calls the shared `_claim_generate_and_redirect()` helper directly: sets `clicked_at`, creates a `Lead` from the prospect's available fields (`_prospect_to_form_data`), sets `funnel_substage = "clicked_generated"`, calls the existing `_kickoff_generation()` — the same function `/verify/<token>` and `/admin/generate-test` already use — and redirects straight to `/loading.html?id=<lead.public_id>`. No session is set here; viewing the generating/generated site needs no login, same as the main form-submission flow. **Idempotent**: a repeat visit once `prospect.lead_id` is set redirects to the existing result (`/api/generate/<id>/html` if generation finished, `/loading.html` if still running) rather than creating a second `Lead`.
+- **`/claim/<token>/email`** (`app.py:claim_email`) — the SMS magic-link destination for phone-only prospects (`has_findable_email` / `email_found = false`). Single required field (email). On submit: sets `prospect.email`, flips `email_found` (== `has_findable_email`) to `true` — making the prospect eligible for the parallel email follow-up track from that point on — creates/reuses an `Account` row for the email (no password yet), then calls the **same** `_claim_generate_and_redirect()` helper `/claim/<token>` uses, so generation kickoff and the `clicked_generated` transition are identical code, not a parallel implementation. If a prospect at this URL already has an email on file (e.g. discovered later some other way, or they've already submitted this form once), it just redirects to `/claim/<token>` — nothing left to capture.
+- **Password is requested later, via the existing flow, not a new one.** `/account/login`'s `set_password` stage (used both for the "brand new signup" and "no password yet, but this email has a Generation" branches — this is the *existing* mechanism the fix asked to reuse) now additionally looks up any `Prospect` row(s) for that email with `account_created_at` still null and, if their `funnel_substage` is `clicked_generated`, flips it to `account_created` and stamps `account_created_at`. This is the one place that transition happens — added to existing code, not a new auth path.
+- **Wired into `outreach/send_job.py`/`outreach/followup.py`** — `_preview_link`/`_short_code` point at these routes.
+
+**Confirmed, not assumed** (tested against a scratch DB): `/claim/<token>` with an email on file skips straight to `/loading.html` with no password prompt, `funnel_substage` lands on `clicked_generated`, and a repeat visit is idempotent (no duplicate `Lead`); `/claim/<token>` with no email redirects to `/claim/<token>/email`, whose submission sets `email_found=true`, creates the `Account`, and reaches the same `_claim_generate_and_redirect` result; simulating a subsequent password-set via `/account/login`'s existing `set_password` stage correctly flips the linked `Prospect` to `account_created` with `account_created_at` stamped. Confirmed no route conflicts — `/claim/<token>`, `/claim/<token>/email`, and `/s/<short_code>` are three distinct Flask rules with no overlap, and the short-code system needed zero changes to reach the new email-capture page (it always resolves to `/claim/<token>`, which does the has-email branch itself).
+
+**Fixed:** logging in via `/account/login` while generation is still mid-flight (before `_run_and_persist` writes the `Generation` row, so `_has_generation()` alone returns false) used to fall through to the "brand new signup, verify by email" branch — not an error or broken page, but a wrong-but-recoverable one: it sent a genuine, redundant email-confirmation link and showed "Check your email" instead of the set-password form the prospect actually needed, resolving correctly only after that extra email + click (and not at all if `RESEND_API_KEY` wasn't configured). Realistic enough to fix (someone opening the main site and clicking "Sign in" during the 150-300s generation window, not just a theoretical case — re-visiting the magic link itself doesn't trigger it, since `/claim/<token>` is idempotent). `account_login`'s `stage="email"` branch now also checks for a `Prospect` row with this email and `lead_id` already set (claim already happened, regardless of whether generation has finished) and treats that the same as `_has_generation` — verified against the exact mid-flight scenario (generation kicked off, no `Generation` row yet, login attempted) — goes straight to set-password, no redundant email sent.
+
+### Open items (unchanged from before, still real gaps)
+
+1. **Phone-only prospects can't be claimed without providing an email** — by design now (that's what `/claim/<token>/email` is for); once submitted they're no longer phone-only.
+2. **`_prospect_to_form_data()` omits fields the form flow normally collects** (`work_split`, `craft_prestige`, `team_size`, `urgency`, `years_trading`, `claimed_accreditations`, `claimed_projects`, `other_notes`) — a `Prospect` row has none of these; `build_prompt.py` tolerates missing keys (`.get()`, skips falsy facts), so a prospect-sourced generation reads thinner than a form-submitted one. Inherent to cold outreach, not a bug.
+3. **Section 7's "pulled logo/colours/copy from their existing site" step is NOT implemented.** No code anywhere downloads/extracts a logo or colour palette from a prospect's existing website — `_extract_logo_colors()` only operates on an already-uploaded image file from the form flow, which a `Prospect` never has. Separate, unbuilt feature.
+
+### "Building your site..." progress messaging
+
+The existing `loading.html` (shared with the main form-submission flow, not new) already has genuine staged messaging (7 milestone strings tied to a simulated progress bar), not a bare spinner — it wasn't starting from nothing. It was tuned assuming a ~160s average; given confirmed testing now puts real generation at **150-300s**, its previous pacing would reach 95% around 2:40 and then sit visibly stalled for up to another ~2:20 on a slow generation. **Retuned** (this pass) so it reaches 95% nearer 4:40, closer to the slow end of the confirmed range, reducing how long it can appear stuck.
+
+**Flagged as its own follow-up, per the instruction to flag this:** this is still a *simulated* bar with no real backend step data behind it — it doesn't know what `_run()` (`app.py`) is actually doing at any moment, just elapsed time. A genuinely accurate progress indicator (the backend reporting which real step it's on — e.g. "verifying business," "writing copy," "running tools" — surfaced via the existing `/api/generate/<id>/status` poll) is a materially bigger change (instrumenting `_run()` itself to emit step state) and was not attempted here.
+
+---
+
 ## 10. Email Templates
 
 ### Initial — No Website
@@ -157,6 +186,39 @@ One model, one job:
 
 - Subject: `A modern version of {business_name}'s website`
 - Same structure, references "kept your branding" (only if generation genuinely pulls their real logo/colours — verify before using this line)
+
+### Finalized copy (implemented in `outreach/templates.py`)
+
+Placeholders: `{business_name}`, `{preview_link}`, `{short_code}`, `{unsubscribe_link}`.
+
+**Initial email** (all prospects with a findable email):
+
+> Subject: `{business_name} — see a website built for you, no cost`
+>
+> Hi {business_name} team,
+>
+> We're Groundwork — we build affordable websites for UK trade businesses, without the agency price tag or hassle.
+>
+> See your website preview below, tailored to your trade and area — no cost, no obligation to take it further.
+>
+> {preview_link}
+>
+> If you like what you see, going live is £99 setup + £24.99/month, first month free — most other website services charge around £89 a month alone.
+>
+> Have a look and see what you think — any questions, just reply to this email.
+>
+> P.S. — here's a real site we've built recently, live now: sussexleadcraftltd.com
+>
+> ---
+> Don't want emails like this from us? Reply STOP or click here to unsubscribe: {unsubscribe_link}
+
+**Initial SMS** (phone-only, no email found — this is their only first touch):
+
+> Hi {business_name}, this is Groundwork — we build affordable websites for UK trades. See a free preview built for you: groundworkbuild.com/s/{short_code}
+> £99 setup + £24.99/mo after, 1st month free.
+> Reply STOP to opt out.
+
+See Section 11 for the follow-up Stage A/B/C/D copy (email + SMS).
 
 ---
 
@@ -200,15 +262,153 @@ Automated logic to protect outreach effectiveness if the email sending domain's 
 
 ## 11. Follow-Up Sequence
 
-Triggered by a daily job checking each prospect's funnel status + time since last touch. Hard cap: max 3 follow-ups after the initial (4 touches total). Kill sequence immediately on payment, unsubscribe, or reply.
+Implemented in `outreach/followup.py` (trigger + channel logic) and `outreach/templates.py` (copy). Triggered by a nightly job checking each active prospect's `funnel_substage` + days since `last_touch_at`. Hard cap: max 4 total touches per prospect (initial + 3 follow-ups). Never touch again after payment, unsubscribe, or reply.
 
-| Trigger | Timing | Angle |
+`last_touch_at` is updated both when a touch is sent and on every `funnel_substage` transition (sent → opened → clicked_generated → account_created) — so "days since `last_touch_at`" always means "days since this prospect's last state-changing event," which is what the timing rules below key off.
+
+### Timing rules (checked nightly, per active prospect)
+
+| `funnel_substage` | Condition | Fires |
 |---|---|---|
-| Sent, never opened | +4 days | Fresh subject line, same offer |
-| Opened, never clicked | +4 days from open | Short nudge, direct CTA |
-| Clicked, no payment | +6–7 days from click | 25% off setup fee (£99 → £74.25), time-limited (consider 7-day code expiry) |
-| Clicked + edited, no payment | +6–7 days from click | Same 25% offer, warmer tone — "your site's ready and waiting" |
-| Still no action | +14–21 days from first send | Final nudge, discount still standing, then mark cold and stop |
+| `sent` | no open, 4 days since sent | Stage A |
+| `opened` | no click, 4 days since opened | Stage B |
+| `clicked_generated` | no payment, 3–4 days since click | Stage C |
+| `account_created` | no payment, 2–3 days since account creation | Stage D |
+| *(any)* | 14–21 days since first send, still unpaid | Final catch-all touch (reuses the copy for the prospect's current substage), then `funnel_substage = cold`, stop |
+
+### Channel logic
+
+- **`has_findable_email = true`, not opted out of either channel:** send BOTH the email and SMS version of the matching stage, same day — unless `sms_opted_out` or `email_opted_out` individually excludes one (an opt-out on one channel never suppresses the other).
+- **`has_findable_email = false`** (phone-only, no email ever found): SMS only, and Stage A and Stage B collapse into a single pre-click follow-up — SMS has no "opened" tracking, so only "sent" and "clicked" are knowable for this segment. Stage A's copy is reused as that single pre-click follow-up.
+
+> **Schema note:** `has_findable_email` is the same field as `email_found` (Section 13) — no separate column. `email_opted_out`/`sms_opted_out` are the same fields as `email_unsubscribed`/`sms_unsubscribed` (Section 13) — kept under their original column names to avoid duplicating existing, already-wired columns; "opted out" and "unsubscribed" mean the same thing here.
+
+### Volume accounting
+
+Follow-ups are first-priority consumers of each day's ramp-approved total (Section 15) — not additional on top of the deliverability ceiling. `run_followups()` takes the day's full remaining ramp allowance, queues due touches against it (most-overdue prospects first if the ramp runs out partway through), and returns whatever's left for the initial-send job to fill with new sends. **The ramp ceiling itself (spam-rate tracking, circuit-breaker state) isn't computed anywhere in code yet** — only described in Section 15 — so `run_followups()` currently takes that number as a plain argument; wire it to a real computation once Section 15's tracking is built.
+
+### Content accuracy rule
+
+Stage A and Stage B (pre-click — `sent`/`opened` substages) must never claim the site is already built. Only Stage C and Stage D (post-click — `clicked_generated`/`account_created` substages) may say that, since generation only happens after a real click. This is enforced structurally in `outreach/templates.py` (`PRE_CLICK_STAGES`/`POST_CLICK_STAGES`) — do not paraphrase this distinction away when editing copy.
+
+### Finalized follow-up copy (implemented in `outreach/templates.py`)
+
+**Stage A — email** (sent, never opened):
+
+> Subject: `{business_name} — did this land?`
+>
+> Hi {business_name} team,
+>
+> Quick follow-up in case this got missed — click below and we'll build a free website preview for {business_name}, no cost:
+>
+> {preview_link}
+>
+> Any questions, just reply to this email.
+>
+> ---
+> Don't want emails like this from us? Reply STOP or click here to unsubscribe: {unsubscribe_link}
+
+**Stage A — SMS** (also the collapsed A/B stage for phone-only prospects):
+
+> Hi {business_name}, quick follow-up in case this got missed: groundworkbuild.com/s/{short_code}
+> Reply STOP to opt out.
+
+**Stage B — email** (opened, never clicked):
+
+> Subject: `Still there — {business_name}'s website preview`
+>
+> Hi {business_name} team,
+>
+> Following up on your free website preview — click below and we'll build it for {business_name} right there, no cost:
+>
+> {preview_link}
+>
+> Any questions, just reply to this email.
+>
+> ---
+> Don't want emails like this from us? Reply STOP or click here to unsubscribe: {unsubscribe_link}
+
+**Stage B — SMS:**
+
+> Hi {business_name}, quick follow-up — click below and we'll build a free website preview for your business: groundworkbuild.com/s/{short_code}
+> Reply STOP to opt out.
+
+**Stage C — email** (clicked, site generated, no payment):
+
+> Subject: `Your website's ready, {business_name}`
+>
+> Hi {business_name} team,
+>
+> Just checking in — your website's built and waiting:
+>
+> {preview_link}
+>
+> First month's free if you'd like to go live — £99 setup + £24.99/month after.
+>
+> Any questions, just reply to this email.
+>
+> ---
+> Don't want emails like this from us? Reply STOP or click here to unsubscribe: {unsubscribe_link}
+
+**Stage C — SMS:**
+
+> Hi {business_name}, your website's built and waiting — have a look: groundworkbuild.com/s/{short_code}
+> First month's free if you'd like to go live.
+> Reply STOP to opt out.
+
+**Stage D — email** (account created, no payment):
+
+> Subject: `One step left, {business_name}`
+>
+> Hi {business_name} team,
+>
+> Your account's set up and your site's ready to go — just needs switching on:
+>
+> {preview_link}
+>
+> First month's free, £99 setup + £24.99/month after.
+>
+> Any questions, just reply to this email.
+>
+> ---
+> Don't want emails like this from us? Reply STOP or click here to unsubscribe: {unsubscribe_link}
+
+**Stage D — SMS:**
+
+> Hi {business_name}, your account's set up and your site's ready — just need to go live: groundworkbuild.com/s/{short_code}
+> First month's free, cancel anytime after.
+> Reply STOP to opt out.
+
+---
+
+## 11a. Reply Capture (kill-switch) — blocks the sequence going live
+
+**Hard gate:** `run_followups()` (`outreach/followup.py`) refuses to send anything unless the env var `OUTREACH_REPLY_CAPTURE_READY=true` is set. This defaults to unset (blocked) and must only be flipped once both channels below are live *and verified end-to-end* — a real inbound reply observed to actually opt-out/pause a real test prospect, not just once the code merges.
+
+On any reply, regardless of channel:
+
+- **Stop-intent keyword** (STOP, UNSUBSCRIBE, CANCEL, QUIT, etc. — case-insensitive, see `outreach/reply_handling.py:STOP_KEYWORDS`) → permanent opt-out on that channel (`sms_unsubscribed` / `email_unsubscribed`).
+- **Any other reply** → `funnel_substage = "replied"`, which pauses the sequence — this value is deliberately outside the set `run_followups()` queries against, so a replied prospect is automatically excluded without a separate check. A human should look at these, not keep getting scripted follow-ups.
+
+Matching logic lives in `outreach/reply_handling.py` (`handle_inbound_sms` / `handle_inbound_email`), shared across channels so channel-specific transports only need to call into it.
+
+### SMS — built and wired
+
+Twilio supports inbound message webhooks natively. `/api/webhooks/sms-inbound` (`app.py`) is registered as the "A MESSAGE COMES IN" webhook URL on the outreach Twilio number. Verifies `X-Twilio-Signature` against `TWILIO_AUTH_TOKEN` (fails closed — rejects with 503 if the token isn't set, rather than skipping verification) before matching the `From` number to a prospect (last-10-digits match, so UK national/international formatting differences don't matter) and calling `handle_inbound_sms`.
+
+### Email — NOT built. Resend has no inbound-parsing product.
+
+Checked directly: Resend's product is outbound send plus webhooks *about* your own outbound sends (delivered/bounced/complained/opened/clicked) — it has no inbound-parsing, inbound-routing, or "receive email" capability at all. There is no Resend-native way to wire this the same way as the Twilio webhook.
+
+Real options, for you to choose between (not built — reporting only, per instruction not to build a workaround):
+
+1. **Cloudflare Email Routing → Email Worker** — since `groundworkbuild.com` is already on Cloudflare (per CLAUDE.md), this is the most natural fit: no new vendor. Cloudflare Email Routing can route inbound mail on the outreach subdomain to an Email Worker, which can POST the parsed message straight to a new Flask endpoint (mirroring the SMS webhook shape). Free, same infra the domain already lives in.
+2. **Dedicated receiving inbox + polling** — a plain mailbox (e.g. a Gmail/Outlook address) receives replies, and a periodic job polls it via IMAP, matching by `From` address. No new inbound-parsing vendor, but adds polling latency and IMAP-credential handling.
+3. **A separate inbound-parsing service** (Mailgun Routes, Postmark Inbound, SendGrid Inbound Parse) run *alongside* Resend purely for inbound — Resend keeps doing outbound sends, a second vendor's MX/webhook handles inbound only. Real-time, but a second vendor relationship and another DNS/MX configuration to keep straight from Resend's.
+
+`outreach/reply_handling.py:handle_inbound_email` is already implemented and ready to be called by whichever transport is chosen — only the transport itself needs building.
+
+**Until email inbound is wired and `OUTREACH_REPLY_CAPTURE_READY=true`, follow-ups will not send** — this is enforced in code (see above), not just documented here.
 
 ---
 
@@ -240,13 +440,17 @@ Triggered by a daily job checking each prospect's funnel status + time since las
 | `email` | String | |
 | `email_source` | String | `facebook` / `checkatrade` / `yell` / `directory` / `web_search` |
 | `email_domain_type` | String | `business` (domain matches trade name or is a custom domain) / `personal` (gmail, hotmail, yahoo, etc.) — affects predicted responsiveness |
-| `email_found` | Boolean | |
+| `email_found` | Boolean | Also serves as `has_findable_email` (Section 11) — same field, no separate column |
 | `phone` | String | From Places API — no separate discovery needed |
 | `competitor_density` | Integer | Count of same-trade prospects already sourced from this postcode area — high density may dilute response rate in a local market |
-| `token` | String | UUID for magic link |
+| `token` | String | UUID for magic link (`/claim/<token>`). Generated at send-queue time by `outreach/link_identity.py`, not before |
+| `short_code` | String | Short code for `/s/<short_code>` (Section 9a). Generated alongside `token`, same helper |
+| `lead_id` | Integer (FK) | Set on first successful claim — links this prospect to the `Lead`/`Generation` its magic link produced |
 | `account_created_at` | DateTime | |
 | `screenshot_url`, `gif_url` | String | |
 | `funnel_stage` | String | `sourced` / `queued` / `awaiting_approval` / `qualified_no_email` / `sent` / `opened` / `clicked` / `paid` / `cold` |
+| `funnel_substage` | String | Follow-up sequence state (Section 11): `sent` / `opened` / `clicked_generated` / `account_created` / `cold`. Distinct from `funnel_stage` — `funnel_substage` only exists to drive `outreach/followup.py`'s timing rules. |
+| `last_touch_at` | DateTime | Updated on every touch sent AND on every `funnel_substage` transition — the anchor for Section 11's "days since" timing rules |
 | `approval_status` | String | Retained for audit trail; no longer a send gate |
 | `approved_at` | DateTime | |
 | `email_version_sent`, `sms_version_sent` | String | |
@@ -257,8 +461,8 @@ Triggered by a daily job checking each prospect's funnel status + time since las
 | `sent_at_hour` | Integer | Hour-of-day of first send (0–23, UTC) — for correlation analysis |
 | `sms_sent_at` | DateTime | |
 | `sms_delivered` | Boolean | |
-| `email_unsubscribed` | Boolean | Tracked separately from SMS |
-| `sms_unsubscribed` | Boolean | Tracked separately from email |
+| `email_unsubscribed` | Boolean | Tracked separately from SMS. Also serves as `email_opted_out` (Section 11) — same field |
+| `sms_unsubscribed` | Boolean | Tracked separately from email. Also serves as `sms_opted_out` (Section 11) — same field |
 
 ---
 
@@ -291,6 +495,16 @@ Once Track B is ready (DNS clean, templates QA-passed) — Task B goes live pull
 ## 15. Deliverability
 
 The biggest risk to this pipeline is emails landing in spam, not generation cost.
+
+### Implementation status — checked directly, not assumed
+
+- **Google Postmaster Tools API access:** NOT wired up anywhere in this codebase. No credentials, no client, no polling job.
+- **Twilio delivery-receipt data:** NOT wired up. No `StatusCallback` URL is registered on any Twilio send, so Twilio has nowhere to report delivery outcomes back to.
+- **Resend bounce/complaint webhooks** (the interim proxy this section names for email spam-rate signal): NOT wired up — no `/api/webhooks/resend-events` route exists.
+
+`outreach/ramp.py:get_health_signal(channel)` is the single seam all three would plug into. It currently always returns `None` ("unknown"), and the ramp **holds flat rather than advancing on missing data** — deliberately, since advancing send volume on fabricated health data would be worse than not advancing. Wiring one of the three integrations above is a prerequisite for the ramp ever doing more than sitting at the week-1 floor, not a nice-to-have. `outreach/ramp.py` implements the rest of this section's logic (weekly advancement, circuit-breaker trip-and-reset, two fully independent per-channel ramps) and is ready to use real data the moment `get_health_signal` is wired.
+
+**Known gap even once wired:** circuit-breaker *recovery* (Section 10b: "spam rate must hold below 0.1% for 7 consecutive days") needs a rolling history of daily signal values to evaluate — that history isn't stored anywhere yet. `advance_or_hold()` currently just holds a tripped breaker at the floor indefinitely and logs that consecutive-day tracking is missing, rather than fabricating a recovery.
 
 ### Dynamic send ramp (email)
 

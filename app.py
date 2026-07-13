@@ -31,6 +31,7 @@ from emails import (send_verification_email, send_resend_email, send_password_re
                     send_support_message_email, send_enquiry_email,
                     send_domain_order_admin_email, send_domain_order_customer_email,
                     send_domain_setup_failed_email, send_domain_live_email)
+from outreach.reply_handling import handle_inbound_sms
 
 app = Flask(__name__, static_folder="frontend", static_url_path="")
 app.logger.setLevel(logging.INFO)
@@ -1913,6 +1914,20 @@ def account_login():
                 account = Account(email=email)
                 db.add(account)
             account.password_hash = generate_password_hash(password)
+
+            # Section 9a/11: this is the "account actually created" moment
+            # for any outreach prospect(s) tied to this email that were
+            # generated via /claim/<token> without ever setting a password.
+            # Reuses this existing flow rather than a new one, per the fix —
+            # /claim/<token> itself no longer asks for a password at all.
+            outreach_prospects = db.query(Prospect).filter(
+                Prospect.email == email, Prospect.account_created_at.is_(None)
+            ).all()
+            for p in outreach_prospects:
+                p.account_created_at = datetime.utcnow()
+                if p.funnel_substage == "clicked_generated":
+                    p.funnel_substage = "account_created"
+
             db.commit()
             session["account_email"] = email
             return redirect("/account")
@@ -1929,9 +1944,20 @@ def account_login():
         if account and account.password_hash:
             return _render_password_form(email, "password")
 
-        if _has_generation(db, email):
-            # Real email (they already verified it once to generate a site) —
-            # no need to re-verify, just let them set a password directly.
+        has_in_progress_claim = db.query(Prospect).filter(
+            Prospect.email == email, Prospect.lead_id.isnot(None)
+        ).first() is not None
+
+        if _has_generation(db, email) or has_in_progress_claim:
+            # Real email — either they already verified it once to generate a
+            # site (_has_generation), or they just claimed an outreach magic
+            # link and generation is still mid-flight (150-300s) so no
+            # Generation row exists yet (_run_and_persist only writes it once
+            # done). Either way, ownership of this email is already
+            # established via /claim/<token> or the original form
+            # submission — no need to re-verify, just let them set a
+            # password directly instead of sending a redundant confirmation
+            # email while they're still waiting on their site.
             return _render_password_form(email, "set_password")
 
         # Brand new email with no generation on record — verify it first.
@@ -2061,6 +2087,225 @@ def account_home():
 def account_logout():
     session.pop("account_email", None)
     return redirect("/account/login")
+
+
+def _prospect_to_form_data(p):
+    """
+    Maps whatever's on a Prospect row (Places API + scoring data — no form
+    was ever filled in) onto build_prompt.py's expected keys. build_prompt
+    reads form_data with .get() and skips any falsy fact, so keys with no
+    prospect-side source (work_split, craft_prestige, team_size, urgency,
+    years_trading, claimed_accreditations, claimed_projects, other_notes)
+    are simply omitted rather than faked — the generated site will be
+    thinner on specifics than one from the real form, which is inherent to
+    cold outreach (see docs/outreach-pipeline-spec.md Section 9a).
+
+    Section 7's "pulled logo/colours/copy from their existing site" step for
+    has_website_dated/has_website_modern prospects is NOT implemented here —
+    no code exists anywhere that downloads/extracts a logo from a prospect's
+    existing website (only _extract_logo_colors, which works on an already-
+    uploaded image file from the form flow). Flagged in Section 9a as a
+    separate follow-up. build_prompt's own Step 1 web-search verification
+    still runs as normal, which may surface some of this incidentally.
+    """
+    return {
+        "business_name": p.business_name or "",
+        "trade": p.trade or "",
+        "location": p.location or "",
+        "coverage_area": p.location or "",
+        "phone": p.phone or "",
+        "email": p.email or "",
+        "logo_uploaded": False,
+        "portfolio_uploaded": False,
+    }
+
+
+def _claim_email_form(prospect, error=None):
+    error_html = f'<p class="err">{error}</p>' if error else ""
+    name_bit = f" for {escape(prospect.business_name)}" if prospect.business_name else ""
+    inner = f"""<div class="acct-card">
+      <h1 style="margin:0 0 8px;font-weight:800;font-size:26px;letter-spacing:-.02em;">See your free website preview</h1>
+      <p style="margin:0;font-size:15px;color:#5C5A56;line-height:1.55;">Enter your email and we'll build a website preview{name_bit} — no cost, no account needed to look.</p>
+      {error_html}
+      <form method="post" action="/claim/{escape(prospect.token)}/email">
+        <input type="email" name="email" placeholder="you@yourbusiness.co.uk" required autofocus>
+        <button type="submit" class="acct-btn" style="width:100%;">See my website preview</button>
+      </form>
+    </div>"""
+    return render_template_string(_account_page(inner, "See your website"))
+
+
+def _claim_generate_and_redirect(db, prospect):
+    """
+    Shared by /claim/<token> and /claim/<token>/email — the actual
+    "generate on click, not upfront" moment. No password/account barrier:
+    per the current design, a first-time claim goes straight into
+    generation, and funnel_substage moves to clicked_generated here (not
+    account_created — that only happens later, when a password is actually
+    set, via the existing /account/login flow). Idempotent: a repeat visit
+    for a prospect that's already generated just redirects to the result
+    instead of creating a second Lead/generation.
+    """
+    if prospect.clicked_at is None:
+        prospect.clicked_at = datetime.utcnow()
+
+    if prospect.lead_id:
+        lead = db.get(Lead, prospect.lead_id)
+        existing_gen = db.query(Generation).filter(Generation.lead_id == lead.id).first()
+        db.commit()
+        if existing_gen:
+            return redirect(f"/api/generate/{lead.public_id}/html")
+        return redirect(f"/loading.html?id={lead.public_id}")
+
+    lead = Lead(
+        public_id=uuid.uuid4().hex[:10],
+        email=prospect.email or "",
+        ip=_client_ip(),
+        status="verified",
+        form_data=_prospect_to_form_data(prospect),
+    )
+    db.add(lead)
+    db.flush()
+    prospect.lead_id = lead.id
+    prospect.funnel_substage = "clicked_generated"
+    db.commit()
+
+    _kickoff_generation(lead)
+    return redirect(f"/loading.html?id={lead.public_id}")
+
+
+@app.route("/claim/<token>")
+def claim(token):
+    """
+    Magic-link entry point for outreach prospects (docs/outreach-pipeline-spec.md
+    Section 9/9a). Never expires, works unlimited times, per Section 9.
+
+    No password/account barrier before seeing anything — first visit kicks
+    off real generation immediately and takes them straight to
+    /loading.html. Password is only ever requested later, at the point the
+    prospect would normally need to authenticate on the existing site (e.g.
+    /account/login, or an action gated by account_required) — reusing that
+    existing flow as-is (see account_login's "no password yet, but this
+    email has a Generation" branch), not a new mechanism here.
+    """
+    db = SessionLocal()
+    try:
+        prospect = db.query(Prospect).filter(Prospect.token == token).first()
+        if not prospect:
+            return redirect("/verify-error.html?reason=invalid")
+
+        if not prospect.email:
+            # Phone-only prospect — no email on file to create a Lead/Account
+            # against. Route to the email-capture page instead (Section 9a).
+            return redirect(f"/claim/{token}/email")
+
+        return _claim_generate_and_redirect(db, prospect)
+    finally:
+        db.close()
+
+
+@app.route("/claim/<token>/email", methods=["GET", "POST"])
+def claim_email(token):
+    """
+    Email-capture page for phone-only prospects (has_findable_email=false,
+    i.e. email_found=false — SMS-only outreach, docs/outreach-pipeline-spec.md
+    Section 9a). This is the SMS magic-link destination for that segment —
+    /claim/<token> redirects here automatically when the prospect has no
+    email on file, so /s/<short_code> needs no changes to reach this page.
+
+    On submit: records the email on both Prospect and Account, flips
+    email_found (== has_findable_email) to true — making this prospect
+    eligible for the parallel email follow-up track going forward, not just
+    SMS — then reuses _claim_generate_and_redirect, the same generation
+    kickoff /claim/<token> uses, rather than a separate path.
+    """
+    db = SessionLocal()
+    try:
+        prospect = db.query(Prospect).filter(Prospect.token == token).first()
+        if not prospect:
+            return redirect("/verify-error.html?reason=invalid")
+
+        if prospect.email:
+            # Already has an email on file (e.g. discovered later, or this
+            # page already ran once) — nothing left to capture here.
+            return redirect(f"/claim/{token}")
+
+        if request.method == "GET":
+            return _claim_email_form(prospect)
+
+        email = (request.form.get("email") or "").strip().lower()
+        if not email or "@" not in email or "." not in email.rsplit("@", 1)[-1]:
+            return _claim_email_form(prospect, error="Enter a valid email address.")
+
+        prospect.email = email
+        prospect.email_found = True  # has_findable_email — see Section 11's schema note
+
+        account = db.query(Account).filter(Account.email == email).first()
+        if account is None:
+            account = Account(email=email)
+            db.add(account)
+        db.commit()
+
+        return _claim_generate_and_redirect(db, prospect)
+    finally:
+        db.close()
+
+
+@app.route("/s/<short_code>")
+def short_link(short_code):
+    """Short redirect (Section 9a) — resolves to the real /claim/<token> URL
+    server-side, so SMS copy can stay under length limits. short_code is
+    generated per-prospect at the point a send is queued
+    (outreach/send_job.py:_ensure_short_code)."""
+    db = SessionLocal()
+    try:
+        prospect = db.query(Prospect).filter(Prospect.short_code == short_code).first()
+        if not prospect:
+            return redirect("/verify-error.html?reason=invalid")
+        return redirect(f"/claim/{prospect.token}")
+    finally:
+        db.close()
+
+
+def _unsubscribe_landing_page():
+    inner = """<div class="acct-card" style="text-align:center;">
+      <h1 style="margin:0 0 10px;font-weight:800;font-size:24px;letter-spacing:-.02em;">You're unsubscribed</h1>
+      <p style="margin:0;font-size:15px;color:#5C5A56;line-height:1.6;">You won't receive any more emails from Groundwork about this. If this was a mistake, just reply to any of our previous emails.</p>
+    </div>"""
+    return render_template_string(_account_page(inner, "Unsubscribed"))
+
+
+@app.route("/unsubscribe/<token>", methods=["GET", "POST"])
+def unsubscribe(token):
+    """
+    One-click email unsubscribe (docs/outreach-pipeline-spec.md Section 11b),
+    RFC 8058 compliant. Reuses the same per-prospect token as /claim/<token>
+    — it's the same prospect identity either way, so a second token wasn't
+    introduced for this.
+
+    GET: the "click here to unsubscribe" text link in the email body —
+    unsubscribes immediately (no login, no confirmation click) and shows a
+    landing page.
+    POST: what a mail client sends automatically when it honors the
+    List-Unsubscribe-Post header (RFC 8058) — same effect, no page needed,
+    just a 200.
+
+    Deliberately does not reveal whether the token matched anything — same
+    response either way, so this can't be used to probe for valid tokens.
+    """
+    db = SessionLocal()
+    try:
+        prospect = db.query(Prospect).filter(Prospect.token == token).first()
+        if prospect and not prospect.email_unsubscribed:
+            prospect.email_unsubscribed = True
+            prospect.email_unsubscribed_at = datetime.utcnow()
+            db.commit()
+    finally:
+        db.close()
+
+    if request.method == "POST":
+        return "", 200
+    return _unsubscribe_landing_page()
 
 
 @app.route("/api/account/session")
@@ -4427,6 +4672,49 @@ def stripe_webhook():
                     db.close()
 
     return "", 200
+
+
+@app.route("/api/webhooks/sms-inbound", methods=["POST"])
+def sms_inbound_webhook():
+    """
+    Twilio messaging webhook — set as the 'A MESSAGE COMES IN' webhook URL
+    on the outreach SMS number. Handles the reply-triggered kill-switch
+    (docs/outreach-pipeline-spec.md Section 11a): STOP-family keyword ->
+    permanent opt-out; any other reply -> pause the sequence for a human
+    to look at.
+
+    Signature-verified using TWILIO_AUTH_TOKEN so this endpoint can't be
+    spoofed to opt out / pause arbitrary prospects. If TWILIO_AUTH_TOKEN
+    isn't set, the request is rejected (fail closed, not open) rather than
+    silently skipping verification.
+    """
+    from twilio.request_validator import RequestValidator
+
+    auth_token = os.environ.get("TWILIO_AUTH_TOKEN")
+    if not auth_token:
+        app.logger.error("sms_inbound_webhook: TWILIO_AUTH_TOKEN not set — rejecting request")
+        return "", 503
+
+    signature = request.headers.get("X-Twilio-Signature", "")
+    validator = RequestValidator(auth_token)
+    if not validator.validate(request.url, request.form.to_dict(), signature):
+        app.logger.warning("sms_inbound_webhook: invalid Twilio signature")
+        return "", 403
+
+    from_phone = request.form.get("From", "")
+    body = request.form.get("Body", "")
+
+    db = SessionLocal()
+    try:
+        prospect = handle_inbound_sms(db, from_phone, body)
+        if not prospect:
+            app.logger.warning(f"sms_inbound_webhook: no prospect matched for {from_phone}")
+    finally:
+        db.close()
+
+    # Empty TwiML response — no auto-reply sent back.
+    return ('<?xml version="1.0" encoding="UTF-8"?><Response></Response>', 200,
+            {"Content-Type": "text/xml"})
 
 
 def _extract_gw_text_fields(html: str) -> list:

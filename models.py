@@ -165,9 +165,13 @@ class Prospect(Base):
     email_domain_type = Column(String(20), nullable=True)
     email_found = Column(Boolean, default=False)
     funnel_stage = Column(String(50), default="sourced")
+    funnel_substage = Column(String(30), nullable=True)
+    last_touch_at = Column(DateTime, nullable=True)
     approval_status = Column(String(20), default="pending")
     approved_at = Column(DateTime, nullable=True)
     token = Column(String(100), unique=True, nullable=True)
+    short_code = Column(String(12), unique=True, nullable=True, index=True)
+    lead_id = Column(Integer, ForeignKey("leads.id"), nullable=True)
     account_created_at = Column(DateTime, nullable=True)
     screenshot_url = Column(String(500), nullable=True)
     gif_url = Column(String(500), nullable=True)
@@ -186,6 +190,8 @@ class Prospect(Base):
     sms_delivered = Column(Boolean, nullable=True)
     email_unsubscribed = Column(Boolean, default=False)
     sms_unsubscribed = Column(Boolean, default=False)
+    email_unsubscribed_at = Column(DateTime, nullable=True)
+    sms_unsubscribed_at = Column(DateTime, nullable=True)
     raw_data = Column(JSON, nullable=True)
     error_notes = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -229,6 +235,62 @@ class PendingEmailDiscovery(Base):
     location = Column(String(255))
     website = Column(String(500), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class SmsDeliveryEvent(Base):
+    """One row per Twilio delivery status-callback received (Section 15's
+    SMS health signal). See app.py:sms_status_webhook, outreach/ramp.py."""
+    __tablename__ = "sms_delivery_events"
+
+    id = Column(Integer, primary_key=True)
+    message_sid = Column(String(64), index=True)
+    to_phone = Column(String(50))
+    status = Column(String(30))  # queued/sent/delivered/undelivered/failed
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class EmailEventLog(Base):
+    """One row per Resend webhook event received (Section 15's email health
+    signal — the interim proxy for Postmaster Tools). See
+    app.py:resend_events_webhook, outreach/ramp.py."""
+    __tablename__ = "email_event_log"
+
+    id = Column(Integer, primary_key=True)
+    resend_email_id = Column(String(100), index=True, nullable=True)
+    to_email = Column(String(255))
+    event_type = Column(String(30))  # delivered/bounced/complained/opened/clicked
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class RampState(Base):
+    """One row per channel (email/sms) — tracks the current approved daily
+    volume and circuit-breaker state for Section 15's dynamic send ramp.
+    See outreach/ramp.py."""
+    __tablename__ = "ramp_state"
+
+    id = Column(Integer, primary_key=True)
+    channel = Column(String(10), unique=True, nullable=False)  # "email" / "sms"
+    daily_volume = Column(Integer, nullable=False)
+    week_number = Column(Integer, nullable=False, default=1)
+    week_started_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    circuit_breaker_tripped = Column(Boolean, default=False)
+    circuit_breaker_tripped_at = Column(DateTime, nullable=True)
+    last_checked_at = Column(DateTime, nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class DailySendCount(Base):
+    """One row per (channel, date) — how many sends (initial + follow-up,
+    combined) have already gone out today, so the ramp allowance can be
+    checked against actual usage rather than assumed."""
+    __tablename__ = "daily_send_counts"
+
+    id = Column(Integer, primary_key=True)
+    channel = Column(String(10), nullable=False)  # "email" / "sms"
+    send_date = Column(String(10), nullable=False)  # "YYYY-MM-DD", UTC
+    count = Column(Integer, nullable=False, default=0)
+
+    __table_args__ = (UniqueConstraint("channel", "send_date", name="uq_daily_send_counts_channel_date"),)
 
 
 def _database_url() -> str:
@@ -304,6 +366,12 @@ def init_db():
     _ensure_column(Prospect.__tablename__, "raw_data", "JSON")
     _ensure_column(Prospect.__tablename__, "error_notes", "TEXT")
     _ensure_column(Prospect.__tablename__, "processed_at", "TIMESTAMP")
+    _ensure_column(Prospect.__tablename__, "funnel_substage", "VARCHAR(30)")
+    _ensure_column(Prospect.__tablename__, "last_touch_at", "TIMESTAMP")
+    _ensure_column(Prospect.__tablename__, "short_code", "VARCHAR(12)")
+    _ensure_column(Prospect.__tablename__, "lead_id", "INTEGER")
+    _ensure_column(Prospect.__tablename__, "email_unsubscribed_at", "TIMESTAMP")
+    _ensure_column(Prospect.__tablename__, "sms_unsubscribed_at", "TIMESTAMP")
     _ensure_column(SearchCell.__tablename__, "last_searched_at", "TIMESTAMP")
     _ensure_column(SearchCell.__tablename__, "search_count", "INTEGER DEFAULT 0")
     _ensure_column(SearchCell.__tablename__, "results_found", "INTEGER DEFAULT 0")
