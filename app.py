@@ -3124,14 +3124,63 @@ def admin_logout():
 
 @app.route("/admin")
 @admin_required
+def _date_preset_range(preset: str, now: datetime):
+    """Returns (from, to) datetimes for a named quick-preset, or (None, None)
+    if unrecognized (falls back to the dashboard's no-filter default)."""
+    today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    if preset == "this_week":
+        start = today - timedelta(days=today.weekday())
+        return start, now
+    if preset == "last_week":
+        this_week_start = today - timedelta(days=today.weekday())
+        start = this_week_start - timedelta(days=7)
+        end = this_week_start - timedelta(microseconds=1)
+        return start, end
+    if preset == "this_month":
+        start = today.replace(day=1)
+        return start, now
+    if preset == "last_month":
+        this_month_start = today.replace(day=1)
+        last_month_end = this_month_start - timedelta(microseconds=1)
+        last_month_start = last_month_end.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        return last_month_start, last_month_end
+    if preset == "all_time":
+        return datetime(2020, 1, 1), now
+    return None, None
+
+
+@app.route("/admin")
+@admin_required
 def admin_dashboard():
-    """Top-level admin landing page — the 5-KPI strip, full-size. The same
-    _render_kpi_strip() component appears (smaller context) on /admin/funnel
-    and /admin/domains too, so the same numbers stay visible wherever
-    they're relevant, not just here."""
+    """Top-level admin landing page — the 5-KPI strip, full-size, with a
+    date filter (quick presets + explicit from/to) so week-by-week or
+    month-by-month comparison is possible, not just "this month." The same
+    _render_kpi_strip() component appears (smaller context, no filter) on
+    /admin/funnel and /admin/domains too, so the same numbers stay visible
+    wherever they're relevant, not just here."""
+    now = datetime.utcnow()
+    preset = request.args.get("preset", "").strip()
+    from_str = request.args.get("from", "").strip()
+    to_str = request.args.get("to", "").strip()
+
+    def _parse_date(s):
+        try:
+            return datetime.strptime(s, "%Y-%m-%d")
+        except ValueError:
+            return None
+
+    range_from, range_to = (None, None)
+    if preset:
+        range_from, range_to = _date_preset_range(preset, now)
+    elif from_str or to_str:
+        range_from = _parse_date(from_str)
+        range_to = _parse_date(to_str)
+        if range_to:
+            range_to = range_to.replace(hour=23, minute=59, second=59)
+
     db = SessionLocal()
     try:
-        kpis = _compute_kpis(db)
+        kpis = _compute_kpis(db, range_from=range_from, range_to=range_to)
         strip = _render_kpi_strip(kpis)
     finally:
         db.close()
@@ -3143,12 +3192,40 @@ def admin_dashboard():
             'border-radius:8px;margin:0 0 20px;">'
             '⚠ Several of these numbers are genuinely thin on data right now — Generation → Paid '
             'has almost no real outreach conversions yet, and Churn Rate has less than one full '
-            'month of history to compare against. Real, not placeholder — just early.</p>'
+            'period of history to compare against for the range selected. Real, not placeholder — just early.</p>'
         )
+
+    presets = [
+        ("this_week", "This week"), ("last_week", "Last week"),
+        ("this_month", "This month"), ("last_month", "Last month"),
+        ("all_time", "All time"),
+    ]
+    preset_links = "".join(
+        f'<a href="/admin?preset={key}" style="padding:6px 13px;border-radius:999px;font-size:12.5px;font-weight:700;'
+        f'text-decoration:none;{"background:#1C1C1C;color:#fff;" if preset == key else "background:#fff;color:#5C5A56;border:1px solid #D8D5CE;"}">{label}</a>'
+        for key, label in presets
+    )
 
     content = f"""
 <h1 class="adm-title">Dashboard</h1>
-<p class="adm-sub">The 5 headline KPIs, computed fresh from real data on every load.</p>
+<p class="adm-sub">The 5 headline KPIs for <strong>{escape(kpis["period_label"])}</strong>, computed fresh from real data on every load.</p>
+
+<form method="get" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px;">
+  {preset_links}
+</form>
+<form method="get" style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-bottom:22px;">
+  <div>
+    <label style="display:block;font-size:12px;font-weight:600;color:#5C5A56;margin-bottom:4px;">From</label>
+    <input type="date" name="from" value="{escape(from_str)}" style="padding:8px 10px;border:1px solid #D8D5CE;border-radius:7px;font-size:13.5px;">
+  </div>
+  <div>
+    <label style="display:block;font-size:12px;font-weight:600;color:#5C5A56;margin-bottom:4px;">To</label>
+    <input type="date" name="to" value="{escape(to_str)}" style="padding:8px 10px;border:1px solid #D8D5CE;border-radius:7px;font-size:13.5px;">
+  </div>
+  <button type="submit" style="background:#3B82F6;color:#fff;border:0;font-weight:700;padding:9px 18px;border-radius:7px;font-size:13.5px;cursor:pointer;">Apply</button>
+  <a href="/admin" style="font-size:13px;color:#807E79;text-decoration:none;padding:9px 4px;">Reset to default (this month)</a>
+</form>
+
 {banner}
 {strip}
 <div class="adm-card" style="padding:20px 22px;">
@@ -3205,7 +3282,11 @@ def admin_generations():
                    '<a href="/editor.html?id=' + str(g.lead.public_id) + '" target="_blank" rel="noopener">Edit text</a>'
                    if g.lead else '') +
                 '</td>'
-                '<td><a href="#" title="Delete this ENTIRE account" '
+                '<td>'
+                '<a href="#" title="Delete only this generation" '
+                'onclick="return gwDeleteGeneration(' + str(g.id) + ', ' + str(escape(json.dumps(g.business_name or "this site"))) + ')" '
+                'style="color:#9B2B1A;font-weight:700;text-decoration:none;margin-right:10px;">Delete site</a>'
+                '<a href="#" title="Delete this ENTIRE account" '
                 'onclick="return gwDeleteAccount(' + str(escape(json.dumps(g.email))) + ')" '
                 'style="color:#9B2B1A;font-weight:800;text-decoration:none;">×</a></td></tr>'
             )
@@ -3213,7 +3294,7 @@ def admin_generations():
         content = f"""
 <h1 class="adm-title">All sites <span style="color:#9A9893;font-weight:600;font-size:17px;">({len(gens)})</span></h1>
 <p class="adm-sub">
-  × removes the entire account — login, every lead, and every generated site.
+  "Delete site" removes just that one generation. × removes the entire account — login, every lead, and every generated site for that email (use with care: several rows can share the same email).
   To connect a domain, grab the public id from Preview/Edit below, then use
   <a href="{SITE_URL}/domain-search.html" target="_blank" rel="noopener">domain search →</a>
   &nbsp;·&nbsp;
@@ -3226,6 +3307,17 @@ def admin_generations():
 <tbody>{rows}</tbody></table>
 </div>
 <script>
+async function gwDeleteGeneration(genId, businessName) {{
+  if (!confirm(`Delete "${{businessName}}"? This removes just this one generation (and its lead, if it has no others) — cannot be undone.`)) return false;
+  try {{
+    const r = await fetch(`/admin/generations/${{genId}}`, {{method: 'DELETE', credentials: 'same-origin'}});
+    if (!r.ok) throw new Error('Delete failed (' + r.status + ')');
+    document.getElementById(`gen-row-${{genId}}`)?.remove();
+  }} catch (err) {{
+    alert(err.message);
+  }}
+  return false;
+}}
 async function gwDeleteAccount(email) {{
   if (!confirm(`Delete the ENTIRE account for ${{email}}? This removes their login, every lead, and every generated site for this email — cannot be undone.`)) return false;
   try {{
@@ -3797,6 +3889,49 @@ def admin_delete_account(email):
     return jsonify({"status": "deleted", "email": email})
 
 
+@app.route("/admin/generations/<int:gen_id>", methods=["DELETE"])
+@admin_required
+def admin_delete_generation(gen_id):
+    """
+    Deletes exactly one Generation (+ its GenerationImage rows, + its own
+    Lead if that Lead has no other Generations) — added because the
+    existing per-account delete (admin_delete_account, above) deletes by
+    EMAIL, which sweeps up every Generation sharing that address. Several
+    real paying customers (e.g. Sussex Leadcraft Ltd's live site) share an
+    email with leftover test/draft Generations created under the same
+    address during development — using the per-email delete on one of
+    those drafts would silently take the real live site down with it. This
+    is the safe, surgical alternative: exactly one row, never touches
+    anything else sharing that email.
+    """
+    db = SessionLocal()
+    try:
+        gen = db.get(Generation, gen_id)
+        if not gen:
+            return jsonify({"error": "not_found"}), 404
+
+        lead_id = gen.lead_id
+        db.query(GenerationImage).filter(GenerationImage.generation_id == gen_id).delete(synchronize_session=False)
+        db.query(Generation).filter(Generation.id == gen_id).delete(synchronize_session=False)
+
+        other_gens_on_lead = db.query(Generation).filter(Generation.lead_id == lead_id).count()
+        lead_public_id = None
+        if other_gens_on_lead == 0:
+            lead = db.get(Lead, lead_id)
+            if lead:
+                lead_public_id = lead.public_id
+            db.query(Lead).filter(Lead.id == lead_id).delete(synchronize_session=False)
+
+        db.commit()
+    finally:
+        db.close()
+
+    if lead_public_id:
+        shutil.rmtree(os.path.join(UPLOAD_DIR, lead_public_id), ignore_errors=True)
+
+    return jsonify({"status": "deleted", "gen_id": gen_id})
+
+
 @app.route("/admin/generations/<int:gen_id>/html")
 @admin_required
 def admin_generation_html(gen_id):
@@ -3954,75 +4089,127 @@ def admin_outreach():
 _KPI_INSTRUMENTATION_START = datetime(2026, 7, 14)
 
 
-def _compute_kpis(db) -> dict:
+def _compute_kpis(db, range_from: datetime = None, range_to: datetime = None) -> dict:
     """
     The 5 main KPIs, computed fresh every call (cheap — small tables, no
     caching needed yet). Each entry carries enough (value + raw counts) for
     the caller to render an honest low-N/empty state rather than a bare
     percentage — several of these are genuinely thin on real data right
     now, and that has to be visible, not hidden behind a number.
+
+    range_from/range_to: optional explicit period (e.g. "this week" vs
+    "last month" from the dashboard's date filter). When omitted, defaults
+    to the current calendar month — this is the only mode Funnel/Domains
+    use today (they call this with no range). When a range IS given, every
+    metric is scoped to it consistently, using the same period-boundary
+    definitions everywhere:
+      - "sent/clicked/converted within the period" for the funnel-style
+        metrics (emails sent, click rate, gen->paid)
+      - a proper start-of-period active/churned cohort for churn rate,
+        rather than the month-to-date approximation used when no range is
+        given (that approximation exists ONLY because there's no complete
+        prior period yet in the no-filter default case; an explicit range
+        the user picked doesn't have that excuse — if they pick a period
+        with real customers already active before it started, the strict
+        definition applies and the "first month of data" caveat won't show).
     """
     now = datetime.utcnow()
+    filtering = range_from is not None or range_to is not None
+    period_start = range_from or now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    period_end = range_to or now
+    # send_date on DailySendCount is a 'YYYY-MM-DD' string — compare as strings.
+    period_start_str = period_start.strftime("%Y-%m-%d")
+    period_end_str = period_end.strftime("%Y-%m-%d")
 
-    # 1. Emails sent this calendar month — DailySendCount, not OutreachTouch
+    # 1. Emails sent in the period — DailySendCount, not OutreachTouch
     # (confirmed the right source in the earlier Funnel-dashboard investigation:
     # it has real history predating OutreachTouch's creation).
-    month_prefix = now.strftime("%Y-%m")
     email_rows = db.query(DailySendCount).filter(
         DailySendCount.channel == "email",
-        DailySendCount.send_date.like(f"{month_prefix}%"),
+        DailySendCount.send_date >= period_start_str,
+        DailySendCount.send_date <= period_end_str,
     ).all()
-    emails_sent_month = sum(r.count for r in email_rows)
+    emails_sent = sum(r.count for r in email_rows)
 
     # 2. Magic link click rate (aggregate, not per-stage) — Prospect.sent_at
     # vs clicked_at, both real fields with history predating today's fixes.
-    sent_n = db.query(Prospect).filter(Prospect.sent_at.isnot(None)).count()
-    clicked_n = db.query(Prospect).filter(
-        Prospect.sent_at.isnot(None), Prospect.clicked_at.isnot(None)
-    ).count()
+    # Cohort = prospects sent to within the period; numerator = how many of
+    # those have since clicked (clicked_at may fall after period_end — a
+    # click is still credited to the send that produced it).
+    sent_q = db.query(Prospect).filter(Prospect.sent_at.isnot(None))
+    sent_q = sent_q.filter(Prospect.sent_at >= period_start, Prospect.sent_at <= period_end)
+    sent_n = sent_q.count()
+    clicked_n = sent_q.filter(Prospect.clicked_at.isnot(None)).count()
 
-    # 3. Generation -> Paid — cohort is prospects who ever reached
-    # clicked_at; numerator is how many of those also have paid_at set.
-    # Confirmed in the cancellation-flow investigation that real outreach-
-    # to-paid conversions are ~0 today (the 5 real paying customers are all
-    # direct signups, not outreach-originated) — shown honestly, not hidden.
-    gen_cohort_n = db.query(Prospect).filter(Prospect.clicked_at.isnot(None)).count()
-    gen_paid_n = db.query(Prospect).filter(
-        Prospect.clicked_at.isnot(None), Prospect.paid_at.isnot(None)
-    ).count()
+    # 3. Generation -> Paid — cohort is prospects who reached clicked_at
+    # within the period; numerator is how many of those also have paid_at
+    # set. Confirmed in the cancellation-flow investigation that real
+    # outreach-to-paid conversions are ~0 today (the 5 real paying
+    # customers are all direct signups, not outreach-originated) — shown
+    # honestly, not hidden.
+    gen_cohort_q = db.query(Prospect).filter(Prospect.clicked_at.isnot(None))
+    gen_cohort_q = gen_cohort_q.filter(Prospect.clicked_at >= period_start, Prospect.clicked_at <= period_end)
+    gen_cohort_n = gen_cohort_q.count()
+    gen_paid_n = gen_cohort_q.filter(Prospect.paid_at.isnot(None)).count()
 
     # 4. Custom domain conversion rate — "purchased" definition (a Domain
-    # row exists at all, any status) over currently-live Generations.
-    # Recomputed fresh every call rather than hardcoded, since cancellations
-    # (or new domain purchases) change this number in real time.
-    live_gens = db.query(Generation).filter(Generation.status == "live").all()
-    domain_conv_denom = len(live_gens)
+    # row exists at all, any status) over Generations that went live within
+    # the period. Recomputed fresh every call rather than hardcoded, since
+    # cancellations (or new domain purchases) change this number in real
+    # time.
+    period_gens_q = db.query(Generation).filter(Generation.status == "live")
+    period_gens_q = period_gens_q.filter(Generation.created_at >= period_start, Generation.created_at <= period_end)
+    period_gens = period_gens_q.all()
+    domain_conv_denom = len(period_gens)
     domain_conv_numer = sum(
-        1 for g in live_gens
+        1 for g in period_gens
         if db.query(Domain).filter(Domain.generation_id == g.id).count() > 0
     )
 
-    # 5. Churn rate — month-to-date, not a strict start-of-month cohort:
-    # every real customer signed up this same calendar month, so the strict
-    # "active at start of month" denominator is genuinely 0 right now (not
-    # a bug — there's no complete prior month yet). Denominator here is
-    # "customers active at some point this month" (still-active now, plus
-    # anyone who churned this month) so the figure means something before a
-    # full historical baseline exists.
-    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    active_now = db.query(Generation).filter(Generation.status == "live").count()
-    churned_month = db.query(Generation).filter(
-        Generation.canceled_at.isnot(None), Generation.canceled_at >= month_start
-    ).count()
-    churn_denom = active_now + churned_month
-    has_full_month_baseline = db.query(Generation).filter(
-        Generation.status == "live", Generation.created_at < month_start
-    ).count() > 0
+    # 5. Churn rate. Two modes:
+    #   - No explicit range (dashboard default): month-to-date, not a strict
+    #     start-of-month cohort, since every real customer signed up this
+    #     same calendar month and that denominator is genuinely 0 (not a
+    #     bug — no complete prior period exists yet). Denominator is
+    #     "customers active at some point this month."
+    #   - Explicit range (user picked a week/month to compare): the real,
+    #     strict definition — active at the START of the period, churned
+    #     DURING it. This is what actually makes week-by-week/month-by-month
+    #     comparison meaningful, rather than reusing the approximation.
+    if filtering:
+        active_at_start = db.query(Generation).filter(
+            Generation.status == "live",
+            Generation.created_at < period_start,
+            (Generation.canceled_at.is_(None)) | (Generation.canceled_at >= period_start),
+        ).count()
+        churned_in_period = db.query(Generation).filter(
+            Generation.canceled_at.isnot(None),
+            Generation.canceled_at >= period_start, Generation.canceled_at <= period_end,
+        ).count()
+        churn_denom = active_at_start
+        churn_numer = churned_in_period
+        has_full_month_baseline = active_at_start > 0
+    else:
+        active_now = db.query(Generation).filter(Generation.status == "live").count()
+        churned_month = db.query(Generation).filter(
+            Generation.canceled_at.isnot(None), Generation.canceled_at >= period_start
+        ).count()
+        churn_denom = active_now + churned_month
+        churn_numer = churned_month
+        has_full_month_baseline = db.query(Generation).filter(
+            Generation.status == "live", Generation.created_at < period_start
+        ).count() > 0
+
+    period_label = (
+        f'{period_start.strftime("%d %b %Y")} – {period_end.strftime("%d %b %Y")}'
+        if filtering else now.strftime("%B %Y")
+    )
 
     return {
+        "period_label": period_label,
         "emails_sent_month": {
-            "value": emails_sent_month,
-            "month_label": now.strftime("%B %Y"),
+            "value": emails_sent,
+            "month_label": period_label,
         },
         "click_rate": {
             "pct": _funnel_pct(clicked_n, sent_n),
@@ -4037,10 +4224,10 @@ def _compute_kpis(db) -> dict:
             "numer": domain_conv_numer, "denom": domain_conv_denom,
         },
         "churn_rate": {
-            "pct": _funnel_pct(churned_month, churn_denom),
-            "numer": churned_month, "denom": churn_denom,
+            "pct": _funnel_pct(churn_numer, churn_denom),
+            "numer": churn_numer, "denom": churn_denom,
             "has_full_month_baseline": has_full_month_baseline,
-            "month_label": now.strftime("%B %Y"),
+            "month_label": period_label,
         },
     }
 
