@@ -20,7 +20,7 @@ import os
 import logging
 from datetime import datetime
 
-from models import SessionLocal, Prospect, SmsDeliveryEvent
+from models import SessionLocal, Prospect, SmsDeliveryEvent, OutreachTouch
 from emails import send_outreach_email
 from outreach.sms import send_outreach_sms
 from outreach.templates import render_email, render_sms, PRE_CLICK_STAGES
@@ -112,6 +112,7 @@ def _fire_touch(db, p, stage, now, remaining_ramp, unsubscribe_link_fn, preview_
             sms_id = send_outreach_sms(p.phone, body)
             if sms_id:
                 db.add(SmsDeliveryEvent(message_sid=sms_id, to_phone=p.phone, status="submitted"))
+            db.add(OutreachTouch(prospect_id=p.id, stage=sms_stage, channel="sms", sent_at=now))
             sms_used = 1
     else:
         if EMAIL_REPLY_CAPTURE_READY and not p.email_unsubscribed and remaining_ramp["email"] > 0:
@@ -122,12 +123,14 @@ def _fire_touch(db, p, stage, now, remaining_ramp, unsubscribe_link_fn, preview_
                 unsubscribe_link=unsubscribe_link_fn(p),
             )
             send_outreach_email(p.email, msg["subject"], msg["body"], unsubscribe_link_fn(p))
+            db.add(OutreachTouch(prospect_id=p.id, stage=stage, channel="email", sent_at=now))
             email_used = 1
         if SMS_REPLY_CAPTURE_READY and not p.sms_unsubscribed and p.phone and remaining_ramp["sms"] > 0:
             body = render_sms(stage, business_name=p.business_name, short_code=short_code_fn(p))
             sms_id = send_outreach_sms(p.phone, body)
             if sms_id:
                 db.add(SmsDeliveryEvent(message_sid=sms_id, to_phone=p.phone, status="submitted"))
+            db.add(OutreachTouch(prospect_id=p.id, stage=stage, channel="sms", sent_at=now))
             sms_used = 1
 
     if email_used or sms_used:

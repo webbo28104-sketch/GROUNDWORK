@@ -298,6 +298,24 @@ class DailySendCount(Base):
     __table_args__ = (UniqueConstraint("channel", "send_date", name="uq_daily_send_counts_channel_date"),)
 
 
+class OutreachTouch(Base):
+    """One row per individual outreach send — going forward only, added
+    2026-07-14. Before this table existed, only cumulative current-state
+    fields on Prospect (touch_count, funnel_substage, last_touch_at) were
+    written, with no history of which stage/channel each touch actually
+    was — this is what makes a real per-stage, per-channel funnel
+    breakdown possible from here on. Nothing before this table's creation
+    date can be backfilled; there is no historical data to reconstruct it
+    from (see docs/outreach-pipeline-spec.md's Funnel dashboard notes)."""
+    __tablename__ = "outreach_touches"
+
+    id = Column(Integer, primary_key=True)
+    prospect_id = Column(Integer, ForeignKey("prospects.id"), nullable=False, index=True)
+    stage = Column(String(10), nullable=False)  # "initial" / "A" / "B" / "C" / "D"
+    channel = Column(String(10), nullable=False)  # "email" / "sms"
+    sent_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+
 def _database_url() -> str:
     url = os.environ.get("DATABASE_URL", "")
     # Railway/Heroku-style URLs use the postgres:// scheme; SQLAlchemy 2.x requires postgresql://

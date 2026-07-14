@@ -18,7 +18,7 @@ import os
 import logging
 from datetime import datetime
 
-from models import SessionLocal, Prospect, SmsDeliveryEvent, init_db
+from models import SessionLocal, Prospect, SmsDeliveryEvent, OutreachTouch, init_db
 from emails import send_outreach_email
 from outreach.sms import send_outreach_sms
 from outreach.templates import render_email, render_sms
@@ -96,6 +96,7 @@ def send_initial_touch(db, p, now, remaining_ramp=None):
             body = render_sms("initial", business_name=p.business_name, short_code=_short_code(p))
             sms_id = send_outreach_sms(p.phone, body)
             _record_sms_submitted(db, sms_id, p.phone)
+            db.add(OutreachTouch(prospect_id=p.id, stage="initial", channel="sms", sent_at=now))
             if not unlimited:
                 remaining_ramp["sms"] -= 1
             record_sends("sms", 1, now, db=db)
@@ -107,6 +108,7 @@ def send_initial_touch(db, p, now, remaining_ramp=None):
                 preview_link=_preview_link(p), unsubscribe_link=_unsubscribe_link(p),
             )
             email_id = send_outreach_email(p.email, msg["subject"], msg["body"], _unsubscribe_link(p))
+            db.add(OutreachTouch(prospect_id=p.id, stage="initial", channel="email", sent_at=now))
             if not unlimited:
                 remaining_ramp["email"] -= 1
             record_sends("email", 1, now, db=db)
@@ -118,6 +120,7 @@ def send_initial_touch(db, p, now, remaining_ramp=None):
             body = render_sms("initial", business_name=p.business_name, short_code=_short_code(p))
             sms_id = send_outreach_sms(p.phone, body)
             _record_sms_submitted(db, sms_id, p.phone)
+            db.add(OutreachTouch(prospect_id=p.id, stage="initial", channel="sms", sent_at=now))
             if not unlimited:
                 remaining_ramp["sms"] -= 1
             record_sends("sms", 1, now, db=db)

@@ -5020,6 +5020,22 @@ def stripe_webhook():
                                     app.logger.error(
                                         f"Subdomain race: {slug!r} taken when webhook fired for job {job_id}"
                                     )
+
+                        # Real (not proxied) outreach "paid" signal — the checkout
+                        # session's client_reference_id (job_id) is the Lead's
+                        # public_id, which is exactly how the Generation above was
+                        # just looked up, so the same chain (job_id -> Lead ->
+                        # Prospect.lead_id) traces a payment straight back to the
+                        # originating outreach prospect, if there is one. Direct
+                        # (non-outreach) signups have no Prospect row for this
+                        # lead_id, so this is a no-op for them.
+                        prospect = db.query(Prospect).filter(Prospect.lead_id == gen.lead_id).first()
+                        if prospect and prospect.paid_at is None:
+                            prospect.paid_at = datetime.utcnow()
+                            app.logger.info(
+                                f"Stripe webhook: prospect {prospect.id} marked paid_at (job_id={job_id})"
+                            )
+
                         db.commit()
                 finally:
                     db.close()
@@ -5184,11 +5200,30 @@ def email_forward_log():
 def resend_events_webhook():
     """
     Resend webhook (Section 15's email health signal — the interim proxy
-    for Postmaster Tools). Resend signs webhook payloads via Svix; verified
-    with the `svix` package rather than hand-rolling HMAC, to avoid getting
-    a security-relevant detail subtly wrong. Just logs the raw event;
-    outreach/ramp.py's get_health_signal("email") aggregates these rows
-    into a rolling complaint rate.
+    for Postmaster Tools, PLUS real per-prospect open tracking added
+    2026-07-14). Resend signs webhook payloads via Svix; verified with the
+    `svix` package rather than hand-rolling HMAC, to avoid getting a
+    security-relevant detail subtly wrong.
+
+    Every event is still logged to EmailEventLog as before (outreach/ramp.py's
+    get_health_signal("email") aggregates these into a rolling complaint
+    rate) — that part is unchanged.
+
+    NEW: on an "email.opened" event, look up the matching Prospect by email
+    and, if found and still at the "sent" substage (never overwrite a more
+    advanced state like clicked_generated/account_created/replied/cold —
+    this is a one-way progression), write opened_at and advance
+    funnel_substage to "opened". This is what makes Stage B of the
+    follow-up sequence reachable at all (outreach/followup.py's
+    STAGE_BY_SUBSTAGE maps "opened" -> "B") — before this, nothing ever
+    wrote a prospect into the "opened" substage, so Stage B was dead code.
+
+    Requires two things outside this codebase to actually receive events:
+    (1) open tracking enabled on the sending domain in the Resend dashboard
+    (it's off by default — a tracking pixel has to be enabled per domain),
+    and (2) a webhook subscription actually configured in Resend pointed at
+    this endpoint with this same secret. Fails closed (503) if
+    RESEND_WEBHOOK_SECRET isn't set, same as the other webhooks.
     """
     secret = os.environ.get("RESEND_WEBHOOK_SECRET")
     if not secret:
@@ -5219,6 +5254,27 @@ def resend_events_webhook():
             to_email=to_email,
             event_type=event_type,
         ))
+
+        if event_type == "email.opened" and to_email:
+            prospect = db.query(Prospect).filter(
+                Prospect.email == to_email.strip().lower()
+            ).first()
+            if prospect:
+                if prospect.funnel_substage == "sent":
+                    prospect.opened_at = datetime.utcnow()
+                    prospect.funnel_substage = "opened"
+                    app.logger.info(
+                        f"resend_events_webhook: prospect {prospect.id} ({to_email}) "
+                        f"opened — substage sent -> opened"
+                    )
+                else:
+                    app.logger.info(
+                        f"resend_events_webhook: prospect {prospect.id} ({to_email}) opened, "
+                        f"but substage is already {prospect.funnel_substage!r} — not regressing state"
+                    )
+            else:
+                app.logger.info(f"resend_events_webhook: open event for {to_email} — no matching prospect")
+
         db.commit()
     finally:
         db.close()
