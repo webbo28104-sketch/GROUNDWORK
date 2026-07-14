@@ -81,13 +81,33 @@ RAILWAY_CNAME_TARGET   = os.environ.get("RAILWAY_CNAME_TARGET", "")
 # Cloudflare for SaaS — Custom Hostnames API. Used to connect customer-owned
 # domains to our Railway app through Cloudflare's edge (Fallback Origin points
 # at Railway), instead of registering the domain directly with Railway.
-# CLOUDFLARE_API_TOKEN: API token with Zone → SSL and Certificates: Edit +
-#   Zone → Custom Hostnames: Edit permissions on the target zone.
 # CLOUDFLARE_ZONE_ID: the zone ID for groundworkbuild.com.
 # CLOUDFLARE_CNAME_TARGET: the CNAME target customers' DNS should point at
 #   (e.g. "connect.groundworkbuild.com") — set up in Cloudflare for SaaS config.
+#
+# Multiple Cloudflare API tokens exist on this project, scoped for different
+# purposes — DO NOT consolidate them into one, and do not replace/overwrite
+# a token value in Railway even if it looks expired/wrong; add a new,
+# distinctly-named env var instead and point the relevant code at it. This
+# is deliberate policy (2026-07-14), not an oversight: an earlier in-session
+# token swap on CLOUDFLARE_API_TOKEN silently broke every Custom Hostname
+# call for days, because that var was assumed to be DNS-only and got
+# replaced with a DNS-only-scoped token — but every actual usage of it in
+# this file was Custom Hostname management, which needs a different scope
+# entirely. Splitting by purpose into separately-named vars, as done below,
+# is what prevents that class of mistake from recurring.
+#
+# CLOUDFLARE_API_TOKEN: legacy — kept as-is, untouched, not read by any
+#   current code path (nothing in this file does plain Cloudflare DNS record
+#   management; the one time that was needed it was done as a one-off
+#   outside the app). Left in place for whatever future DNS-record code
+#   ends up using it — do not repurpose or delete.
+# CLOUDFLARE_API_TOKEN_CUSTOM_HOSTNAMES: the token actually used below, for
+#   every Zone → Custom Hostnames / SSL and Certificates: Edit call
+#   (creating, checking SSL status on, and deleting Custom Hostnames).
 CLOUDFLARE_API_URL        = "https://api.cloudflare.com/client/v4"
 CLOUDFLARE_API_TOKEN      = os.environ.get("CLOUDFLARE_API_TOKEN", "")
+CLOUDFLARE_API_TOKEN_CUSTOM_HOSTNAMES = os.environ.get("CLOUDFLARE_API_TOKEN_CUSTOM_HOSTNAMES", "")
 CLOUDFLARE_ZONE_ID        = os.environ.get("CLOUDFLARE_ZONE_ID", "")
 CLOUDFLARE_CNAME_TARGET   = os.environ.get("CLOUDFLARE_CNAME_TARGET", "connect.groundworkbuild.com")
 
@@ -4950,8 +4970,8 @@ def _cloudflare_add_custom_hostname(hostname: str) -> None:
     Custom Hostname. Call this once per hostname.
 
     Raises RuntimeError on failure."""
-    if not CLOUDFLARE_API_TOKEN:
-        raise RuntimeError("CLOUDFLARE_API_TOKEN not set — add it in Railway environment variables")
+    if not CLOUDFLARE_API_TOKEN_CUSTOM_HOSTNAMES:
+        raise RuntimeError("CLOUDFLARE_API_TOKEN_CUSTOM_HOSTNAMES not set — add it in Railway environment variables")
     if not CLOUDFLARE_ZONE_ID:
         raise RuntimeError("CLOUDFLARE_ZONE_ID not set — add it in Railway environment variables")
 
@@ -4967,7 +4987,7 @@ def _cloudflare_add_custom_hostname(hostname: str) -> None:
         data=payload,
         headers={
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {CLOUDFLARE_API_TOKEN}",
+            "Authorization": f"Bearer {CLOUDFLARE_API_TOKEN_CUSTOM_HOSTNAMES}",
         },
         method="POST",
     )
@@ -4993,7 +5013,7 @@ def _cloudflare_ssl_status(hostname: str) -> str | None:
     req = urllib.request.Request(
         f"{CLOUDFLARE_API_URL}/zones/{CLOUDFLARE_ZONE_ID}/custom_hostnames?hostname={hostname}",
         headers={
-            "Authorization": f"Bearer {CLOUDFLARE_API_TOKEN}",
+            "Authorization": f"Bearer {CLOUDFLARE_API_TOKEN_CUSTOM_HOSTNAMES}",
             "Content-Type": "application/json",
         },
         method="GET",
@@ -5018,7 +5038,7 @@ def _cloudflare_get_custom_hostname_id(hostname: str) -> str | None:
     req = urllib.request.Request(
         f"{CLOUDFLARE_API_URL}/zones/{CLOUDFLARE_ZONE_ID}/custom_hostnames?hostname={hostname}",
         headers={
-            "Authorization": f"Bearer {CLOUDFLARE_API_TOKEN}",
+            "Authorization": f"Bearer {CLOUDFLARE_API_TOKEN_CUSTOM_HOSTNAMES}",
             "Content-Type": "application/json",
         },
         method="GET",
@@ -5055,8 +5075,8 @@ def _cloudflare_delete_custom_hostname(hostname: str) -> None:
     Treats "hostname not found" as success (idempotent — matches the
     already-exists-is-success handling in _cloudflare_add_custom_hostname).
     """
-    if not CLOUDFLARE_API_TOKEN or not CLOUDFLARE_ZONE_ID:
-        raise RuntimeError("CLOUDFLARE_API_TOKEN/CLOUDFLARE_ZONE_ID not set")
+    if not CLOUDFLARE_API_TOKEN_CUSTOM_HOSTNAMES or not CLOUDFLARE_ZONE_ID:
+        raise RuntimeError("CLOUDFLARE_API_TOKEN_CUSTOM_HOSTNAMES/CLOUDFLARE_ZONE_ID not set")
 
     hostname_id = _cloudflare_get_custom_hostname_id(hostname)
     if not hostname_id:
@@ -5064,7 +5084,7 @@ def _cloudflare_delete_custom_hostname(hostname: str) -> None:
 
     req = urllib.request.Request(
         f"{CLOUDFLARE_API_URL}/zones/{CLOUDFLARE_ZONE_ID}/custom_hostnames/{hostname_id}",
-        headers={"Authorization": f"Bearer {CLOUDFLARE_API_TOKEN}"},
+        headers={"Authorization": f"Bearer {CLOUDFLARE_API_TOKEN_CUSTOM_HOSTNAMES}"},
         method="DELETE",
     )
     try:
