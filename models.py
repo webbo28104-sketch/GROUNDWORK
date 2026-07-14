@@ -144,6 +144,22 @@ class Domain(Base):
     error_message = Column(Text, nullable=True)
     is_internal = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    # Yearly domain-renewal subscription (added 2026-07-14). Only populated
+    # for domains purchased from this date forward — existing domains sold
+    # as a one-time payment are deliberately grandfathered (None here) and
+    # never migrated onto recurring billing without the customer's fresh
+    # authorization.
+    stripe_subscription_id = Column(String(255), nullable=True, index=True)
+    # Guards the repricing job from re-running more than once for the same
+    # renewal — set to the subscription's current_period_end (as of Stripe)
+    # once that period's reprice has been applied, so "30 days before
+    # renewal" only fires a single price update per year, not once per day
+    # for the whole 30-day window.
+    last_repriced_period_end = Column(DateTime, nullable=True)
+    # Set by invoice.payment_failed on this domain's subscription, cleared
+    # on the next successful invoice. Drives the grace-period-then-disable-
+    # autorenew flow — see _domain_payment_failed_webhook handling.
+    renewal_payment_failed_at = Column(DateTime, nullable=True)
 
 
 class Prospect(Base):
@@ -367,6 +383,9 @@ def init_db():
     _ensure_column(Domain.__tablename__, "error_step", "VARCHAR(100)")
     _ensure_column(Domain.__tablename__, "error_message", "TEXT")
     _ensure_column(Domain.__tablename__, "is_internal", "BOOLEAN NOT NULL DEFAULT FALSE")
+    _ensure_column(Domain.__tablename__, "stripe_subscription_id", "VARCHAR(255)")
+    _ensure_column(Domain.__tablename__, "last_repriced_period_end", "TIMESTAMP")
+    _ensure_column(Domain.__tablename__, "renewal_payment_failed_at", "TIMESTAMP")
     # Prospect / SearchCell columns — create_all() handles brand-new tables, but
     # these _ensure_column calls backfill columns onto an older prospects table
     # that predates a given field (same dependency-free migration pattern above).

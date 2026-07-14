@@ -4769,7 +4769,22 @@ def domain_confirm():
 
 @app.route("/api/domain/checkout/session", methods=["POST"])
 def domain_checkout_session():
-    """Stripe Checkout session for one-time domain payment. Re-confirms server-side."""
+    """
+    Stripe Checkout session for domain registration — a yearly recurring
+    subscription as of 2026-07-14, not a one-time payment (existing domains
+    sold before this change stay one-time/grandfathered; see
+    docs/outreach-pipeline-spec.md's domain-billing notes and
+    _domain_repricing_job for the repricing side of this).
+
+    Uses inline price_data with recurring={"interval": "year"} rather than
+    a pre-created Stripe Price object, since the amount varies per domain/
+    TLD (unlike the fixed site-hosting plan prices) — Stripe Checkout
+    supports a recurring price defined inline the same way it supports a
+    one-time price inline, so no per-domain Product/Price has to be
+    pre-provisioned.
+
+    Re-confirms price/availability server-side, same as before.
+    """
     if not STRIPE_SECRET_KEY:
         return jsonify({"error": "Stripe is not configured"}), 503
 
@@ -4815,15 +4830,16 @@ def domain_checkout_session():
         cancel_url += f"&id={site_id}"
 
     cs = stripe.checkout.Session.create(
-        mode="payment",
+        mode="subscription",
         line_items=[{
             "price_data": {
                 "currency": "gbp",
                 "product_data": {
                     "name": f"Domain registration: {domain}",
-                    "description": "1-year registration via Groundwork. We'll connect it to your site automatically.",
+                    "description": "Renews yearly via Groundwork. We'll connect it to your site automatically.",
                 },
                 "unit_amount": int(round(price_gbp * 100)),
+                "recurring": {"interval": "year"},
             },
             "quantity": 1,
         }],
@@ -5117,9 +5133,137 @@ def _cloudflare_wait_for_ssl(hostname: str, timeout_secs: int = 600, poll_interv
     )
 
 
+DOMAIN_RENEWAL_GRACE_DAYS = 7  # days after a failed renewal invoice before we stop paying Porkbun to renew it
+
+
+def _domain_reprice_if_due(dom, db) -> None:
+    """
+    Re-checks live Porkbun wholesale cost ~30 days before a domain
+    subscription's renewal and updates the subscription's price if the
+    guaranteed-margin formula (_sale_price_gbp — same one used at initial
+    purchase) now works out differently, so a wholesale-cost increase over
+    the year can never erode below the >=100% margin guarantee.
+
+    Per instruction: reprices silently, no customer notice — the new price
+    only takes effect at the NEXT invoice (proration_behavior="none"), never
+    changes what they've already been charged.
+
+    Guarded by last_repriced_period_end so this only fires once per renewal
+    period, not once per day for the whole 30-day window.
+    """
+    if not dom.stripe_subscription_id:
+        return  # grandfathered one-time-payment domain — not on a subscription at all
+
+    try:
+        sub = stripe.Subscription.retrieve(dom.stripe_subscription_id)
+    except stripe.error.StripeError as exc:
+        app.logger.error(f"_domain_reprice_if_due: could not retrieve subscription for {dom.domain}: {exc}")
+        return
+
+    if sub.status not in ("active", "trialing"):
+        return  # already canceled/past_due/etc — not this job's concern
+
+    period_end = datetime.utcfromtimestamp(sub.current_period_end)
+    if dom.last_repriced_period_end == period_end:
+        return  # already repriced for this exact renewal
+    if (period_end - datetime.utcnow()) > timedelta(days=30):
+        return  # not due yet
+
+    tld = ".".join(dom.domain.split(".")[1:])
+    fresh_pricing = _tld_price_gbp()
+    wholesale_gbp = fresh_pricing.get(tld)
+    if wholesale_gbp is None:
+        app.logger.error(f"_domain_reprice_if_due: no live wholesale price for TLD of {dom.domain} — skipping, will retry next run")
+        return
+    new_price_gbp = _sale_price_gbp(wholesale_gbp)
+
+    item = sub["items"]["data"][0]
+    current_amount_gbp = item["price"]["unit_amount"] / 100.0
+    if abs(new_price_gbp - current_amount_gbp) < 0.005:
+        # No real change — still mark this period done so we don't recheck it daily.
+        dom.last_repriced_period_end = period_end
+        db.commit()
+        return
+
+    try:
+        new_price = stripe.Price.create(
+            currency="gbp",
+            unit_amount=int(round(new_price_gbp * 100)),
+            recurring={"interval": "year"},
+            product=item["price"]["product"],
+        )
+        stripe.Subscription.modify(
+            dom.stripe_subscription_id,
+            items=[{"id": item["id"], "price": new_price.id}],
+            proration_behavior="none",
+        )
+    except stripe.error.StripeError as exc:
+        app.logger.error(f"_domain_reprice_if_due: failed to reprice {dom.domain}: {exc}")
+        return
+
+    dom.price_gbp = new_price_gbp
+    dom.wholesale_gbp = wholesale_gbp
+    dom.margin_gbp = round(new_price_gbp - wholesale_gbp, 2)
+    dom.last_repriced_period_end = period_end
+    db.commit()
+    app.logger.info(
+        f"_domain_reprice_if_due: {dom.domain} repriced £{current_amount_gbp:.2f} -> £{new_price_gbp:.2f} "
+        f"for renewal on {period_end.date()}"
+    )
+
+
+def _domain_check_renewal_grace(dom, db) -> None:
+    """
+    If a domain subscription's renewal payment has been failing for more
+    than DOMAIN_RENEWAL_GRACE_DAYS, proactively turn off Porkbun
+    auto-renewal — Stripe's own dunning/retry schedule can span weeks, and
+    we don't want to keep paying Porkbun to renew a domain during that
+    whole window when the customer's card isn't going through. This runs
+    ahead of (and independent from) customer.subscription.deleted, which
+    only fires once Stripe finally gives up on the subscription entirely —
+    by then we could have already paid for a renewal nobody's paying for.
+    """
+    if not dom.renewal_payment_failed_at or dom.stripe_subscription_id is None:
+        return
+    if datetime.utcnow() - dom.renewal_payment_failed_at < timedelta(days=DOMAIN_RENEWAL_GRACE_DAYS):
+        return
+    if dom.status == "renewal_lapsed":
+        return  # already handled
+    try:
+        _porkbun_set_autorenew(dom.domain, on=False)
+    except Exception as exc:
+        app.logger.error(f"_domain_check_renewal_grace: Porkbun autorenew-off failed for {dom.domain}: {exc}")
+        return
+    dom.status = "renewal_lapsed"
+    db.commit()
+    app.logger.info(
+        f"_domain_check_renewal_grace: {dom.domain} unpaid for {DOMAIN_RENEWAL_GRACE_DAYS}+ days — "
+        f"Porkbun auto-renew disabled"
+    )
+
+
+def run_domain_billing_maintenance() -> None:
+    """Daily entry point (see outreach/domain_billing.py) — reprices domains
+    approaching renewal and disables auto-renew for domains stuck in
+    payment failure past the grace period. Safe to run as often as daily;
+    both checks are idempotent no-ops once handled for the current period."""
+    db = SessionLocal()
+    try:
+        doms = db.query(Domain).filter(
+            Domain.stripe_subscription_id.isnot(None),
+            Domain.status.in_(["active", "pending", "renewal_lapsed"]),
+        ).all()
+        for dom in doms:
+            _domain_reprice_if_due(dom, db)
+            _domain_check_renewal_grace(dom, db)
+    finally:
+        db.close()
+
+
 def _handle_domain_order_async(domain: str, site_id: str, customer_email: str,
                                 price_gbp: float, business_name: str,
-                                stripe_payment_id: str, wholesale_gbp: float = None) -> None:
+                                stripe_payment_id: str, wholesale_gbp: float = None,
+                                stripe_subscription_id: str = None) -> None:
     """Orchestrate domain registration in a background thread.
     Steps: resolve customer/business info → send order-confirmed email →
     Porkbun register → Cloudflare custom hostnames → Porkbun DNS.
@@ -5202,6 +5346,7 @@ def _handle_domain_order_async(domain: str, site_id: str, customer_email: str,
             margin_gbp=margin_gbp,
             stripe_payment_id=stripe_payment_id,
             customer_email=customer_email,
+            stripe_subscription_id=stripe_subscription_id,
         )
         db.add(dom)
         db.commit()
@@ -5475,6 +5620,7 @@ def stripe_webhook():
                 _tld = ".".join(domain.split(".")[1:])
                 wholesale_gbp = _tld_price_gbp().get(_tld, 0.0)
             stripe_payment_id = cs.payment_intent or cs.id or ""
+            domain_subscription_id = cs.subscription
             raw_customer_email = cs.customer_details.email if cs.customer_details else ""
 
             # Idempotency guard — Stripe retries webhook deliveries that don't
@@ -5508,7 +5654,7 @@ def stripe_webhook():
             # with everything else in _handle_domain_order_async.
             t = threading.Thread(
                 target=_handle_domain_order_async,
-                args=(domain, site_id, raw_customer_email, price_gbp, "", stripe_payment_id, wholesale_gbp),
+                args=(domain, site_id, raw_customer_email, price_gbp, "", stripe_payment_id, wholesale_gbp, domain_subscription_id),
                 daemon=True,
             )
             t.start()
@@ -5666,8 +5812,61 @@ def stripe_webhook():
                     f"(canceled_at set, status=canceled, {len(doms)} domain(s) disconnected)"
                 )
                 db.commit()
+            else:
+                # Not a site-hosting subscription — check whether it's a
+                # domain-renewal subscription instead (the two share this
+                # same event type, so both have to be checked here).
+                dom_deleted = db.query(Domain).filter(Domain.stripe_subscription_id == sub.id).first()
+                if dom_deleted and dom_deleted.status != "renewal_lapsed":
+                    try:
+                        _porkbun_set_autorenew(dom_deleted.domain, on=False)
+                    except Exception as exc:
+                        app.logger.error(f"subscription.deleted: Porkbun autorenew-off failed for {dom_deleted.domain}: {exc}")
+                    dom_deleted.status = "renewal_lapsed"
+                    db.commit()
+                    app.logger.info(
+                        f"Stripe webhook: domain renewal subscription deleted for {dom_deleted.domain} — "
+                        f"Porkbun auto-renew disabled"
+                    )
         finally:
             db.close()
+
+    elif event.type == "invoice.payment_failed":
+        # Early warning for a domain renewal — Stripe's dunning/retry
+        # schedule can span weeks before customer.subscription.deleted ever
+        # fires, so this starts the grace-period clock
+        # (_domain_check_renewal_grace) rather than waiting for the
+        # subscription to be fully given up on.
+        inv = event.data.object
+        sub_id = inv.get("subscription") if isinstance(inv, dict) else getattr(inv, "subscription", None)
+        if sub_id:
+            db = SessionLocal()
+            try:
+                dom = db.query(Domain).filter(Domain.stripe_subscription_id == sub_id).first()
+                if dom and dom.renewal_payment_failed_at is None:
+                    dom.renewal_payment_failed_at = datetime.utcnow()
+                    db.commit()
+                    app.logger.info(f"Stripe webhook: renewal payment failed for {dom.domain} — grace period started")
+            finally:
+                db.close()
+
+    elif event.type == "invoice.paid":
+        # Clears the grace-period flag if a previously-failed renewal
+        # invoice (or its retry) goes through — e.g. the customer updated
+        # their card. Runs on every paid invoice, not just recoveries, but
+        # is a no-op unless renewal_payment_failed_at was actually set.
+        inv = event.data.object
+        sub_id = inv.get("subscription") if isinstance(inv, dict) else getattr(inv, "subscription", None)
+        if sub_id:
+            db = SessionLocal()
+            try:
+                dom = db.query(Domain).filter(Domain.stripe_subscription_id == sub_id).first()
+                if dom and dom.renewal_payment_failed_at is not None:
+                    dom.renewal_payment_failed_at = None
+                    db.commit()
+                    app.logger.info(f"Stripe webhook: renewal payment recovered for {dom.domain}")
+            finally:
+                db.close()
 
     return "", 200
 
