@@ -125,5 +125,20 @@ export default {
       // Swallow — nothing useful to retry against from here. Doesn't
       // reject the message, so Cloudflare still accepts it normally.
     }
+
+    // Additive, human-visible copy — independent of the webhook call above,
+    // so a failure/success on either side never affects the other.
+    // message.forward() re-delivers the original raw message as-is (headers
+    // included), so the From header stays the prospect's real address:
+    // replying to the forwarded copy in Outlook goes straight back to them,
+    // not through any Groundwork address. Requires
+    // groundwork-build@outlook.com to be a verified destination address in
+    // Cloudflare Email Routing, same as any other forwarding target.
+    try {
+      await message.forward("groundwork-build@outlook.com");
+    } catch (err) {
+      // Swallow for the same reason as above — a failed forward must never
+      // block/reject the message or affect the webhook post.
+    }
   },
 };
