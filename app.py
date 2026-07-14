@@ -14,6 +14,7 @@ import urllib.request
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
+from sqlalchemy import func
 from functools import wraps
 from urllib.parse import urlparse as _urlparse
 
@@ -27,7 +28,7 @@ from markupsafe import escape
 from werkzeug.security import generate_password_hash, check_password_hash
 
 from build_prompt import build_prompt
-from models import SessionLocal, Lead, Generation, Account, GenerationImage, Domain, Prospect, SearchCell, PendingEmailDiscovery, EmailEventLog, init_db
+from models import SessionLocal, Lead, Generation, Account, GenerationImage, Domain, Prospect, SearchCell, PendingEmailDiscovery, EmailEventLog, OutreachTouch, init_db
 from emails import (send_verification_email, send_resend_email, send_password_reset_email,
                     send_support_message_email, send_enquiry_email,
                     send_domain_order_admin_email, send_domain_order_customer_email,
@@ -3701,10 +3702,195 @@ def admin_outreach():
     return render_template_string(_admin_page("Outreach queue", _ADMIN_OUTREACH_CONTENT, active="outreach"))
 
 
+_FUNNEL_INSTRUMENTATION_START = datetime(2026, 7, 14)
+
+_FUNNEL_STAGES = [
+    ("initial", "Initial"),
+    ("A", "Follow-up A"),
+    ("B", "Follow-up B"),
+    ("C", "Follow-up C"),
+    ("D", "Follow-up D"),
+]
+
+_FUNNEL_STEPS = ["Sent", "Opened", "Clicked", "Generated", "Account Created", "Paid"]
+
+
+def _funnel_pct(numer, denom):
+    if not denom:
+        return None
+    return round(100.0 * numer / denom, 1)
+
+
 @app.route("/admin/funnel")
 @admin_required
 def admin_funnel():
-    return _admin_coming_soon("Funnel", "funnel")
+    """
+    Real per-stage, per-channel outreach funnel — built against genuinely
+    tracked data only, per the 2026-07-14 instrumentation fixes:
+      - Opened is real (resend_events_webhook advances opened_at on a real
+        "email.opened" event — see that function's docstring for the
+        dashboard/webhook prerequisites this still depends on).
+      - Paid is real (Stripe webhook now writes Prospect.paid_at directly,
+        traced via client_reference_id -> Lead -> Prospect.lead_id).
+      - Per-stage rows are only real from OutreachTouch's creation date
+        forward — there is no historical per-stage log before that, and
+        nothing here pretends otherwise (see the banner below the filters).
+
+    Each stage row is a COHORT, not a causal attribution: "Opened" for the
+    Follow-up B row means "of the prospects who received a Follow-up B
+    touch, how many have opened_at set" — not "opened because of B"
+    specifically, since opened_at/clicked_at/paid_at are single per-prospect
+    timestamps, not per-message. That's the honest framing given what the
+    schema actually stores.
+    """
+    from_str = request.args.get("from", "").strip()
+    to_str = request.args.get("to", "").strip()
+    channel = request.args.get("channel", "both").strip().lower()
+    if channel not in ("email", "sms", "both"):
+        channel = "both"
+
+    def _parse_date(s):
+        try:
+            return datetime.strptime(s, "%Y-%m-%d")
+        except ValueError:
+            return None
+
+    range_from = _parse_date(from_str)
+    range_to = _parse_date(to_str)
+
+    db = SessionLocal()
+    try:
+        rows_html = ""
+        any_sent_at_all = False
+
+        for stage_key, stage_label in _FUNNEL_STAGES:
+            q = db.query(OutreachTouch).filter(OutreachTouch.stage == stage_key)
+            if channel != "both":
+                q = q.filter(OutreachTouch.channel == channel)
+            if range_from:
+                q = q.filter(OutreachTouch.sent_at >= range_from)
+            if range_to:
+                q = q.filter(OutreachTouch.sent_at < range_to + timedelta(days=1))
+            touches = q.all()
+
+            prospect_ids = sorted({t.prospect_id for t in touches})
+            sent_n = len(prospect_ids)
+            if sent_n:
+                any_sent_at_all = True
+
+            if sent_n:
+                cohort = db.query(Prospect).filter(Prospect.id.in_(prospect_ids)).all()
+                opened_n = sum(1 for p in cohort if p.opened_at is not None)
+                clicked_n = sum(1 for p in cohort if p.clicked_at is not None)
+                lead_ids = [p.lead_id for p in cohort if p.lead_id is not None]
+                generated_lead_ids = set()
+                if lead_ids:
+                    generated_lead_ids = {
+                        g.lead_id for g in db.query(Generation.lead_id)
+                        .filter(Generation.lead_id.in_(lead_ids)).all()
+                    }
+                generated_n = sum(1 for p in cohort if p.lead_id in generated_lead_ids)
+                account_created_n = sum(1 for p in cohort if p.account_created_at is not None)
+                paid_n = sum(1 for p in cohort if p.paid_at is not None)
+            else:
+                opened_n = clicked_n = generated_n = account_created_n = paid_n = 0
+
+            counts = [sent_n, opened_n, clicked_n, generated_n, account_created_n, paid_n]
+            pcts = [None] + [
+                _funnel_pct(counts[i], counts[i - 1]) for i in range(1, len(counts))
+            ]
+
+            cells = ""
+            for i, (label, count) in enumerate(zip(_FUNNEL_STEPS, counts)):
+                pct_html = ""
+                if pcts[i] is not None:
+                    pct_html = f'<div style="font-size:11px;color:#9A9893;margin-top:2px;">{pcts[i]}%</div>'
+                cells += (
+                    f'<td style="text-align:center;">'
+                    f'<div style="font-size:15px;font-weight:700;">{count}</div>'
+                    f'{pct_html}</td>'
+                )
+
+            rows_html += f'<tr><td style="font-weight:600;">{escape(stage_label)}</td>{cells}</tr>'
+
+        header_cells = "".join(f'<th style="text-align:center;">{s}</th>' for s in _FUNNEL_STEPS)
+
+        # Summary strip: live snapshot of current funnel_substage distribution —
+        # always real, independent of the date-range filter (it's "right now",
+        # not historical).
+        substage_counts = dict(
+            db.query(Prospect.funnel_substage, func.count(Prospect.id))
+            .group_by(Prospect.funnel_substage).all()
+        )
+        substage_order = ["sent", "opened", "clicked_generated", "account_created", "replied", "cold", None]
+        substage_labels = {
+            "sent": "Sent", "opened": "Opened", "clicked_generated": "Clicked/Generated",
+            "account_created": "Account created", "replied": "Replied", "cold": "Cold",
+            None: "No substage",
+        }
+        summary_html = "".join(
+            f'<span class="stat"><b>{substage_counts.get(k, 0)}</b> {escape(substage_labels[k])}</span>'
+            for k in substage_order
+        )
+        total_in_pipeline = sum(substage_counts.values())
+
+        instrumentation_note = ""
+        if not range_from or range_from < _FUNNEL_INSTRUMENTATION_START:
+            instrumentation_note = (
+                '<p class="adm-sub" style="color:#B45309;background:#FEF3C7;padding:10px 14px;'
+                'border-radius:8px;margin:0 0 20px;">'
+                '⚠ Per-stage send counts are only tracked from '
+                f'{_FUNNEL_INSTRUMENTATION_START.strftime("%d %b %Y")} onward (OutreachTouch table added that '
+                'date). No historical data exists before this — rows will show 0 for any period entirely '
+                'before it, not because nothing was sent, but because nothing was logged yet.</p>'
+            )
+
+        content = f"""
+<style>
+.statsbar{{display:flex;gap:16px;flex-wrap:wrap;align-items:center;}}
+.statsbar .stat{{font-size:13px;color:#5C5A56;font-weight:600;}}
+.statsbar .stat b{{color:#1C1C1C;font-weight:800;font-size:15px;margin-right:4px;}}
+</style>
+<h1 class="adm-title">Funnel</h1>
+<p class="adm-sub">Per-stage, per-channel outreach funnel. Each row is a cohort — "Opened" on the
+Follow-up B row means prospects who received a B touch and have since opened <em>an</em> email, not
+necessarily that specific one (opened_at is a single per-prospect timestamp, not per-message).</p>
+
+{instrumentation_note}
+
+<form method="get" style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-bottom:22px;">
+  <div>
+    <label style="display:block;font-size:12px;font-weight:600;color:#5C5A56;margin-bottom:4px;">From</label>
+    <input type="date" name="from" value="{escape(from_str)}" style="padding:8px 10px;border:1px solid #D8D5CE;border-radius:7px;font-size:13.5px;">
+  </div>
+  <div>
+    <label style="display:block;font-size:12px;font-weight:600;color:#5C5A56;margin-bottom:4px;">To</label>
+    <input type="date" name="to" value="{escape(to_str)}" style="padding:8px 10px;border:1px solid #D8D5CE;border-radius:7px;font-size:13.5px;">
+  </div>
+  <div>
+    <label style="display:block;font-size:12px;font-weight:600;color:#5C5A56;margin-bottom:4px;">Channel</label>
+    <select name="channel" style="padding:8px 10px;border:1px solid #D8D5CE;border-radius:7px;font-size:13.5px;">
+      <option value="both" {"selected" if channel == "both" else ""}>Email + SMS</option>
+      <option value="email" {"selected" if channel == "email" else ""}>Email only</option>
+      <option value="sms" {"selected" if channel == "sms" else ""}>SMS only</option>
+    </select>
+  </div>
+  <button type="submit" style="background:#3B82F6;color:#fff;border:0;font-weight:700;padding:9px 18px;border-radius:7px;font-size:13.5px;cursor:pointer;">Apply</button>
+</form>
+
+<div class="adm-card" style="overflow-x:auto;">
+<table>
+<thead><tr><th>Stage</th>{header_cells}</tr></thead>
+<tbody>{rows_html}</tbody>
+</table>
+</div>
+
+<h2 style="font-size:15px;font-weight:700;margin:28px 0 10px;">Currently in the pipeline ({total_in_pipeline})</h2>
+<div class="statsbar" style="justify-content:flex-start;text-align:left;">{summary_html}</div>
+"""
+        return render_template_string(_admin_page("Funnel", content, active="funnel"))
+    finally:
+        db.close()
 
 
 @app.route("/admin/deliverability")
