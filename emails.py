@@ -280,7 +280,7 @@ def send_domain_live_email(to_email: str, domain: str, business_name: str) -> No
     _send(to_email, f"Your domain is live — {escape(domain)}", html)
 
 
-def send_outreach_email(to_email: str, subject: str, plain_body: str, unsubscribe_link: str,
+def send_outreach_email(to_email: str, subject: str, html_body: str, unsubscribe_link: str,
                         reply_to: str = None) -> str:
     """
     Cold outreach / follow-up send (outreach/followup.py, outreach/templates.py).
@@ -299,8 +299,11 @@ def send_outreach_email(to_email: str, subject: str, plain_body: str, unsubscrib
     (confirmed: the domain picker there only offers the root zone, not
     arbitrary subdomains — see Section 11a).
 
-    Body is plain text (matches the finalized template copy exactly, per the
-    content-accuracy rule) — no branded button wrapper, just line breaks.
+    html_body is the finalized, fully-designed HTML template from
+    outreach/templates.py (2026-07-14 format change from plain text) — sent
+    to Resend's "html" field as-is, with a plain-text alternative derived
+    automatically via _html_to_text so filters that read text/plain still
+    get a faithful version (mail-tester docks HTML-only sends).
 
     Returns the Resend-assigned email id on success, or None on failure/skip
     — previously this was discarded entirely (resend.Emails.send(...) called
@@ -317,21 +320,14 @@ def send_outreach_email(to_email: str, subject: str, plain_body: str, unsubscrib
         print(f"[emails] RESEND_API_KEY not set — skipping outreach send of '{subject}' to {to_email}")
         return None
 
-    html_body = escape(plain_body).replace("\n", "<br>")
-    html = f"""<div style="font-family:Arial,Helvetica,sans-serif;background:#F5F3EE;padding:32px 20px;">
-  <div style="max-width:480px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;">
-    <div style="padding:28px;font-size:15px;line-height:1.6;color:#1C1C1C;">{html_body}</div>
-  </div>
-</div>"""
-
     resend.api_key = api_key
     try:
         result = resend.Emails.send({
             "from": from_email,
             "to": [to_email],
             "subject": subject,
-            "html": html,
-            "text": plain_body,
+            "html": html_body,
+            "text": _html_to_text(html_body),
             "reply_to": reply_to,
             "headers": {
                 "List-Unsubscribe": f"<{unsubscribe_link}>",
