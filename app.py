@@ -3122,8 +3122,6 @@ def admin_logout():
     return redirect(url_for("admin_login"))
 
 
-@app.route("/admin")
-@admin_required
 def _date_preset_range(preset: str, now: datetime):
     """Returns (from, to) datetimes for a named quick-preset, or (None, None)
     if unrecognized (falls back to the dashboard's no-filter default)."""
