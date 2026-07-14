@@ -1863,6 +1863,7 @@ _ADMIN_OUTREACH_CONTENT = """<style>
 def _admin_page(title: str, content: str, active: str = "") -> str:
     """Wrap admin content in the shared dark-header shell."""
     nav_items = [
+        ("Dashboard", "/admin",    "dashboard"),
         ("Sites",    "/admin/generations",    "generations"),
         ("Domains &amp; margins", "/admin/domains", "domains"),
         ("Outreach", "/admin/outreach",  "outreach"),
@@ -3102,7 +3103,7 @@ def admin_login():
         admin_pass = os.environ.get("ADMIN_PASSWORD")
         if admin_user and admin_pass and u == admin_user and p == admin_pass:
             session["is_admin"] = True
-            return redirect(request.args.get("next") or url_for("admin_generations"))
+            return redirect(request.args.get("next") or url_for("admin_dashboard"))
         error = "Invalid credentials."
     error_html = f'<p class="err">{error}</p>' if error else ""
     return render_template_string(f"""<!DOCTYPE html><html><head><meta charset="utf-8">
@@ -3119,6 +3120,44 @@ def admin_login():
 def admin_logout():
     session.pop("is_admin", None)
     return redirect(url_for("admin_login"))
+
+
+@app.route("/admin")
+@admin_required
+def admin_dashboard():
+    """Top-level admin landing page — the 5-KPI strip, full-size. The same
+    _render_kpi_strip() component appears (smaller context) on /admin/funnel
+    and /admin/domains too, so the same numbers stay visible wherever
+    they're relevant, not just here."""
+    db = SessionLocal()
+    try:
+        kpis = _compute_kpis(db)
+        strip = _render_kpi_strip(kpis)
+    finally:
+        db.close()
+
+    banner = ""
+    if not kpis["churn_rate"]["has_full_month_baseline"] or kpis["gen_paid_rate"]["denom"] < 5:
+        banner = (
+            '<p class="adm-sub" style="color:#B45309;background:#FEF3C7;padding:10px 14px;'
+            'border-radius:8px;margin:0 0 20px;">'
+            '⚠ Several of these numbers are genuinely thin on data right now — Generation → Paid '
+            'has almost no real outreach conversions yet, and Churn Rate has less than one full '
+            'month of history to compare against. Real, not placeholder — just early.</p>'
+        )
+
+    content = f"""
+<h1 class="adm-title">Dashboard</h1>
+<p class="adm-sub">The 5 headline KPIs, computed fresh from real data on every load.</p>
+{banner}
+{strip}
+<div class="adm-card" style="padding:20px 22px;">
+  <p style="margin:0;font-size:13.5px;color:#5C5A56;">
+    See these broken down further: <a href="/admin/funnel">Funnel</a> (per-stage outreach detail) ·
+    <a href="/admin/domains">Domains &amp; margins</a> (per-domain purchase/margin detail).
+  </p>
+</div>"""
+    return render_template_string(_admin_page("Dashboard", content, active="dashboard"))
 
 
 @app.route("/admin/generations")
@@ -3220,6 +3259,7 @@ def admin_domains():
     """
     db = SessionLocal()
     try:
+        kpi_strip = _render_kpi_strip(_compute_kpis(db))
         doms = db.query(Domain).order_by(Domain.created_at.desc()).all()
         status_colors = {
             "active": ("#DCFCE7", "#166534"),
@@ -3269,6 +3309,9 @@ def admin_domains():
   &nbsp;·&nbsp; <strong style="color:#1C1C1C;">£{total_sale:.2f}</strong> sold
   &nbsp;·&nbsp; <strong style="color:#1C1C1C;">£{total_margin:.2f}</strong> margin
 </p>
+
+{kpi_strip}
+
 <div class="adm-card">
 <table><thead><tr>
   <th>Domain</th><th>Status</th><th>Purchased</th>
@@ -3908,6 +3951,161 @@ def admin_outreach():
     return render_template_string(_admin_page("Outreach queue", _ADMIN_OUTREACH_CONTENT, active="outreach"))
 
 
+_KPI_INSTRUMENTATION_START = datetime(2026, 7, 14)
+
+
+def _compute_kpis(db) -> dict:
+    """
+    The 5 main KPIs, computed fresh every call (cheap — small tables, no
+    caching needed yet). Each entry carries enough (value + raw counts) for
+    the caller to render an honest low-N/empty state rather than a bare
+    percentage — several of these are genuinely thin on real data right
+    now, and that has to be visible, not hidden behind a number.
+    """
+    now = datetime.utcnow()
+
+    # 1. Emails sent this calendar month — DailySendCount, not OutreachTouch
+    # (confirmed the right source in the earlier Funnel-dashboard investigation:
+    # it has real history predating OutreachTouch's creation).
+    month_prefix = now.strftime("%Y-%m")
+    email_rows = db.query(DailySendCount).filter(
+        DailySendCount.channel == "email",
+        DailySendCount.send_date.like(f"{month_prefix}%"),
+    ).all()
+    emails_sent_month = sum(r.count for r in email_rows)
+
+    # 2. Magic link click rate (aggregate, not per-stage) — Prospect.sent_at
+    # vs clicked_at, both real fields with history predating today's fixes.
+    sent_n = db.query(Prospect).filter(Prospect.sent_at.isnot(None)).count()
+    clicked_n = db.query(Prospect).filter(
+        Prospect.sent_at.isnot(None), Prospect.clicked_at.isnot(None)
+    ).count()
+
+    # 3. Generation -> Paid — cohort is prospects who ever reached
+    # clicked_at; numerator is how many of those also have paid_at set.
+    # Confirmed in the cancellation-flow investigation that real outreach-
+    # to-paid conversions are ~0 today (the 5 real paying customers are all
+    # direct signups, not outreach-originated) — shown honestly, not hidden.
+    gen_cohort_n = db.query(Prospect).filter(Prospect.clicked_at.isnot(None)).count()
+    gen_paid_n = db.query(Prospect).filter(
+        Prospect.clicked_at.isnot(None), Prospect.paid_at.isnot(None)
+    ).count()
+
+    # 4. Custom domain conversion rate — "purchased" definition (a Domain
+    # row exists at all, any status) over currently-live Generations.
+    # Recomputed fresh every call rather than hardcoded, since cancellations
+    # (or new domain purchases) change this number in real time.
+    live_gens = db.query(Generation).filter(Generation.status == "live").all()
+    domain_conv_denom = len(live_gens)
+    domain_conv_numer = sum(
+        1 for g in live_gens
+        if db.query(Domain).filter(Domain.generation_id == g.id).count() > 0
+    )
+
+    # 5. Churn rate — month-to-date, not a strict start-of-month cohort:
+    # every real customer signed up this same calendar month, so the strict
+    # "active at start of month" denominator is genuinely 0 right now (not
+    # a bug — there's no complete prior month yet). Denominator here is
+    # "customers active at some point this month" (still-active now, plus
+    # anyone who churned this month) so the figure means something before a
+    # full historical baseline exists.
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    active_now = db.query(Generation).filter(Generation.status == "live").count()
+    churned_month = db.query(Generation).filter(
+        Generation.canceled_at.isnot(None), Generation.canceled_at >= month_start
+    ).count()
+    churn_denom = active_now + churned_month
+    has_full_month_baseline = db.query(Generation).filter(
+        Generation.status == "live", Generation.created_at < month_start
+    ).count() > 0
+
+    return {
+        "emails_sent_month": {
+            "value": emails_sent_month,
+            "month_label": now.strftime("%B %Y"),
+        },
+        "click_rate": {
+            "pct": _funnel_pct(clicked_n, sent_n),
+            "numer": clicked_n, "denom": sent_n,
+        },
+        "gen_paid_rate": {
+            "pct": _funnel_pct(gen_paid_n, gen_cohort_n),
+            "numer": gen_paid_n, "denom": gen_cohort_n,
+        },
+        "domain_conv_rate": {
+            "pct": _funnel_pct(domain_conv_numer, domain_conv_denom),
+            "numer": domain_conv_numer, "denom": domain_conv_denom,
+        },
+        "churn_rate": {
+            "pct": _funnel_pct(churned_month, churn_denom),
+            "numer": churned_month, "denom": churn_denom,
+            "has_full_month_baseline": has_full_month_baseline,
+            "month_label": now.strftime("%B %Y"),
+        },
+    }
+
+
+def _render_kpi_strip(kpis: dict) -> str:
+    """Compact 5-tile KPI strip, reused verbatim on the main dashboard, the
+    Funnel page, and the Domains page. Scoped CSS (kpi-* classes) rather
+    than merged into _ADMIN_STYLE, same reasoning as the Funnel table and
+    the outreach review card — a one-off component, not shared design
+    system."""
+    def tile(label, big, sub, low_n=False):
+        low_n_html = ' <span style="color:#B45309;">·&nbsp;low data</span>' if low_n else ""
+        return f"""<div class="kpi-tile">
+          <div class="kpi-label">{escape(label)}</div>
+          <div class="kpi-value">{big}</div>
+          <div class="kpi-sub">{sub}{low_n_html}</div>
+        </div>"""
+
+    e = kpis["emails_sent_month"]
+    c = kpis["click_rate"]
+    g = kpis["gen_paid_rate"]
+    d = kpis["domain_conv_rate"]
+    ch = kpis["churn_rate"]
+
+    tiles = ""
+    tiles += tile("Emails sent / month", str(e["value"]), e["month_label"])
+    tiles += tile(
+        "Magic link click rate",
+        f'{c["pct"]}%' if c["pct"] is not None else "—",
+        f'{c["numer"]}/{c["denom"]} sent' if c["denom"] else "no sends yet",
+        low_n=(c["denom"] or 0) < 10,
+    )
+    tiles += tile(
+        "Generation → Paid",
+        f'{g["pct"]}%' if g["pct"] is not None else "—",
+        f'{g["numer"]}/{g["denom"]} clicked' if g["denom"] else "no outreach conversions yet",
+        low_n=(g["denom"] or 0) < 5,
+    )
+    tiles += tile(
+        "Custom domain conversion",
+        f'{d["pct"]}%' if d["pct"] is not None else "—",
+        f'{d["numer"]}/{d["denom"]} live sites' if d["denom"] else "no live sites yet",
+        low_n=(d["denom"] or 0) < 5,
+    )
+    ch_sub = f'{ch["numer"]} churned / {ch["denom"]} active this month'
+    if not ch["has_full_month_baseline"]:
+        ch_sub += " — first month of data"
+    tiles += tile(
+        "Churn rate (month-to-date)",
+        f'{ch["pct"]}%' if ch["pct"] is not None else "—",
+        ch_sub,
+        low_n=not ch["has_full_month_baseline"],
+    )
+
+    return f"""<style>
+.kpi-strip{{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-bottom:24px;}}
+.kpi-tile{{background:#fff;border:1px solid #E2E0DA;border-radius:12px;padding:16px 18px;}}
+.kpi-label{{font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#9A9893;margin-bottom:8px;}}
+.kpi-value{{font-size:26px;font-weight:800;letter-spacing:-.02em;color:#1C1C1C;line-height:1;margin-bottom:6px;}}
+.kpi-sub{{font-size:12px;color:#807E79;}}
+@media (max-width: 980px){{.kpi-strip{{grid-template-columns:repeat(2,1fr);}}}}
+</style>
+<div class="kpi-strip">{tiles}</div>"""
+
+
 _FUNNEL_INSTRUMENTATION_START = datetime(2026, 7, 14)
 
 _FUNNEL_STAGES = [
@@ -3966,6 +4164,8 @@ def admin_funnel():
 
     db = SessionLocal()
     try:
+        kpi_strip = _render_kpi_strip(_compute_kpis(db))
+
         rows_html = ""
         any_sent_at_all = False
 
@@ -4061,6 +4261,8 @@ def admin_funnel():
 <p class="adm-sub">Per-stage, per-channel outreach funnel. Each row is a cohort — "Opened" on the
 Follow-up B row means prospects who received a B touch and have since opened <em>an</em> email, not
 necessarily that specific one (opened_at is a single per-prospect timestamp, not per-message).</p>
+
+{kpi_strip}
 
 {instrumentation_note}
 
