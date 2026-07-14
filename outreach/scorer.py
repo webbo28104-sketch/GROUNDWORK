@@ -3,8 +3,9 @@ Prospect scoring for the outreach pipeline.
 
 score_prospect() returns a 0-100 float built from five weighted components:
   Rating         (max 30)
-  Website status (max 25) — the biggest lever after rating; no website / dated
-                            site is the whole pitch
+  Website status (max 25) — the biggest lever after rating; no website is the
+                            whole pitch. Set via a free binary check (Places'
+                            website field), not a vision judgment call.
   Trade tier     (max 20)
   Review count   (max 15)
   Team size      (max 10) — a proxy: assume solo/small (worth 10) unless the
@@ -29,6 +30,13 @@ def _rating_points(rating):
 def _website_points(website_status):
     if website_status == "no_website":
         return 25
+    if website_status == "has_website":
+        # Binary check only (no vision judgment) — a flat mid-point score
+        # since we no longer distinguish dated vs. modern at sourcing time.
+        return 10
+    # has_website_dated/has_website_modern: legacy values from when a Cowork
+    # vision check judged existing sites; no longer written by the pipeline,
+    # but old rows may still carry them.
     if website_status == "has_website_dated":
         return 20
     if website_status == "has_website_modern":

@@ -28,13 +28,17 @@ Automated daily pipeline: source UK trade businesses → qualify → generate a 
 
 ## 3. Website Condition Check
 
-**⚠️ OPEN ISSUE — needs reconfiguration before scaling volume**: the checklist below currently judges only *visual* staleness (layout, design cues, CTA presence, stale content signals). It does not check *content depth* — several businesses tagged `dated` in review have turned out to have more detailed, complete sites (more service pages, real project portfolios, fuller copy) than Groundwork's generator currently produces. Pitching "we'll upgrade you" to a business whose existing site is actually more substantial than the replacement undermines the whole approach. The check needs a second dimension — comparing content completeness against what the generator actually delivers — not just visual polish, so outreach only targets genuinely sub-par sites, not merely visually outdated ones with real substance behind them.
-
-For every candidate, tag as one of:
+**Replaced with a free binary check — no screenshot, no vision judgment.** The dated/modern distinction below (and the associated open issue about content-depth false positives) is retired for now: `outreach/pipeline.py` tags every candidate as one of
 
 - `no_website`
-- `has_website_dated`
-- `has_website_modern`
+- `has_website`
+
+purely from whether Places' own `website` field is populated — no screenshot, no Cowork vision call, no per-candidate cost or latency. The `vision_flag_*` columns and the dated/modern checklist below are kept on the schema/doc for later, in case the content-depth-aware version of this check gets built, but nothing currently populates them.
+
+<details>
+<summary>Retired checklist (dated/modern vision judgment — not currently run)</summary>
+
+**⚠️ OPEN ISSUE — needs reconfiguration before scaling volume**: the checklist below currently judges only *visual* staleness (layout, design cues, CTA presence, stale content signals). It does not check *content depth* — several businesses tagged `dated` in review have turned out to have more detailed, complete sites (more service pages, real project portfolios, fuller copy) than Groundwork's generator currently produces. Pitching "we'll upgrade you" to a business whose existing site is actually more substantial than the replacement undermines the whole approach. The check needs a second dimension — comparing content completeness against what the generator actually delivers — not just visual polish, so outreach only targets genuinely sub-par sites, not merely visually outdated ones with real substance behind them.
 
 **Method:** If a website exists, screenshot it and run a vision check against this checklist. Score 2+ = dated. Site fails to load/times out/cert error = automatic dated.
 
@@ -47,7 +51,9 @@ For every candidate, tag as one of:
 5. No reviews/testimonials shown despite the business having Google reviews
 6. Fails to load / times out / security warning
 
-`has_website_modern` candidates are effectively deprioritized (0 pts in scoring) but not hard-excluded.
+`has_website_modern` candidates were effectively deprioritized (0 pts in scoring) but not hard-excluded.
+
+</details>
 
 ---
 
@@ -59,7 +65,7 @@ For every candidate, tag as one of:
   3. UK trade directories: Checkatrade, Yell, TrustATrader, Rated People, Bark, MyBuilder, FreeIndex — these commonly list contact emails for businesses that don't have their own site, which is exactly the segment most likely to depend on directories rather than a website for bookings
   4. General web search as a final fallback
 - **Critical for `no_website` prospects specifically**: since step 1 is unavailable for this segment by definition, discovery *must* actively check steps 2-3 rather than defaulting to a plain web search — this segment scores highest (Section 5) precisely because it's the strongest pitch, so a search method that systematically fails on it undermines the whole prioritization. If a no-website prospect's email discovery only attempted step 1 or a generic search, re-run it explicitly against directories before logging as `qualified_no_email`.
-- **Hard rule**: Never generate/guess a plausible email (e.g. info@businessname.co.uk pattern-matching). Only extract emails actually found in a source. If none found after checking all four source types, log as `qualified_no_email` and exclude from that day's send — do not drop the record.
+- **Hard rule**: Never generate/guess a plausible email (e.g. info@businessname.co.uk pattern-matching). Only extract emails actually found in a source. If none found after checking all four source types: route to `qualified_no_email` if the prospect has a phone number (SMS-reachable), or `unreachable` if it has neither — surfaced as a filterable category in the Tinder review UI, not silently dropped or logged-only, either way.
 - **Not using a paid tool** (Hunter.io etc.) — these rely on a known domain, which no-website businesses don't have by definition. Free/agentic route only for now; revisit only if discovery rate proves too low.
 
 ---
@@ -69,7 +75,7 @@ For every candidate, tag as one of:
 | Factor | Max pts | Breakdown |
 |---|---|---|
 | Rating | 30 | 4.0–4.4 = 15, 4.5+ = 30 |
-| Website status | 25 | no_website = 25, has_website_dated = 20, has_website_modern = 0 |
+| Website status | 25 | no_website = 25, has_website = 10 (flat — binary check only, no dated/modern distinction; legacy rows scored has_website_dated = 20 / has_website_modern = 0 still supported) |
 | Trade type tier | 20 | High = 20, Medium = 12, Low = 5 (see Section 6) |
 | Review count | 15 | 1 review = 3, 2–5 = 8, 6+ = 15 |
 | Team size signal | 10 | Solo/small = 10 |
@@ -435,11 +441,11 @@ Resend has no inbound-parsing product (confirmed directly — its product is out
 
 **A known fidelity gap, not a bug:** `is_stop_intent()` (reused as-is, per instruction) does an exact match against the whole normalized message body — tuned for SMS's typical one-word replies. A verbose email reply ("Please stop emailing me. On Mon, ... wrote: > ...") won't match it, so it falls through to the "any other reply" branch instead of the stricter permanent-opt-out branch. This isn't dangerous — every reply still either opts out or pauses the sequence, never gets ignored — but a real "please stop" email won't auto-suppress future sends the way a bare "STOP" SMS does; a human reviewing "replied" prospects would need to notice and manually opt them out. Worth knowing before assuming stop-detection is equally reliable on both channels.
 
-### The `OUTREACH_REPLY_CAPTURE_READY` flag — confirmed scope
+### The `EMAIL_REPLY_CAPTURE_READY` / `SMS_REPLY_CAPTURE_READY` flags — confirmed scope
 
-**It's a single global flag, not per-channel** — `run_followups()` (`outreach/followup.py`) checks one boolean that gates both channels together, all-or-nothing. There's no way to enable it for SMS only. Flip it to `true` only once email reply-capture above is actually deployed (the dashboard steps) **and verified end-to-end** — a real inbound reply (e.g. via the test-send tool, Section 18) observed to actually opt-out/pause a real test prospect, not just once the code merges.
+**Per-channel, not a single combined flag** — `run_followups()` (`outreach/followup.py`) checks two independent booleans, one per channel, so email follow-ups can run as soon as email's flag is true without waiting on SMS (and vice versa). `_fire_touch()` gates each channel's send individually against its own flag. Flip a channel's flag to `true` only once that channel's reply-capture is actually deployed **and verified end-to-end** — a real inbound reply (e.g. via the test-send tool, Section 18) observed to actually opt-out/pause a real test prospect on that channel, not just once the code merges.
 
-**A related gap, flagged rather than silently fixed:** this flag only gates `run_followups()` (scheduled follow-up touches) — it does **not** gate `fill_initial_sends()` (`outreach/send_job.py`), which sends initial emails regardless of this flag's value. A reply to an *initial* email is just as much a signal a human should see as a reply to a follow-up, and initial sends can legitimately get replies too. Whether to also gate initial sends behind this flag is a real decision, not applied here without confirming first.
+**A related gap, flagged rather than silently fixed:** these flags only gate `run_followups()` (scheduled follow-up touches) — they do **not** gate `fill_initial_sends()` (`outreach/send_job.py`), which sends initial emails/SMS regardless of either flag's value. A reply to an *initial* touch is just as much a signal a human should see as a reply to a follow-up, and initial sends can legitimately get replies too. Whether to also gate initial sends behind these flags is a real decision, not applied here without confirming first.
 
 ---
 
@@ -471,13 +477,13 @@ Built and tested (`app.py:unsubscribe`, `outreach/send_job.py`, `emails.py`):
 | `rating`, `review_count`, `business_status` | Float/Int/String | From Places API |
 | `google_photos_count` | Integer | Photo count from Places API — proxy for how professionally the business presents itself online |
 | `opening_hours_complete` | Boolean | Whether Places API returns complete opening hours — signal of profile investment |
-| `website_status` | String | `no_website` / `has_website_dated` / `has_website_modern` |
-| `vision_flag_layout` | Boolean | Vision checklist item 1: fixed/non-responsive layout |
-| `vision_flag_design` | Boolean | Vision checklist item 2: outdated design cues |
-| `vision_flag_cta` | Boolean | Vision checklist item 3: no clear call-to-action |
-| `vision_flag_content` | Boolean | Vision checklist item 4: stale content |
-| `vision_flag_reviews` | Boolean | Vision checklist item 5: no reviews shown despite having Google reviews |
-| `vision_flag_load` | Boolean | Vision checklist item 6: fails to load / times out |
+| `website_status` | String | `no_website` / `has_website` — set for free, directly off Places' own website field, at sourcing time (`outreach/pipeline.py`). No screenshot or Cowork vision judgment call. Legacy rows may still carry `has_website_dated` / `has_website_modern` from before this change; `outreach/scorer.py` still scores those values, they're just no longer written going forward. |
+| `vision_flag_layout` | Boolean | Unused since the vision-judgment step was replaced by the binary website check above. Column kept on the schema for potential future use, not populated by the current pipeline. Vision checklist item 1 (fixed/non-responsive layout) |
+| `vision_flag_design` | Boolean | Unused, see above. Vision checklist item 2: outdated design cues |
+| `vision_flag_cta` | Boolean | Unused, see above. Vision checklist item 3: no clear call-to-action |
+| `vision_flag_content` | Boolean | Unused, see above. Vision checklist item 4: stale content |
+| `vision_flag_reviews` | Boolean | Unused, see above. Vision checklist item 5: no reviews shown despite having Google reviews |
+| `vision_flag_load` | Boolean | Unused, see above. Vision checklist item 6: fails to load / times out |
 | `score` | Float | 0–100 |
 | `email` | String | |
 | `email_source` | String | `facebook` / `checkatrade` / `yell` / `directory` / `web_search` |
@@ -490,7 +496,7 @@ Built and tested (`app.py:unsubscribe`, `outreach/send_job.py`, `emails.py`):
 | `lead_id` | Integer (FK) | Set on first successful claim — links this prospect to the `Lead`/`Generation` its magic link produced |
 | `account_created_at` | DateTime | |
 | `screenshot_url`, `gif_url` | String | |
-| `funnel_stage` | String | `sourced` / `queued` / `awaiting_approval` / `qualified_no_email` / `sent` / `opened` / `clicked` / `paid` / `cold` |
+| `funnel_stage` | String | `sourced` / `queued` / `awaiting_approval` / `qualified_no_email` / `unreachable` (no findable email AND no phone — surfaced as a filterable category in the Tinder review UI rather than dropped/silently logged) / `sent` / `opened` / `clicked` / `paid` / `cold` |
 | `funnel_substage` | String | Follow-up sequence state (Section 11): `sent` / `opened` / `clicked_generated` / `account_created` / `cold`. Distinct from `funnel_stage` — `funnel_substage` only exists to drive `outreach/followup.py`'s timing rules. |
 | `last_touch_at` | DateTime | Updated on every touch sent AND on every `funnel_substage` transition — the anchor for Section 11's "days since" timing rules |
 | `approval_status` | String | Retained for audit trail; no longer a send gate |

@@ -32,15 +32,18 @@ logger = logging.getLogger("outreach.followup")
 MAX_TOUCHES = 4  # initial + 3 follow-ups, hard cap
 
 # Hard gate (docs/outreach-pipeline-spec.md Section 11a): reply-triggered
-# kill-switch handling must exist and be tested on BOTH channels before any
-# scheduled follow-up is allowed to fire. SMS inbound is wired
-# (app.py:/api/webhooks/sms-inbound -> outreach/reply_handling.py), but email
-# inbound has no transport yet (Resend has no inbound-parsing product — see
-# Section 11a for the real options). This flag defaults to blocked; set
-# OUTREACH_REPLY_CAPTURE_READY=true only once both channels are live and
-# verified end-to-end (a real inbound reply observed to opt-out/pause a
-# real test prospect), not just once the code merges.
-REPLY_CAPTURE_READY = os.environ.get("OUTREACH_REPLY_CAPTURE_READY", "").lower() == "true"
+# kill-switch handling must exist and be tested on a channel before any
+# scheduled follow-up is allowed to fire on it. Email and SMS are gated
+# independently — email follow-ups can run as soon as email's flag is true,
+# without waiting on SMS (and vice versa), since the two channels' inbound
+# reply-capture transports are unrelated and typically go live at different
+# times. Each flag defaults to blocked; set it to true only once that
+# channel's reply capture is live and verified end-to-end (a real inbound
+# reply observed to opt-out/pause a real test prospect on that channel), not
+# just once the code merges.
+EMAIL_REPLY_CAPTURE_READY = os.environ.get("EMAIL_REPLY_CAPTURE_READY", "").lower() == "true"
+# SMS inbound is wired (app.py:/api/webhooks/sms-inbound -> outreach/reply_handling.py).
+SMS_REPLY_CAPTURE_READY = os.environ.get("SMS_REPLY_CAPTURE_READY", "").lower() == "true"
 
 # funnel_substage -> follow-up stage letter it fires when due
 STAGE_BY_SUBSTAGE = {
@@ -104,14 +107,14 @@ def _fire_touch(db, p, stage, now, remaining_ramp, unsubscribe_link_fn, preview_
         # (no open tracking over SMS) — Stage A copy doubles as the single
         # pre-click follow-up, collapsing A/B into one per the spec.
         sms_stage = "A" if stage in PRE_CLICK_STAGES else stage
-        if not p.sms_unsubscribed and remaining_ramp["sms"] > 0:
+        if SMS_REPLY_CAPTURE_READY and not p.sms_unsubscribed and remaining_ramp["sms"] > 0:
             body = render_sms(sms_stage, business_name=p.business_name, short_code=short_code_fn(p))
             sms_id = send_outreach_sms(p.phone, body)
             if sms_id:
                 db.add(SmsDeliveryEvent(message_sid=sms_id, to_phone=p.phone, status="submitted"))
             sms_used = 1
     else:
-        if not p.email_unsubscribed and remaining_ramp["email"] > 0:
+        if EMAIL_REPLY_CAPTURE_READY and not p.email_unsubscribed and remaining_ramp["email"] > 0:
             msg = render_email(
                 stage,
                 business_name=p.business_name,
@@ -120,7 +123,7 @@ def _fire_touch(db, p, stage, now, remaining_ramp, unsubscribe_link_fn, preview_
             )
             send_outreach_email(p.email, msg["subject"], msg["body"], unsubscribe_link_fn(p))
             email_used = 1
-        if not p.sms_unsubscribed and p.phone and remaining_ramp["sms"] > 0:
+        if SMS_REPLY_CAPTURE_READY and not p.sms_unsubscribed and p.phone and remaining_ramp["sms"] > 0:
             body = render_sms(stage, business_name=p.business_name, short_code=short_code_fn(p))
             sms_id = send_outreach_sms(p.phone, body)
             if sms_id:
@@ -155,13 +158,18 @@ def run_followups(remaining_ramp, unsubscribe_link_fn, preview_link_fn, short_co
     one channel sent and counts as touched, per the "channels are
     independent" rule elsewhere in the spec.
     """
-    if not REPLY_CAPTURE_READY:
+    if not EMAIL_REPLY_CAPTURE_READY and not SMS_REPLY_CAPTURE_READY:
         logger.error(
-            "run_followups: blocked — OUTREACH_REPLY_CAPTURE_READY is not 'true'. "
-            "Reply-triggered kill-switch handling must be live and tested on both "
-            "channels before scheduled follow-ups can fire (Section 11a). No touches sent."
+            "run_followups: blocked — neither EMAIL_REPLY_CAPTURE_READY nor "
+            "SMS_REPLY_CAPTURE_READY is 'true'. Reply-triggered kill-switch handling "
+            "must be live and tested on a channel before scheduled follow-ups can "
+            "fire on it (Section 11a). No touches sent."
         )
         return remaining_ramp
+    if not EMAIL_REPLY_CAPTURE_READY:
+        logger.warning("run_followups: EMAIL_REPLY_CAPTURE_READY is not 'true' — email follow-ups withheld this run.")
+    if not SMS_REPLY_CAPTURE_READY:
+        logger.warning("run_followups: SMS_REPLY_CAPTURE_READY is not 'true' — SMS follow-ups withheld this run.")
 
     now = now or datetime.utcnow()
     db = SessionLocal()

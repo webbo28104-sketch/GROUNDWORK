@@ -1,22 +1,18 @@
 """
 Write an AI judgment result back to a prospect and advance it through the pipeline.
 
-Once BOTH the vision check and email discovery are resolved for a prospect,
-this script automatically runs scoring and moves the prospect to
-awaiting_approval (if an email was found) or qualified_no_email.
+website_status is no longer judged here — outreach/pipeline.py sets it for
+free straight off Places' website field (has_website/no_website) at sourcing
+time. Once email discovery is resolved for a prospect, this script
+automatically runs scoring and moves the prospect to one of:
+    awaiting_approval   (an email was found)
+    qualified_no_email  (no email, but a phone number exists — SMS-reachable)
+    unreachable         (neither an email nor a phone number could be found)
 
 Commands
 ────────
 List everything still pending (start here):
     python outreach/apply_result.py pending
-
-Apply a website vision check verdict:
-    python outreach/apply_result.py vision <prospect_id> <verdict>
-
-    verdict must be one of:
-        no_website           (no website found — score as no_website)
-        has_website_dated    (site exists but looks old/poor)
-        has_website_modern   (site exists and looks professional)
 
 Apply an email discovery result:
     python outreach/apply_result.py email <prospect_id> <email_or_null>
@@ -38,8 +34,6 @@ Reset qualified_no_email prospects back into the pending email queue:
 
 Examples:
     python outreach/apply_result.py pending
-    python outreach/apply_result.py vision 42 has_website_dated
-    python outreach/apply_result.py vision 43 no_website
     python outreach/apply_result.py email 42 hello@johnsmith.co.uk
     python outreach/apply_result.py email 43 null
     python outreach/apply_result.py email 44 info@biz.com --source checkatrade
@@ -62,7 +56,7 @@ except Exception:
     pass
 
 from models import (
-    SessionLocal, Prospect, PendingVisionCheck, PendingEmailDiscovery, init_db,
+    SessionLocal, Prospect, PendingEmailDiscovery, init_db,
 )
 
 try:
@@ -75,43 +69,41 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("outreach.apply_result")
 
-VALID_VERDICTS = {"no_website", "has_website_dated", "has_website_modern"}
-
 
 # ─── Finalization ────────────────────────────────────────────────────────────
 
 def _try_finalize(db, prospect):
     """If no pending queue rows remain for this prospect, score it and advance
-    its funnel_stage to awaiting_approval or qualified_no_email."""
-    vision_still_pending = db.query(PendingVisionCheck).filter(
-        PendingVisionCheck.prospect_id == prospect.id
-    ).first()
+    its funnel_stage to awaiting_approval, qualified_no_email, or unreachable."""
     email_still_pending = db.query(PendingEmailDiscovery).filter(
         PendingEmailDiscovery.prospect_id == prospect.id
     ).first()
 
-    if vision_still_pending or email_still_pending:
-        remaining = []
-        if vision_still_pending:
-            remaining.append("vision")
-        if email_still_pending:
-            remaining.append("email")
+    if email_still_pending:
         logger.info(
-            "Prospect %s (%s): still waiting for %s",
-            prospect.id, prospect.business_name, " + ".join(remaining),
+            "Prospect %s (%s): still waiting for email",
+            prospect.id, prospect.business_name,
         )
         return
 
-    # Both results in — score and finalize.
+    # Result in — score and finalize.
     prospect.score = score_prospect(prospect)
 
     if prospect.email_found:
         prospect.funnel_stage = "awaiting_approval"
         prospect.approval_status = "pending"
         status_msg = "→ awaiting_approval (email found)"
-    else:
+    elif prospect.phone:
         prospect.funnel_stage = "qualified_no_email"
-        status_msg = "→ qualified_no_email (no email found)"
+        prospect.approval_status = "pending"
+        status_msg = "→ qualified_no_email (no email, but phone found)"
+    else:
+        # Neither an email nor a phone number — not silently dropped, just
+        # routed to a distinct stage so it can be surfaced (and filtered on)
+        # in the Tinder review UI instead of vanishing from view.
+        prospect.funnel_stage = "unreachable"
+        prospect.approval_status = "unreachable"
+        status_msg = "→ unreachable (no email, no phone)"
 
     prospect.processed_at = datetime.utcnow()
     db.commit()
@@ -128,12 +120,6 @@ def cmd_pending():
     """Print a table of everything Cowork still needs to judge."""
     db = SessionLocal()
     try:
-        vision_rows = (
-            db.query(PendingVisionCheck, Prospect)
-            .join(Prospect, PendingVisionCheck.prospect_id == Prospect.id)
-            .order_by(PendingVisionCheck.id)
-            .all()
-        )
         email_rows = (
             db.query(PendingEmailDiscovery, Prospect)
             .join(Prospect, PendingEmailDiscovery.prospect_id == Prospect.id)
@@ -142,18 +128,6 @@ def cmd_pending():
         )
     finally:
         db.close()
-
-    print(f"\n{'='*70}")
-    print(f"Pending vision checks ({len(vision_rows)})")
-    print(f"{'-'*70}")
-    if vision_rows:
-        print(f"{'ID':<6} {'Business':<30} {'Location':<25} Screenshot")
-        print(f"{'-'*6} {'-'*30} {'-'*25} {'-'*20}")
-        for vc, p in vision_rows:
-            shot = vc.screenshot_path or "(no screenshot — load failed)"
-            print(f"{p.id:<6} {(p.business_name or '')[:30]:<30} {(p.location or '')[:25]:<25} {shot}")
-    else:
-        print("  (none)")
 
     print(f"\n{'='*70}")
     print(f"Pending email discoveries ({len(email_rows)})")
@@ -169,36 +143,7 @@ def cmd_pending():
 
     print(f"{'='*70}\n")
     print("Apply results with:")
-    print("  python outreach/apply_result.py vision <id> <verdict>")
     print("  python outreach/apply_result.py email <id> <email|null>\n")
-
-
-def cmd_vision(prospect_id, verdict):
-    if verdict not in VALID_VERDICTS:
-        print(f"ERROR: verdict must be one of: {', '.join(sorted(VALID_VERDICTS))}", file=sys.stderr)
-        sys.exit(1)
-
-    db = SessionLocal()
-    try:
-        p = db.get(Prospect, prospect_id)
-        if not p:
-            print(f"ERROR: Prospect {prospect_id} not found", file=sys.stderr)
-            sys.exit(1)
-
-        p.website_status = verdict
-
-        deleted = db.query(PendingVisionCheck).filter(
-            PendingVisionCheck.prospect_id == prospect_id
-        ).delete()
-        db.commit()
-
-        if not deleted:
-            logger.warning("No PendingVisionCheck row found for prospect %s (already resolved?)", prospect_id)
-
-        print(f"  Vision: prospect {prospect_id} ({p.business_name}) → {verdict}")
-        _try_finalize(db, p)
-    finally:
-        db.close()
 
 
 def cmd_email(prospect_id, email_raw, source="web_search", force=False):
@@ -327,7 +272,6 @@ def main():
         epilog=(
             "Examples:\n"
             "  python outreach/apply_result.py pending\n"
-            "  python outreach/apply_result.py vision 42 has_website_dated\n"
             "  python outreach/apply_result.py email 42 hello@johnsmith.co.uk\n"
             "  python outreach/apply_result.py email 43 null\n"
         ),
@@ -335,14 +279,6 @@ def main():
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("pending", help="List all prospects awaiting AI judgment")
-
-    v = sub.add_parser("vision", help="Apply a website vision check result")
-    v.add_argument("prospect_id", type=int, help="Prospect ID from the pending list")
-    v.add_argument(
-        "verdict",
-        choices=sorted(VALID_VERDICTS),
-        help="Your judgment of the website quality",
-    )
 
     e = sub.add_parser("email", help="Apply an email discovery result")
     e.add_argument("prospect_id", type=int, help="Prospect ID from the pending list")
@@ -382,8 +318,6 @@ def main():
 
     if args.command == "pending":
         cmd_pending()
-    elif args.command == "vision":
-        cmd_vision(args.prospect_id, args.verdict)
     elif args.command == "email":
         cmd_email(args.prospect_id, args.email_or_null, source=args.source, force=args.force)
     elif args.command == "requeue-email":

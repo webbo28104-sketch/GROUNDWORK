@@ -27,7 +27,7 @@ from markupsafe import escape
 from werkzeug.security import generate_password_hash, check_password_hash
 
 from build_prompt import build_prompt
-from models import SessionLocal, Lead, Generation, Account, GenerationImage, Domain, Prospect, SearchCell, PendingVisionCheck, PendingEmailDiscovery, EmailEventLog, init_db
+from models import SessionLocal, Lead, Generation, Account, GenerationImage, Domain, Prospect, SearchCell, PendingEmailDiscovery, EmailEventLog, init_db
 from emails import (send_verification_email, send_resend_email, send_password_reset_email,
                     send_support_message_email, send_enquiry_email,
                     send_domain_order_admin_email, send_domain_order_customer_email,
@@ -3135,11 +3135,21 @@ def admin_generation_form_data(gen_id):
 @app.route("/api/admin/outreach/queue/next")
 @admin_required
 def admin_outreach_queue_next():
+    """?filter=awaiting_approval (default) shows the normal approval queue.
+    ?filter=unreachable shows prospects with neither a findable email nor
+    phone — surfaced here rather than dropped/silently logged, per Section
+    11a, so they stay visible and reviewable instead of vanishing."""
+    filter_name = request.args.get("filter", "awaiting_approval")
     db = SessionLocal()
     try:
-        q = (db.query(Prospect)
-             .filter(Prospect.approval_status == "pending",
-                     Prospect.funnel_stage == "awaiting_approval"))
+        if filter_name == "unreachable":
+            q = (db.query(Prospect)
+                 .filter(Prospect.approval_status == "unreachable",
+                         Prospect.funnel_stage == "unreachable"))
+        else:
+            q = (db.query(Prospect)
+                 .filter(Prospect.approval_status == "pending",
+                         Prospect.funnel_stage == "awaiting_approval"))
         queue_size = q.count()
         p = q.order_by(Prospect.score.desc().nullslast()).first()
         if not p:
@@ -3213,6 +3223,8 @@ def admin_outreach_stats():
         rejected = db.query(Prospect).filter(Prospect.approval_status == "no").count()
         qualified_no_email = db.query(Prospect).filter(
             Prospect.funnel_stage == "qualified_no_email").count()
+        unreachable = db.query(Prospect).filter(
+            Prospect.funnel_stage == "unreachable").count()
         sourced_today = db.query(Prospect).filter(
             Prospect.created_at >= today_midnight).count()
         approved_today = db.query(Prospect).filter(
@@ -3227,6 +3239,7 @@ def admin_outreach_stats():
             "approved": approved,
             "rejected": rejected,
             "qualified_no_email": qualified_no_email,
+            "unreachable": unreachable,
             "sourced_today": sourced_today,
             "approved_today": approved_today,
             "rejected_today": rejected_today,
@@ -3263,65 +3276,45 @@ def _check_outreach_token():
 
 
 def _outreach_finalize(db, prospect):
-    """Mirror of apply_result.py _try_finalize — score and advance stage when
-    both pending queues are clear for this prospect."""
+    """Mirror of apply_result.py _try_finalize — score and advance stage once
+    the email-discovery queue is clear for this prospect."""
     from outreach.scorer import score_prospect as _score
-    vision_pending = db.query(PendingVisionCheck).filter(
-        PendingVisionCheck.prospect_id == prospect.id).first()
     email_pending = db.query(PendingEmailDiscovery).filter(
         PendingEmailDiscovery.prospect_id == prospect.id).first()
-    if vision_pending or email_pending:
-        return  # still waiting on the other side
+    if email_pending:
+        return  # still waiting on email discovery
     prospect.score = _score(prospect)
     if prospect.email_found:
         prospect.funnel_stage = "awaiting_approval"
         prospect.approval_status = "pending"
-    else:
+    elif prospect.phone:
         prospect.funnel_stage = "qualified_no_email"
+        prospect.approval_status = "pending"
+    else:
+        prospect.funnel_stage = "unreachable"
+        prospect.approval_status = "unreachable"
     prospect.processed_at = datetime.utcnow()
     db.commit()
 
 
 @app.route("/api/admin/outreach/pending")
 def outreach_pending():
-    """Return all prospects currently in the pending vision-check or email-
-    discovery queues, with enough detail for Cowork to judge them over HTTP."""
+    """Return all prospects currently in the pending email-discovery queue,
+    with enough detail for Cowork to judge them over HTTP. Website status is
+    no longer judged here — it's set for free at sourcing time straight off
+    Places' website field (see outreach/pipeline.py)."""
     denied = _check_outreach_token()
     if denied:
         return denied
 
     db = SessionLocal()
     try:
-        vision_rows = (
-            db.query(PendingVisionCheck, Prospect)
-            .join(Prospect, PendingVisionCheck.prospect_id == Prospect.id)
-            .order_by(PendingVisionCheck.id)
-            .all()
-        )
         email_rows = (
             db.query(PendingEmailDiscovery, Prospect)
             .join(Prospect, PendingEmailDiscovery.prospect_id == Prospect.id)
             .order_by(PendingEmailDiscovery.id)
             .all()
         )
-
-        pending_vision = [
-            {
-                "vision_check_id": vc.id,
-                "prospect_id": p.id,
-                "business_name": p.business_name,
-                "trade": p.trade,
-                "trade_tier": p.trade_tier,
-                "location": p.location,
-                "website": p.website,
-                "rating": p.rating,
-                "review_count": p.review_count,
-                "phone": p.phone,
-                "google_place_id": p.google_place_id,
-                "queued_at": vc.created_at.isoformat() if vc.created_at else None,
-            }
-            for vc, p in vision_rows
-        ]
 
         pending_email = [
             {
@@ -3342,58 +3335,10 @@ def outreach_pending():
         ]
 
         return jsonify({
-            "pending_vision": pending_vision,
             "pending_email": pending_email,
             "counts": {
-                "pending_vision": len(pending_vision),
                 "pending_email": len(pending_email),
             },
-        })
-    finally:
-        db.close()
-
-
-@app.route("/api/admin/outreach/apply-vision", methods=["POST"])
-def outreach_apply_vision():
-    """Apply a website vision-check verdict for a prospect.
-    Body: {"prospect_id": <int>, "website_status": <str>}
-    Valid website_status values: no_website | has_website_dated | has_website_modern
-    """
-    denied = _check_outreach_token()
-    if denied:
-        return denied
-
-    body = request.get_json(silent=True) or {}
-    prospect_id = body.get("prospect_id")
-    website_status = body.get("website_status")
-
-    valid_statuses = {"no_website", "has_website_dated", "has_website_modern"}
-    if not prospect_id or website_status not in valid_statuses:
-        return jsonify({
-            "error": "prospect_id (int) and website_status (one of: "
-                     + ", ".join(sorted(valid_statuses)) + ") are required"
-        }), 400
-
-    db = SessionLocal()
-    try:
-        p = db.get(Prospect, prospect_id)
-        if not p:
-            return jsonify({"error": f"Prospect {prospect_id} not found"}), 404
-
-        p.website_status = website_status
-        deleted = db.query(PendingVisionCheck).filter(
-            PendingVisionCheck.prospect_id == prospect_id).delete()
-        db.commit()
-
-        _outreach_finalize(db, p)
-
-        return jsonify({
-            "status": "ok",
-            "prospect_id": p.id,
-            "business_name": p.business_name,
-            "website_status": website_status,
-            "vision_row_deleted": bool(deleted),
-            "funnel_stage": p.funnel_stage,
         })
     finally:
         db.close()
@@ -3473,7 +3418,6 @@ def outreach_apply_email():
 # is used so this token can be rotated independently if it ever appears in logs.
 #
 # GET /api/admin/outreach/g/pending?token=<token>
-# GET /api/admin/outreach/g/apply-vision?token=<token>&prospect_id=<id>&website_status=<s>
 # GET /api/admin/outreach/g/apply-email?token=<token>&prospect_id=<id>&email=<e>&source=<s>
 # ---------------------------------------------------------------------------
 
@@ -3494,28 +3438,11 @@ def outreach_get_pending():
     # Delegate to the same DB logic as the POST version.
     db = SessionLocal()
     try:
-        vision_rows = (
-            db.query(PendingVisionCheck, Prospect)
-            .join(Prospect, PendingVisionCheck.prospect_id == Prospect.id)
-            .order_by(PendingVisionCheck.id).all()
-        )
         email_rows = (
             db.query(PendingEmailDiscovery, Prospect)
             .join(Prospect, PendingEmailDiscovery.prospect_id == Prospect.id)
             .order_by(PendingEmailDiscovery.id).all()
         )
-        pending_vision = [
-            {
-                "vision_check_id": vc.id, "prospect_id": p.id,
-                "business_name": p.business_name, "trade": p.trade,
-                "trade_tier": p.trade_tier, "location": p.location,
-                "website": p.website, "rating": p.rating,
-                "review_count": p.review_count, "phone": p.phone,
-                "google_place_id": p.google_place_id,
-                "queued_at": vc.created_at.isoformat() if vc.created_at else None,
-            }
-            for vc, p in vision_rows
-        ]
         pending_email = [
             {
                 "email_discovery_id": ed.id, "prospect_id": p.id,
@@ -3529,48 +3456,8 @@ def outreach_get_pending():
             for ed, p in email_rows
         ]
         return jsonify({
-            "pending_vision": pending_vision,
             "pending_email": pending_email,
-            "counts": {"pending_vision": len(pending_vision), "pending_email": len(pending_email)},
-        })
-    finally:
-        db.close()
-
-
-@app.route("/api/admin/outreach/g/apply-vision")
-def outreach_get_apply_vision():
-    denied = _check_outreach_get_token()
-    if denied:
-        return denied
-
-    try:
-        prospect_id = int(request.args.get("prospect_id", ""))
-    except (ValueError, TypeError):
-        return jsonify({"error": "prospect_id must be an integer"}), 400
-    website_status = request.args.get("website_status", "")
-
-    valid_statuses = {"no_website", "has_website_dated", "has_website_modern"}
-    if website_status not in valid_statuses:
-        return jsonify({
-            "error": "website_status must be one of: " + ", ".join(sorted(valid_statuses))
-        }), 400
-
-    db = SessionLocal()
-    try:
-        p = db.get(Prospect, prospect_id)
-        if not p:
-            return jsonify({"error": f"Prospect {prospect_id} not found"}), 404
-        p.website_status = website_status
-        deleted = db.query(PendingVisionCheck).filter(
-            PendingVisionCheck.prospect_id == prospect_id).delete()
-        db.commit()
-        _outreach_finalize(db, p)
-        return jsonify({
-            "status": "ok", "prospect_id": p.id,
-            "business_name": p.business_name,
-            "website_status": website_status,
-            "vision_row_deleted": bool(deleted),
-            "funnel_stage": p.funnel_stage,
+            "counts": {"pending_email": len(pending_email)},
         })
     finally:
         db.close()

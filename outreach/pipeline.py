@@ -10,17 +10,19 @@ What it does:
   2. Pick N pending SearchCells (never-searched first).
   3. For each cell: query Google Places, upsert new prospects, stamp the cell.
   4. For every newly sourced prospect:
-       - If it has a website: take a Playwright screenshot and insert a
-         PendingVisionCheck row (screenshot_path may be None if load failed).
-       - If it has no website: set website_status="no_website" immediately
-         (no screenshot or vision queue row needed).
+       - website_status is set immediately, for free, from Places' own website
+         field: "has_website" if populated, "no_website" if not. No screenshot,
+         no Cowork vision judgment — the site-quality-graded "dated"/"modern"
+         fields still exist on the schema for later but are no longer populated
+         by this pipeline.
        - Always insert a PendingEmailDiscovery row.
        - Advance funnel_stage to "queued".
   5. Print a summary showing how many prospects are queued for each step.
 
-Scoring and approval-queue population happen AFTER Cowork clears both pending
-queues via outreach/apply_result.py — not here. This separates the deterministic
-sourcing work (bash / code) from the AI-judgment work (Cowork session).
+Scoring and approval-queue population happen AFTER Cowork clears the pending
+email-discovery queue via outreach/apply_result.py — not here. This separates
+the deterministic sourcing work (bash / code) from the AI-judgment work
+(Cowork session), which is now solely email discovery.
 """
 import os
 import sys
@@ -41,15 +43,13 @@ except Exception:
     pass
 
 from models import (  # noqa: E402
-    SessionLocal, Prospect, PendingVisionCheck, PendingEmailDiscovery, init_db,
+    SessionLocal, Prospect, PendingEmailDiscovery, init_db,
 )
 
 try:
     from outreach.sourcer import search_places, get_pending_cells, parse_place, upsert_prospect
-    from outreach.vision_check import take_screenshot
 except ImportError:
     from sourcer import search_places, get_pending_cells, parse_place, upsert_prospect
-    from vision_check import take_screenshot
 
 logging.basicConfig(
     level=logging.INFO,
@@ -100,8 +100,9 @@ def _source_cells(n_cells, dry_run):
 
 
 def _queue_pending(dry_run):
-    """Screenshot websites and insert PendingVisionCheck / PendingEmailDiscovery
-    rows for every prospect still at funnel_stage='sourced'.
+    """Set website_status (free binary check, no screenshot) and insert
+    PendingEmailDiscovery rows for every prospect still at
+    funnel_stage='sourced'.
     Returns n_queued."""
     n_queued = 0
 
@@ -118,22 +119,9 @@ def _queue_pending(dry_run):
             try:
                 p.funnel_stage = "gated"
 
-                # Vision check ───────────────────────────────────────────────
-                if p.website and str(p.website).strip():
-                    # Take a screenshot now (deterministic code); the quality
-                    # judgment runs later in Cowork.
-                    screenshot_path = take_screenshot(p.id, p.website)
-                    existing_vc = db.query(PendingVisionCheck).filter(
-                        PendingVisionCheck.prospect_id == p.id
-                    ).first()
-                    if not existing_vc:
-                        db.add(PendingVisionCheck(
-                            prospect_id=p.id,
-                            screenshot_path=screenshot_path,
-                        ))
-                else:
-                    # No website on record — resolve immediately, no queue row.
-                    p.website_status = "no_website"
+                # Website status — free binary check straight off Places' own
+                # website field, no screenshot or vision judgment call.
+                p.website_status = "has_website" if (p.website and str(p.website).strip()) else "no_website"
 
                 # Email discovery ─────────────────────────────────────────────
                 existing_ed = db.query(PendingEmailDiscovery).filter(
@@ -169,10 +157,9 @@ def run_pipeline(n_cells=25, dry_run=False):
     cells_searched, new_prospects = _source_cells(n_cells, dry_run)
     n_queued = _queue_pending(dry_run)
 
-    # Count what's waiting for Cowork's judgment
+    # Count what's waiting for Cowork's judgment (email discovery only now)
     db = SessionLocal()
     try:
-        pending_vision = db.query(PendingVisionCheck).count()
         pending_email = db.query(PendingEmailDiscovery).count()
         awaiting_approval = db.query(Prospect).filter(
             Prospect.funnel_stage == "awaiting_approval"
@@ -188,21 +175,18 @@ def run_pipeline(n_cells=25, dry_run=False):
     print(f"  New prospects sourced:        {new_prospects}")
     print(f"  Queued this run:              {n_queued}")
     print("-" * 56)
-    print(f"  Pending vision checks (total):{pending_vision:>5}")
     print(f"  Pending email discovery (total):{pending_email:>3}")
     print(f"  Awaiting approval (total):    {awaiting_approval}")
     print("=" * 56)
     print("")
     print("Next steps:")
     print("  Review pending items:  python outreach/apply_result.py pending")
-    print("  Apply a vision result: python outreach/apply_result.py vision <id> <verdict>")
     print("  Apply an email result: python outreach/apply_result.py email <id> <email|null>")
 
     return {
         "cells_searched": cells_searched,
         "new_prospects": new_prospects,
         "queued": n_queued,
-        "pending_vision": pending_vision,
         "pending_email": pending_email,
         "awaiting_approval": awaiting_approval,
     }

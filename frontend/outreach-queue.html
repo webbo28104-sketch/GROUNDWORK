@@ -59,6 +59,16 @@
   .statsbar .stat b{color:#1C1C1C;font-weight:800;font-size:15px;}
   .statsbar .dot{width:4px;height:4px;border-radius:50%;background:#D8D5CE;}
 
+  /* ── Filter tabs ─────────────────────────────────────────────────── */
+  .filters{display:flex;gap:8px;margin-bottom:20px;}
+  .filter-btn{
+    font-size:12.5px;font-weight:700;padding:7px 14px;border-radius:999px;
+    border:1.5px solid #D8D5CE;background:#fff;color:#5C5A56;cursor:pointer;
+    transition:background .12s,color .12s,border-color .12s;
+  }
+  .filter-btn:hover{border-color:#B8B5AE;}
+  .filter-btn.active{background:#1C1C1C;border-color:#1C1C1C;color:#fff;}
+
   /* ── Review card ─────────────────────────────────────────────────── */
   .card{
     width:100%;max-width:540px;
@@ -179,6 +189,11 @@
     <span style="color:#9A9893;">Loading…</span>
   </div>
 
+  <div class="filters">
+    <button class="filter-btn active" id="filterApproval" data-filter="awaiting_approval">To review</button>
+    <button class="filter-btn" id="filterUnreachable" data-filter="unreachable">Unreachable</button>
+  </div>
+
   <!-- Loading -->
   <div class="state" id="loadingState">
     <div class="spinner"></div>
@@ -187,8 +202,8 @@
 
   <!-- Empty -->
   <div class="state hidden" id="emptyState">
-    <h2>Queue empty</h2>
-    <p>All prospects have been reviewed, or none have been sourced yet.</p>
+    <h2 id="emptyTitle">Queue empty</h2>
+    <p id="emptyBody">All prospects have been reviewed, or none have been sourced yet.</p>
     <p id="reviewedCount" class="hidden"></p>
     <code class="cmd">railway run python outreach/pipeline.py --cells 25</code>
   </div>
@@ -213,7 +228,7 @@
       <button class="btn pass"    id="passBtn">✕ Pass</button>
       <button class="btn approve" id="approveBtn">✓ Approve</button>
     </div>
-    <p class="hint">
+    <p class="hint" id="actionHint">
       <kbd>←</kbd> Pass &nbsp;·&nbsp; Approve <kbd>→</kbd>
     </p>
   </div>
@@ -224,11 +239,14 @@
   var current = null;
   var busy = false;
   var reviewedThisSession = 0;
+  var currentFilter = 'awaiting_approval';
 
   var el = {
     statsbar:     document.getElementById('statsbar'),
     loading:      document.getElementById('loadingState'),
     empty:        document.getElementById('emptyState'),
+    emptyTitle:   document.getElementById('emptyTitle'),
+    emptyBody:    document.getElementById('emptyBody'),
     reviewedCount:document.getElementById('reviewedCount'),
     card:         document.getElementById('card'),
     tierBadge:    document.getElementById('tierBadge'),
@@ -241,7 +259,10 @@
     links:        document.getElementById('links'),
     emailRow:     document.getElementById('emailRow'),
     passBtn:      document.getElementById('passBtn'),
-    approveBtn:   document.getElementById('approveBtn')
+    approveBtn:   document.getElementById('approveBtn'),
+    actionHint:   document.getElementById('actionHint'),
+    filterApproval:   document.getElementById('filterApproval'),
+    filterUnreachable:document.getElementById('filterUnreachable')
   };
 
   function authGuard(res){
@@ -275,6 +296,7 @@
 
   function webInfo(status){
     if(status === 'no_website')         return {cls:'web-none',   label:'No website'};
+    if(status === 'has_website')        return {cls:'web-dated',  label:'Has website'};
     if(status === 'has_website_dated')  return {cls:'web-dated',  label:'Dated site'};
     if(status === 'has_website_modern') return {cls:'web-modern', label:'Modern site'};
     return {cls:'web-modern', label:'Unknown'};
@@ -302,7 +324,7 @@
           '<span class="dot"></span>' +
           '<span class="stat"><b>'+(s.rejected_today||0)+'</b> passed today</span>' +
           '<span class="dot"></span>' +
-          '<span class="stat" style="color:#9A9893;font-weight:500;">'+(s.approved||0)+' approved total · '+(s.qualified_no_email||0)+' no email</span>';
+          '<span class="stat" style="color:#9A9893;font-weight:500;">'+(s.approved||0)+' approved total · '+(s.qualified_no_email||0)+' no email · '+(s.unreachable||0)+' unreachable</span>';
       })
       .catch(function(){});
   }
@@ -353,6 +375,16 @@
       hide(el.emailRow);
     }
 
+    if(currentFilter === 'unreachable'){
+      hide(el.approveBtn);
+      el.passBtn.textContent = '✕ Dismiss';
+      el.actionHint.innerHTML = '<kbd>←</kbd> Dismiss';
+    } else {
+      show(el.approveBtn);
+      el.passBtn.textContent = '✕ Pass';
+      el.actionHint.innerHTML = '<kbd>←</kbd> Pass &nbsp;·&nbsp; Approve <kbd>→</kbd>';
+    }
+
     el.card.classList.remove('out-left','out-right');
     hide(el.loading); hide(el.empty); show(el.card);
   }
@@ -360,6 +392,13 @@
   function showEmpty(){
     current = null;
     hide(el.loading); hide(el.card); show(el.empty);
+    if(currentFilter === 'unreachable'){
+      el.emptyTitle.textContent = 'No unreachable prospects';
+      el.emptyBody.textContent = 'Nothing here right now — every sourced prospect has at least an email or phone.';
+    } else {
+      el.emptyTitle.textContent = 'Queue empty';
+      el.emptyBody.textContent = 'All prospects have been reviewed, or none have been sourced yet.';
+    }
     if(reviewedThisSession > 0){
       el.reviewedCount.textContent =
         'You reviewed '+reviewedThisSession+' prospect'+(reviewedThisSession===1?'':'s')+' this session.';
@@ -368,7 +407,8 @@
   }
 
   function loadNext(){
-    fetch('/api/admin/outreach/queue/next',{credentials:'same-origin'})
+    show(el.loading); hide(el.card); hide(el.empty);
+    fetch('/api/admin/outreach/queue/next?filter='+encodeURIComponent(currentFilter),{credentials:'same-origin'})
       .then(function(r){ if(authGuard(r)) return null; return r.json(); })
       .then(function(data){
         if(!data) return;
@@ -380,8 +420,19 @@
       });
   }
 
+  function setFilter(name){
+    if(busy || currentFilter === name) return;
+    currentFilter = name;
+    el.filterApproval.classList.toggle('active', name === 'awaiting_approval');
+    el.filterUnreachable.classList.toggle('active', name === 'unreachable');
+    reviewedThisSession = 0;
+    loadNext();
+    refreshStats();
+  }
+
   function decide(kind){
     if(busy || !current) return;
+    if(kind === 'approve' && currentFilter === 'unreachable') return;
     busy = true;
     var url = '/api/admin/outreach/queue/'+current.id+'/'+(kind==='approve'?'approve':'reject');
     el.card.classList.add(kind==='approve' ? 'out-right' : 'out-left');
@@ -400,6 +451,8 @@
 
   el.approveBtn.addEventListener('click', function(){ decide('approve'); });
   el.passBtn.addEventListener('click',    function(){ decide('reject'); });
+  el.filterApproval.addEventListener('click', function(){ setFilter('awaiting_approval'); });
+  el.filterUnreachable.addEventListener('click', function(){ setFilter('unreachable'); });
 
   document.addEventListener('keydown', function(e){
     if(busy || !current) return;
