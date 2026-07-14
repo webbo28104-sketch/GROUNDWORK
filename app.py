@@ -2083,10 +2083,18 @@ def _render_dashboard(email: str) -> str:
                     status_label = f"Live — ending {ends_str}"
                 elif g.status == "live":
                     status_label = "Live"
+                elif g.status == "canceled":
+                    status_label = "Paused — subscription cancelled"
                 else:
                     status_label = "Draft — not yet published"
                 go_live_link = ""
-                if g.status != "live":
+                if g.status == "canceled":
+                    go_live_link = (
+                        '<a href="/checkout.html?id=' + g.lead.public_id + '" '
+                        'style="display:inline-block;background:#3B82F6;color:#fff;font-weight:700;font-size:14.5px;'
+                        'text-decoration:none;padding:11px 18px;border-radius:9px;">Reactivate →</a>'
+                    )
+                elif g.status != "live":
                     go_live_link = (
                         '<a href="/checkout.html?id=' + g.lead.public_id + '" '
                         'style="display:inline-block;background:#3B82F6;color:#fff;font-weight:700;font-size:14.5px;'
@@ -2106,6 +2114,11 @@ def _render_dashboard(email: str) -> str:
                 )
                 # For paid/live sites, link directly to their real web address.
                 # Priority: custom domain → groundworkbuild.com subdomain → preview fallback.
+                # Canceled sites go to the dedicated preserved-content route
+                # (job_html_preserved) — never the old domain/subdomain (both
+                # were disconnected on cancellation) and never the watermarked
+                # preview route (misleading "unpublished, go live for £99" copy
+                # for a site that already went live once).
                 if g.status == "live":
                     active_dom = gen_domain_map.get(g.id)
                     if active_dom:
@@ -2115,6 +2128,9 @@ def _render_dashboard(email: str) -> str:
                     else:
                         view_href = "/api/generate/" + g.lead.public_id + "/html"
                     view_label = "Visit site →"
+                elif g.status == "canceled":
+                    view_href = "/api/generate/" + g.lead.public_id + "/preserved"
+                    view_label = "View preserved site →"
                 else:
                     view_href = "/api/generate/" + g.lead.public_id + "/html"
                     view_label = "View site →"
@@ -4381,6 +4397,42 @@ def job_html(job_id):
     return jsonify({"error": "not found"}), 404
 
 
+@app.route("/api/generate/<job_id>/preserved")
+def job_html_preserved(job_id):
+    """
+    Serves a canceled subscription's site fully intact, at the same
+    unguessable token (Lead.public_id) the rest of the app already uses for
+    private links (/preview.html, /editor.html, etc.) — reusing that
+    pattern rather than building a new one, since it's already the
+    established "reachable only with this exact link" mechanism here.
+
+    Deliberately a separate route from /api/generate/<job_id>/html, not a
+    branch inside it: that route's _inject_watermark() banner says "this
+    site is unpublished" with a "Go live — £99 + £24.99/mo" CTA, which is
+    actively wrong for a site that WAS live and paid for — re-showing the
+    setup fee implies they'd be charged it again, which they wouldn't be
+    (reinstating just resumes the same subscription). This route shows
+    the real content with an accurate, distinct banner instead.
+
+    Only serves anything for status=="canceled" — a live or draft site
+    isn't reachable via this path, so this can't be used as a bypass around
+    normal serving rules for anything else.
+    """
+    db = SessionLocal()
+    try:
+        gen = db.query(Generation).join(Lead).filter(Lead.public_id == job_id).first()
+        if not gen or gen.status != "canceled":
+            return jsonify({"error": "not found"}), 404
+        banner = """<div style="position:fixed;top:0;left:0;right:0;z-index:99999;background:#1C2630;color:#fff;font-family:sans-serif;font-size:13px;display:flex;align-items:center;justify-content:space-between;padding:10px 20px;box-shadow:0 2px 8px rgba(0,0,0,0.3);">
+  <span>This site's subscription is currently paused — your content is untouched.</span>
+  <a href="/account/login" style="background:#3B82F6;color:#fff;padding:6px 16px;border-radius:4px;text-decoration:none;font-weight:600;">Reactivate →</a>
+</div>
+<div style="height:44px;"></div>"""
+        return banner + gen.html_content, 200, {"Content-Type": "text/html; charset=utf-8"}
+    finally:
+        db.close()
+
+
 @app.route("/api/generate/<job_id>/info")
 def job_info(job_id):
     """Return metadata used by checkout.html and live.html — subdomain preview,
@@ -4860,6 +4912,31 @@ def _porkbun_create_dns(domain: str, record_type: str, name: str, content: str) 
         raise RuntimeError(f"Porkbun dns/create ({record_type} {name}): {result.get('message', result)}")
 
 
+def _porkbun_set_autorenew(domain: str, on: bool) -> None:
+    """
+    Toggle Porkbun's auto-renewal for a registered domain — confirmed real
+    via a live (non-mutating) probe against Porkbun's API before this was
+    written: domain/updateAutoRenew/{domain} exists and responded with
+    "You need to pass a status of on or off" when called with no body,
+    which is Porkbun's own validation message, not a guess from docs.
+
+    Turning this off on cancellation stops Groundwork's card from being
+    charged to renew a domain nobody's using, without releasing the domain
+    itself — the registration (and the customer's ownership of it) is
+    untouched; it just won't silently renew when it expires. This is
+    exactly the "grace window" the cancellation flow needs: DNS/Cloudflare
+    disconnection happens immediately, but the domain asset itself isn't
+    given up until a human decides not to renew it.
+
+    Raises RuntimeError on failure.
+    """
+    result = _porkbun_post(f"domain/updateAutoRenew/{domain}", {
+        "status": "on" if on else "off",
+    })
+    if result.get("status") != "SUCCESS":
+        raise RuntimeError(f"Porkbun domain/updateAutoRenew ({domain}): {result.get('message', result)}")
+
+
 def _cloudflare_add_custom_hostname(hostname: str) -> None:
     """Register a customer domain as a Custom Hostname on our Cloudflare zone
     (Cloudflare for SaaS), using standard DV (domain-validated) SSL validated
@@ -4931,6 +5008,73 @@ def _cloudflare_ssl_status(hostname: str) -> str | None:
     if not results:
         return None
     return results[0].get("ssl", {}).get("status")
+
+
+def _cloudflare_get_custom_hostname_id(hostname: str) -> str | None:
+    """Return the Cloudflare-side Custom Hostname object id for a hostname,
+    or None if it isn't registered. We don't store this id anywhere — it's
+    looked up by hostname on demand, same pattern _cloudflare_ssl_status
+    already uses."""
+    req = urllib.request.Request(
+        f"{CLOUDFLARE_API_URL}/zones/{CLOUDFLARE_ZONE_ID}/custom_hostnames?hostname={hostname}",
+        headers={
+            "Authorization": f"Bearer {CLOUDFLARE_API_TOKEN}",
+            "Content-Type": "application/json",
+        },
+        method="GET",
+    )
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        result = json.loads(resp.read().decode())
+    results = result.get("result", [])
+    return results[0]["id"] if results else None
+
+
+def _cloudflare_delete_custom_hostname(hostname: str) -> None:
+    """
+    Deregisters a Custom Hostname from our Cloudflare for SaaS zone — used
+    on subscription cancellation to stop a custom domain from serving the
+    site. What this does and doesn't do, confirmed against Cloudflare's own
+    API/docs rather than assumed:
+
+    - It removes the Custom Hostname object and its SSL certificate from
+      OUR zone. Cloudflare will no longer terminate TLS or route traffic
+      for that hostname to our Fallback Origin — this is what actually
+      stops the site serving on the domain.
+    - It does NOT touch the domain's own DNS records at the registrar
+      (Porkbun). The customer's CNAME/ALIAS still points at our
+      CLOUDFLARE_CNAME_TARGET exactly as before — that pointer is now just
+      inert (resolves to Cloudflare's edge, but Cloudflare has nothing
+      registered for that exact hostname to route it to). No DNS-side
+      cleanup is required for the domain to stop serving.
+    - It's fully reversible: re-running _cloudflare_add_custom_hostname()
+      for the same hostname re-registers it and Cloudflare re-validates SSL
+      the same way it did originally (DV over HTTP) — the DNS was never
+      disturbed, so this is normally fast. This is what the "reinstate"
+      flow uses.
+
+    Treats "hostname not found" as success (idempotent — matches the
+    already-exists-is-success handling in _cloudflare_add_custom_hostname).
+    """
+    if not CLOUDFLARE_API_TOKEN or not CLOUDFLARE_ZONE_ID:
+        raise RuntimeError("CLOUDFLARE_API_TOKEN/CLOUDFLARE_ZONE_ID not set")
+
+    hostname_id = _cloudflare_get_custom_hostname_id(hostname)
+    if not hostname_id:
+        return  # nothing registered — already effectively disconnected
+
+    req = urllib.request.Request(
+        f"{CLOUDFLARE_API_URL}/zones/{CLOUDFLARE_ZONE_ID}/custom_hostnames/{hostname_id}",
+        headers={"Authorization": f"Bearer {CLOUDFLARE_API_TOKEN}"},
+        method="DELETE",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            result = json.loads(resp.read().decode())
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode(errors="replace")
+        raise RuntimeError(f"Cloudflare custom_hostnames DELETE ({hostname}): HTTP {exc.code}: {body}")
+    if not result.get("success"):
+        raise RuntimeError(f"Cloudflare custom_hostnames DELETE ({hostname}): {result.get('errors', result)}")
 
 
 def _cloudflare_wait_for_ssl(hostname: str, timeout_secs: int = 600, poll_interval: int = 15) -> None:
@@ -5360,7 +5504,9 @@ def stripe_webhook():
                 try:
                     gen = db.query(Generation).join(Lead).filter(Lead.public_id == job_id).first()
                     if gen and gen.status != "live":
+                        was_canceled = gen.status == "canceled"
                         gen.status = "live"
+                        gen.canceled_at = None
                         if customer_id:
                             gen.stripe_customer_id = customer_id
                         if invoice_id:
@@ -5379,6 +5525,36 @@ def stripe_webhook():
                                     app.logger.error(
                                         f"Subdomain race: {slug!r} taken when webhook fired for job {job_id}"
                                     )
+
+                        # Reinstate: this is a resubscribe (was_canceled), not a
+                        # first-time purchase — reconnect any domain(s) that were
+                        # disconnected on cancellation, to the exact same
+                        # preserved Generation row (no regeneration — html_content
+                        # was never touched by cancellation). Re-registering the
+                        # Custom Hostname re-validates SSL the same way it did
+                        # originally (DV over HTTP); DNS was never disturbed, so
+                        # this is normally fast. Auto-renewal is turned back on
+                        # too, since the domain is in active use again.
+                        if was_canceled:
+                            disconnected_doms = db.query(Domain).filter(
+                                Domain.generation_id == gen.id, Domain.status == "disconnected"
+                            ).all()
+                            for d in disconnected_doms:
+                                try:
+                                    _cloudflare_add_custom_hostname(d.domain)
+                                    _cloudflare_add_custom_hostname("www." + d.domain)
+                                    d.status = "pending"
+                                except Exception as exc:
+                                    app.logger.error(f"Reinstate: Cloudflare reconnect failed for {d.domain}: {exc}")
+                                try:
+                                    _porkbun_set_autorenew(d.domain, on=True)
+                                except Exception as exc:
+                                    app.logger.error(f"Reinstate: Porkbun autorenew-on failed for {d.domain}: {exc}")
+                            if disconnected_doms:
+                                app.logger.info(
+                                    f"Stripe webhook: gen {gen.id} reinstated — "
+                                    f"{len(disconnected_doms)} domain(s) reconnected"
+                                )
 
                         # Real (not proxied) outreach "paid" signal — the checkout
                         # session's client_reference_id (job_id) is the Lead's
@@ -5432,7 +5608,14 @@ def stripe_webhook():
         # The real churn event — the subscription is actually gone (either
         # cancel_at_period_end ran its course, or an immediate cancellation
         # happened via the Stripe dashboard). Writes Generation.canceled_at,
-        # the field the monthly-churn calculation reads.
+        # the field the monthly-churn calculation reads — and, new in this
+        # change, actually winds the site down: stops it serving on any
+        # domain (subdomain + custom), disconnects the Cloudflare Custom
+        # Hostname for any purchased domain, and pauses Porkbun auto-renewal
+        # on those domains so Groundwork stops paying to renew a domain
+        # nobody's using. The Generation row itself, its html_content, and
+        # any pending edits are never touched — this is a status change and
+        # a routing/DNS-registration change, not a delete.
         sub = event.data.object
         db = SessionLocal()
         try:
@@ -5441,7 +5624,27 @@ def stripe_webhook():
                 gen = db.query(Generation).filter(Generation.stripe_customer_id == sub.customer).first()
             if gen and gen.canceled_at is None:
                 gen.canceled_at = datetime.utcnow()
-                app.logger.info(f"Stripe webhook: subscription.deleted — gen {gen.id} churned (canceled_at set)")
+                gen.status = "canceled"
+
+                doms = db.query(Domain).filter(
+                    Domain.generation_id == gen.id, Domain.status == "active"
+                ).all()
+                for d in doms:
+                    try:
+                        _cloudflare_delete_custom_hostname(d.domain)
+                        _cloudflare_delete_custom_hostname("www." + d.domain)
+                    except Exception as exc:
+                        app.logger.error(f"subscription.deleted: Cloudflare disconnect failed for {d.domain}: {exc}")
+                    try:
+                        _porkbun_set_autorenew(d.domain, on=False)
+                    except Exception as exc:
+                        app.logger.error(f"subscription.deleted: Porkbun autorenew-off failed for {d.domain}: {exc}")
+                    d.status = "disconnected"
+
+                app.logger.info(
+                    f"Stripe webhook: subscription.deleted — gen {gen.id} churned "
+                    f"(canceled_at set, status=canceled, {len(doms)} domain(s) disconnected)"
+                )
                 db.commit()
         finally:
             db.close()
