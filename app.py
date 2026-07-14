@@ -1395,12 +1395,459 @@ a:hover{text-decoration:underline;}
 
 _GW_LOGO_SVG = '<svg viewBox="0 0 48 48" width="28" height="28" fill="none"><path d="M 37 13.1 A 17 17 0 1 0 41 24 L 27 24" stroke="#3B82F6" stroke-width="4.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M 30.9 18.2 A 9 9 0 1 0 30.9 29.8" stroke="#3B82F6" stroke-width="4.6" stroke-linecap="round"/></svg>'
 
+# Ported verbatim from the old standalone frontend/outreach-queue.html static
+# file (removed) — same Tinder-style review card, filters, and JS behavior,
+# just dropped into _admin_page()'s shared shell instead of hand-duplicating
+# a second header/nav. Page-specific CSS (the dark review card, filter tabs,
+# etc.) stays scoped in its own <style> tag rather than merging into
+# _ADMIN_STYLE, since it's a one-off component, not part of the shared design
+# system other admin pages use.
+_ADMIN_OUTREACH_CONTENT = """<style>
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+    background:#F5F3EE; color:#1C1C1C;
+    min-height:100vh; display:flex; flex-direction:column;
+  }
+
+  /* ── Header ─────────────────────────────────────────────────────── */
+  header{
+    background:#1C1C1C;
+    border-bottom:1px solid #2C2C2C;
+    position:sticky; top:0; z-index:100;
+  }
+  .header-inner{
+    max-width:1200px; margin:0 auto; padding:0 24px;
+    height:64px; display:flex; align-items:center; justify-content:space-between; gap:20px;
+  }
+  .logo{display:flex;align-items:center;gap:10px;text-decoration:none;}
+  .logo svg{flex-shrink:0;}
+  .logo span{color:#fff;font-weight:800;font-size:19px;letter-spacing:-.03em;}
+  .admin-badge{
+    font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;
+    background:#2C2C2C;color:#9A9893;padding:3px 7px;border-radius:5px;
+    margin-left:2px;
+  }
+  header nav{display:flex;align-items:center;gap:4px;}
+  header nav a{
+    color:#9A9893; text-decoration:none; font-size:13px; font-weight:600;
+    padding:6px 11px; border-radius:7px; transition:background .12s,color .12s;
+  }
+  header nav a:hover{background:#2C2C2C;color:#fff;}
+  header nav a.active{background:#2C2C2C;color:#fff;}
+  header nav .logout{color:#6B7280;margin-left:6px;}
+
+  /* ── Layout ──────────────────────────────────────────────────────── */
+  main{flex:1;display:flex;flex-direction:column;align-items:center;padding:32px 16px 72px;}
+
+  /* ── Stats bar ───────────────────────────────────────────────────── */
+  .statsbar{
+    font-size:13px;color:#5C5A56;font-weight:600;
+    margin-bottom:24px;text-align:center;min-height:20px;
+    display:flex;gap:16px;align-items:center;justify-content:center;flex-wrap:wrap;
+  }
+  .statsbar .stat{display:flex;align-items:center;gap:5px;}
+  .statsbar .stat b{color:#1C1C1C;font-weight:800;font-size:15px;}
+  .statsbar .dot{width:4px;height:4px;border-radius:50%;background:#D8D5CE;}
+
+  /* ── Filter tabs ─────────────────────────────────────────────────── */
+  .filters{display:flex;gap:8px;margin-bottom:20px;}
+  .filter-btn{
+    font-size:12.5px;font-weight:700;padding:7px 14px;border-radius:999px;
+    border:1.5px solid #D8D5CE;background:#fff;color:#5C5A56;cursor:pointer;
+    transition:background .12s,color .12s,border-color .12s;
+  }
+  .filter-btn:hover{border-color:#B8B5AE;}
+  .filter-btn.active{background:#1C1C1C;border-color:#1C1C1C;color:#fff;}
+
+  /* ── Review card ─────────────────────────────────────────────────── */
+  .card{
+    width:100%;max-width:540px;
+    background:#1C1C1C;color:#fff;
+    border-radius:20px;padding:30px 30px 26px;
+    border:1px solid #2E2F35;
+    box-shadow:0 20px 48px rgba(0,0,0,.16);
+    transition:transform .18s ease,opacity .18s ease;
+  }
+  .card.out-left {transform:translateX(-44px) rotate(-2.5deg);opacity:0;}
+  .card.out-right{transform:translateX(44px)  rotate( 2.5deg);opacity:0;}
+
+  .badges{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px;}
+  .badge{
+    font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;
+    padding:4px 10px;border-radius:999px;
+  }
+  .badge.tier-high  {background:rgba(59,130,246,.18);color:#93C5FD;}
+  .badge.tier-medium{background:rgba(245,158,11,.18); color:#FCD34D;}
+  .badge.tier-low   {background:rgba(156,163,175,.18);color:#D1D5DB;}
+  .badge.web-none   {background:rgba(16,185,129,.18); color:#6EE7B7;}
+  .badge.web-dated  {background:rgba(245,158,11,.18); color:#FCD34D;}
+  .badge.web-modern {background:rgba(156,163,175,.18);color:#D1D5DB;}
+
+  .biz{
+    font-family:'Plus Jakarta Sans','Inter',sans-serif;
+    font-size:26px;font-weight:900;letter-spacing:-.02em;line-height:1.15;margin:0 0 5px;
+  }
+  .loc{color:#8A8D96;font-size:13.5px;margin:0 0 18px;}
+
+  .rating{display:flex;align-items:center;gap:8px;margin-bottom:20px;font-size:13.5px;color:#E5E7EB;}
+  .rating .stars{color:#F59E0B;letter-spacing:1px;font-size:15px;}
+  .rating .rc{color:#6B7280;}
+
+  .scorewrap{display:flex;align-items:flex-end;gap:10px;margin-bottom:8px;}
+  .score{font-size:50px;font-weight:900;line-height:1;letter-spacing:-.03em;font-family:'Plus Jakarta Sans','Inter',sans-serif;}
+  .score small{font-size:19px;font-weight:700;color:#6B7280;}
+  .scorebar{height:6px;border-radius:999px;background:#2E2F35;overflow:hidden;margin-bottom:22px;}
+  .scorebar > i{display:block;height:100%;border-radius:999px;transition:width .3s ease;}
+
+  .links{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:20px;font-size:13px;}
+  .links a{color:#60A5FA;text-decoration:none;font-weight:600;}
+  .links a:hover{text-decoration:underline;}
+
+  .email{
+    font-size:13px;color:#8A8D96;margin-bottom:22px;word-break:break-all;
+    background:#242528;border-radius:8px;padding:9px 12px;
+  }
+  .email b{color:#E5E7EB;font-weight:600;}
+
+  .divider{height:1px;background:#2E2F35;margin:0 0 22px;}
+
+  .actions{display:flex;gap:10px;}
+  .btn{
+    flex:1;padding:14px 0;border-radius:11px;font-size:15px;font-weight:800;
+    cursor:pointer;border:none;font-family:inherit;transition:filter .12s,background .12s;
+  }
+  .btn.pass{background:#242528;color:#9CA3AF;border:1.5px solid #3A3B40;}
+  .btn.pass:hover{background:#2E2F35;color:#E5E7EB;filter:none;}
+  .btn.approve{background:#3B82F6;color:#fff;}
+  .btn.approve:hover{background:#2563EB;filter:none;}
+
+  .hint{
+    text-align:center;font-size:11.5px;color:#4B4D55;margin-top:13px;letter-spacing:.01em;
+  }
+  .hint kbd{
+    background:#242528;border:1px solid #3A3B40;
+    border-radius:5px;padding:1px 6px;font-family:inherit;font-size:10.5px;font-weight:700;color:#9CA3AF;
+  }
+
+  /* ── States ──────────────────────────────────────────────────────── */
+  .state{max-width:540px;text-align:center;padding:60px 20px;}
+  .state h2{
+    font-family:'Plus Jakarta Sans','Inter',sans-serif;
+    color:#1C1C1C;font-size:22px;font-weight:800;margin:0 0 10px;
+  }
+  .state p{margin:0 0 6px;font-size:14px;color:#5C5A56;}
+  .state .cmd{
+    display:inline-block;margin-top:14px;background:#1C1C1C;color:#A3E635;
+    font-family:ui-monospace,'SF Mono','Fira Code',monospace;
+    font-size:12.5px;padding:9px 16px;border-radius:8px;letter-spacing:.01em;
+  }
+
+  .spinner{
+    width:32px;height:32px;border:2.5px solid #E2E0DA;border-top-color:#3B82F6;
+    border-radius:50%;animation:spin .75s linear infinite;margin:0 auto 18px;
+  }
+  @keyframes spin{to{transform:rotate(360deg);}}
+
+  .hidden{display:none !important;}
+
+  /* Page-specific overrides layered on the shared admin shell — the
+     dark Tinder-style review card is a one-off component, not part of
+     the general admin design system, so it keeps its own scoped CSS
+     here rather than polluting _ADMIN_STYLE. */
+  .adm-main{display:flex;flex-direction:column;align-items:center;}
+</style>
+
+  <div class="statsbar" id="statsbar">
+    <span style="color:#9A9893;">Loading…</span>
+  </div>
+
+  <div class="filters">
+    <button class="filter-btn active" id="filterApproval" data-filter="awaiting_approval">To review</button>
+    <button class="filter-btn" id="filterUnreachable" data-filter="unreachable">Unreachable</button>
+  </div>
+
+  <!-- Loading -->
+  <div class="state" id="loadingState">
+    <div class="spinner"></div>
+    <p>Loading queue…</p>
+  </div>
+
+  <!-- Empty -->
+  <div class="state hidden" id="emptyState">
+    <h2 id="emptyTitle">Queue empty</h2>
+    <p id="emptyBody">All prospects have been reviewed, or none have been sourced yet.</p>
+    <p id="reviewedCount" class="hidden"></p>
+    <code class="cmd">railway run python outreach/pipeline.py --cells 25</code>
+  </div>
+
+  <!-- Review card -->
+  <div class="card hidden" id="card">
+    <div class="badges">
+      <span class="badge" id="tierBadge"></span>
+      <span class="badge" id="webBadge"></span>
+    </div>
+    <h1 class="biz" id="bizName"></h1>
+    <p class="loc" id="loc"></p>
+    <div class="rating" id="ratingRow"></div>
+    <div class="scorewrap">
+      <span class="score" id="scoreNum">—<small>/100</small></span>
+    </div>
+    <div class="scorebar"><i id="scoreBar" style="width:0%"></i></div>
+    <div class="links" id="links"></div>
+    <div class="email hidden" id="emailRow"></div>
+    <div class="divider"></div>
+    <div class="actions">
+      <button class="btn pass"    id="passBtn">✕ Pass</button>
+      <button class="btn approve" id="approveBtn">✓ Approve</button>
+    </div>
+    <p class="hint" id="actionHint">
+      <kbd>←</kbd> Pass &nbsp;·&nbsp; Approve <kbd>→</kbd>
+    </p>
+  </div>
+
+<script>
+(function(){
+  var current = null;
+  var busy = false;
+  var reviewedThisSession = 0;
+  var currentFilter = 'awaiting_approval';
+
+  var el = {
+    statsbar:     document.getElementById('statsbar'),
+    loading:      document.getElementById('loadingState'),
+    empty:        document.getElementById('emptyState'),
+    emptyTitle:   document.getElementById('emptyTitle'),
+    emptyBody:    document.getElementById('emptyBody'),
+    reviewedCount:document.getElementById('reviewedCount'),
+    card:         document.getElementById('card'),
+    tierBadge:    document.getElementById('tierBadge'),
+    webBadge:     document.getElementById('webBadge'),
+    bizName:      document.getElementById('bizName'),
+    loc:          document.getElementById('loc'),
+    ratingRow:    document.getElementById('ratingRow'),
+    scoreNum:     document.getElementById('scoreNum'),
+    scoreBar:     document.getElementById('scoreBar'),
+    links:        document.getElementById('links'),
+    emailRow:     document.getElementById('emailRow'),
+    passBtn:      document.getElementById('passBtn'),
+    approveBtn:   document.getElementById('approveBtn'),
+    actionHint:   document.getElementById('actionHint'),
+    filterApproval:   document.getElementById('filterApproval'),
+    filterUnreachable:document.getElementById('filterUnreachable')
+  };
+
+  function authGuard(res){
+    if(res.status === 401 || res.status === 403){
+      window.location = '/admin/login?next=/admin/outreach';
+      return true;
+    }
+    return false;
+  }
+
+  function esc(s){
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+    });
+  }
+
+  function stars(rating){
+    if(rating == null) return '';
+    var full = Math.round(rating);
+    var out = '';
+    for(var i=0;i<5;i++){ out += (i < full) ? '★' : '☆'; }
+    return out;
+  }
+
+  function tierClass(t){
+    return t === 'high' ? 'tier-high' : t === 'medium' ? 'tier-medium' : 'tier-low';
+  }
+  function tierLabel(t){
+    return t === 'high' ? 'High value' : t === 'medium' ? 'Medium' : 'Low';
+  }
+
+  function webInfo(status){
+    if(status === 'no_website')         return {cls:'web-none',   label:'No website'};
+    if(status === 'has_website')        return {cls:'web-dated',  label:'Has website'};
+    if(status === 'has_website_dated')  return {cls:'web-dated',  label:'Dated site'};
+    if(status === 'has_website_modern') return {cls:'web-modern', label:'Modern site'};
+    return {cls:'web-modern', label:'Unknown'};
+  }
+
+  function scoreColor(s){
+    if(s == null) return '#4B4D55';
+    if(s > 70)  return '#10B981';
+    if(s >= 50) return '#F59E0B';
+    return '#6B7280';
+  }
+
+  function show(node){ node.classList.remove('hidden'); }
+  function hide(node){ node.classList.add('hidden'); }
+
+  function refreshStats(){
+    fetch('/api/admin/outreach/stats',{credentials:'same-origin'})
+      .then(function(r){ if(authGuard(r)) return null; return r.json(); })
+      .then(function(s){
+        if(!s) return;
+        el.statsbar.innerHTML =
+          '<span class="stat"><b>'+(s.awaiting_approval||0)+'</b> in queue</span>' +
+          '<span class="dot"></span>' +
+          '<span class="stat"><b>'+(s.approved_today||0)+'</b> approved today</span>' +
+          '<span class="dot"></span>' +
+          '<span class="stat"><b>'+(s.rejected_today||0)+'</b> passed today</span>' +
+          '<span class="dot"></span>' +
+          '<span class="stat" style="color:#9A9893;font-weight:500;">'+(s.approved||0)+' approved total · '+(s.qualified_no_email||0)+' no email · '+(s.unreachable||0)+' unreachable</span>';
+      })
+      .catch(function(){});
+  }
+
+  function renderCard(p){
+    current = p;
+
+    el.tierBadge.className = 'badge ' + tierClass(p.trade_tier);
+    el.tierBadge.textContent = esc(p.trade||'') + ' · ' + tierLabel(p.trade_tier);
+
+    var w = webInfo(p.website_status);
+    el.webBadge.className = 'badge ' + w.cls;
+    el.webBadge.textContent = w.label;
+
+    el.bizName.textContent = p.business_name || '(unnamed)';
+    el.loc.textContent = p.location || '';
+
+    if(p.rating != null){
+      el.ratingRow.innerHTML =
+        '<span class="stars">'+stars(p.rating)+'</span>' +
+        '<span>'+Number(p.rating).toFixed(1)+'</span>' +
+        '<span class="rc">('+( p.review_count||0)+' reviews)</span>';
+    } else {
+      el.ratingRow.innerHTML = '<span class="rc" style="color:#4B4D55;">No rating</span>';
+    }
+
+    var score = (p.score==null) ? 0 : Math.round(p.score);
+    el.scoreNum.innerHTML = score+'<small>/100</small>';
+    el.scoreBar.style.width  = Math.max(0,Math.min(100,score))+'%';
+    el.scoreBar.style.background = scoreColor(p.score);
+
+    var links = [];
+    if(p.google_place_id){
+      links.push('<a href="https://www.google.com/maps/place/?q=place_id:'+encodeURIComponent(p.google_place_id)+'" target="_blank" rel="noopener">Google listing ↗</a>');
+    }
+    if(p.website){
+      links.push('<a href="'+esc(p.website)+'" target="_blank" rel="noopener">Website ↗</a>');
+    }
+    if(p.phone){
+      links.push('<span style="color:#6B7280;">'+esc(p.phone)+'</span>');
+    }
+    el.links.innerHTML = links.join('');
+
+    if(p.email){
+      el.emailRow.innerHTML = 'Email: <b>'+esc(p.email)+'</b>';
+      show(el.emailRow);
+    } else {
+      hide(el.emailRow);
+    }
+
+    if(currentFilter === 'unreachable'){
+      hide(el.approveBtn);
+      el.passBtn.textContent = '✕ Dismiss';
+      el.actionHint.innerHTML = '<kbd>←</kbd> Dismiss';
+    } else {
+      show(el.approveBtn);
+      el.passBtn.textContent = '✕ Pass';
+      el.actionHint.innerHTML = '<kbd>←</kbd> Pass &nbsp;·&nbsp; Approve <kbd>→</kbd>';
+    }
+
+    el.card.classList.remove('out-left','out-right');
+    hide(el.loading); hide(el.empty); show(el.card);
+  }
+
+  function showEmpty(){
+    current = null;
+    hide(el.loading); hide(el.card); show(el.empty);
+    if(currentFilter === 'unreachable'){
+      el.emptyTitle.textContent = 'No unreachable prospects';
+      el.emptyBody.textContent = 'Nothing here right now — every sourced prospect has at least an email or phone.';
+    } else {
+      el.emptyTitle.textContent = 'Queue empty';
+      el.emptyBody.textContent = 'All prospects have been reviewed, or none have been sourced yet.';
+    }
+    if(reviewedThisSession > 0){
+      el.reviewedCount.textContent =
+        'You reviewed '+reviewedThisSession+' prospect'+(reviewedThisSession===1?'':'s')+' this session.';
+      show(el.reviewedCount);
+    }
+  }
+
+  function loadNext(){
+    show(el.loading); hide(el.card); hide(el.empty);
+    fetch('/api/admin/outreach/queue/next?filter='+encodeURIComponent(currentFilter),{credentials:'same-origin'})
+      .then(function(r){ if(authGuard(r)) return null; return r.json(); })
+      .then(function(data){
+        if(!data) return;
+        if(data.queue_empty){ showEmpty(); }
+        else { renderCard(data); }
+      })
+      .catch(function(){
+        el.loading.innerHTML = '<p style="color:#9A9893;">Could not load the queue — refresh to retry.</p>';
+      });
+  }
+
+  function setFilter(name){
+    if(busy || currentFilter === name) return;
+    currentFilter = name;
+    el.filterApproval.classList.toggle('active', name === 'awaiting_approval');
+    el.filterUnreachable.classList.toggle('active', name === 'unreachable');
+    reviewedThisSession = 0;
+    loadNext();
+    refreshStats();
+  }
+
+  function decide(kind){
+    if(busy || !current) return;
+    if(kind === 'approve' && currentFilter === 'unreachable') return;
+    busy = true;
+    var url = '/api/admin/outreach/queue/'+current.id+'/'+(kind==='approve'?'approve':'reject');
+    el.card.classList.add(kind==='approve' ? 'out-right' : 'out-left');
+    fetch(url,{method:'POST',credentials:'same-origin'})
+      .then(function(r){ if(authGuard(r)) return null; return r.json(); })
+      .then(function(){
+        reviewedThisSession++;
+        setTimeout(function(){ busy=false; loadNext(); refreshStats(); }, 200);
+      })
+      .catch(function(){
+        busy=false;
+        el.card.classList.remove('out-left','out-right');
+        alert('Action failed — please retry.');
+      });
+  }
+
+  el.approveBtn.addEventListener('click', function(){ decide('approve'); });
+  el.passBtn.addEventListener('click',    function(){ decide('reject'); });
+  el.filterApproval.addEventListener('click', function(){ setFilter('awaiting_approval'); });
+  el.filterUnreachable.addEventListener('click', function(){ setFilter('unreachable'); });
+
+  document.addEventListener('keydown', function(e){
+    if(busy || !current) return;
+    if(e.key==='ArrowRight'||e.key==='y'||e.key==='Y'){ e.preventDefault(); decide('approve'); }
+    else if(e.key==='ArrowLeft'||e.key==='n'||e.key==='N'||e.key==='x'||e.key==='X'){ e.preventDefault(); decide('reject'); }
+  });
+
+  refreshStats();
+  loadNext();
+})();
+</script>"""
+
+
 def _admin_page(title: str, content: str, active: str = "") -> str:
     """Wrap admin content in the shared dark-header shell."""
     nav_items = [
         ("Sites",    "/admin/generations",    "generations"),
         ("Domains &amp; margins", "/admin/domains", "domains"),
-        ("Outreach", "/outreach-queue.html",  "outreach"),
+        ("Outreach", "/admin/outreach",  "outreach"),
+        ("Funnel", "/admin/funnel", "funnel"),
+        ("Deliverability", "/admin/deliverability", "deliverability"),
+        ("Replies", "/admin/replies", "replies"),
     ]
     nav_html = "".join(
         f'<a href="{href}" class="{"active" if active == key else ""}">{label}</a>'
@@ -1430,6 +1877,20 @@ def _admin_page(title: str, content: str, active: str = "") -> str:
 </header>
 <main class="adm-main">{content}</main>
 </body></html>"""
+
+
+def _admin_coming_soon(title: str, active: str) -> str:
+    """Placeholder page for a reserved nav slot — the nav structure/routes
+    exist now so real page content can be dropped in later without another
+    round of nav wiring."""
+    content = f"""
+<h1 class="adm-title">{title}</h1>
+<p class="adm-sub">Coming soon — this section isn't built yet.</p>
+<div class="adm-card" style="padding:40px;text-align:center;color:#9A9893;font-size:14px;">
+  Nothing here yet.
+</div>"""
+    return render_template_string(_admin_page(title, content, active=active))
+
 
 # Shared nav/footer markup so /account and other Flask-rendered pages match the
 # static frontend pages' look, since there's no shared CSS file in this repo —
@@ -2630,15 +3091,8 @@ def _admin_test_form_page() -> str:
     straight to this same route's POST handler below — unchanged, no
     special-casing needed for the admin path.
     """
-    return """<!DOCTYPE html><html><head><meta charset="utf-8">
-<title>Admin — generate test site</title><link rel="icon" type="image/x-icon" href="/favicon.ico"><link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@700;800&display=swap" rel="stylesheet">
-<style>
-*{box-sizing:border-box;}
+    return """<style>
 h1,h2,h3,h4{font-family:'Plus Jakarta Sans','Inter',sans-serif;}
-body{margin:0;background:#F5F3EE;font-family:Inter,sans-serif;color:#1C1C1C;}
 input,select,textarea,button{font-family:Inter,sans-serif;}
 input[type=range]{accent-color:#3B82F6;width:100%;height:8px;cursor:pointer;}
 .field{display:flex;flex-direction:column;gap:7px;margin-bottom:16px;}
@@ -2661,11 +3115,11 @@ input[type=range]{accent-color:#3B82F6;width:100%;height:8px;cursor:pointer;}
 .toggle-btn.sel{border:2px solid #3B82F6;background:#F2F6FF;color:#1D4FB5;}
 .btn-submit{width:100%;background:#3B82F6;color:#fff;font-weight:700;font-size:16.5px;border:0;padding:16px 22px;border-radius:11px;cursor:pointer;}
 .btn-submit:hover{background:#2563EB;}
-</style></head>
-<body>
+</style>
 <div style="max-width:680px;margin:0 auto;padding:clamp(28px,4vw,48px) 24px clamp(40px,6vw,72px);">
-<h1 style="font-weight:800;font-size:26px;letter-spacing:-.02em;margin:0 0 6px;">Generate a test site</h1>
-<p style="margin:0 0 24px;color:#5C5A56;font-size:14.5px;">Admin-only — skips email verification and the one-generation-per-email limit. Flagged TEST in the generations list. Same inputs as the live form, all on one page.</p>
+<p style="margin:0 0 12px;"><a href="/admin/generations" style="color:#9A9893;font-size:13px;text-decoration:none;">← All sites</a></p>
+<h1 class="adm-title" style="margin:0 0 6px;">Generate a test site</h1>
+<p class="adm-sub" style="margin:0 0 24px;">Admin-only — skips email verification and the one-generation-per-email limit. Flagged TEST in the generations list. Same inputs as the live form, all on one page.</p>
 
 <form method="post" enctype="multipart/form-data">
 
@@ -2775,15 +3229,14 @@ function gwSplitInput(v) {
 renderOptionRow('work-type-row', 'work_type', WORK_TYPES, 'standard');
 renderOptionRow('team-size-row', 'team_size', TEAM_SIZES, 'sole');
 renderOptionRow('booking-row', 'urgency', BOOKINGS, 'ahead');
-</script>
-</body></html>"""
+</script>"""
 
 
 @app.route("/admin/generate-test", methods=["GET", "POST"])
 @admin_required
 def admin_generate_test():
     if request.method == "GET":
-        return render_template_string(_admin_test_form_page())
+        return render_template_string(_admin_page("Generate test site", _admin_test_form_page(), active="generations"))
 
     # POST — build and kick off a generation immediately, bypassing verification
     # and the repeat-generation block. Admin-only route; never exposed publicly.
@@ -2845,10 +3298,8 @@ def admin_wait(public_id):
     (/api/generate/<public_id>/html) that real signups land on, so admin
     test sites get the same watermark bar, Go-live link, and Edit button.
     """
-    return render_template_string(f"""<!DOCTYPE html><html><head><meta charset="utf-8">
-<title>Admin — generating…</title><link rel="icon" type="image/x-icon" href="/favicon.ico"><link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png"><style>{_PAGE_STYLE}</style></head>
-<body><div class="wrap" style="max-width:640px;text-align:center;">
-<h1>Generating…</h1>
+    content = f"""<div style="max-width:640px;margin:0 auto;text-align:center;padding:40px 0;">
+<h1 class="adm-title">Generating…</h1>
 <p class="muted" id="status-msg">Building the test site — this usually takes under 3 minutes.</p>
 </div>
 <script>
@@ -2868,8 +3319,8 @@ async function poll() {{
   setTimeout(poll, 2000);
 }}
 poll();
-</script>
-</body></html>""")
+</script>"""
+    return render_template_string(_admin_page("Generating…", content, active="generations"))
 
 
 @app.route("/admin/generate-test/status/<public_id>")
@@ -2961,10 +3412,7 @@ def admin_pending_changes(gen_id):
 
         biz = escape(gen.business_name or "Untitled")
         pub_id = gen.lead.public_id if gen.lead else ""
-        return render_template_string(f"""<!DOCTYPE html><html><head><meta charset="utf-8">
-<title>Pending changes — {biz}</title>
-<link rel="icon" type="image/x-icon" href="/favicon.ico">
-<style>{_PAGE_STYLE}
+        content = f"""<style>
 .diff-table{{width:100%;border-collapse:collapse;background:#fff;border:1px solid #E6E3DC;border-radius:10px;overflow:hidden;}}
 .diff-table tr+tr{{border-top:1px solid #E6E3DC;}}
 .action-bar{{display:flex;gap:12px;align-items:center;margin-top:24px;}}
@@ -2973,11 +3421,10 @@ def admin_pending_changes(gen_id):
 .btn-red{{background:#fff;color:#B91C1C;border:1px solid #FECACA;}}
 .btn:hover{{opacity:.88;}}
 #status-msg{{font-size:14px;color:#5C5A56;}}
-</style></head>
-<body><div class="wrap" style="max-width:980px;">
+</style>
 <p style="margin:0 0 6px;"><a href="/admin/generations" style="color:#807E79;font-size:13px;text-decoration:none;">← All generations</a></p>
-<h1 style="margin:0 0 4px;">{biz} — pending changes</h1>
-<p class="muted" style="margin:0 0 24px;">Customer: {escape(gen.email)} &nbsp;·&nbsp; {len(changed)} field(s) changed
+<h1 class="adm-title" style="margin:0 0 4px;">{biz} — pending changes</h1>
+<p class="adm-sub" style="margin:0 0 24px;">Customer: {escape(gen.email)} &nbsp;·&nbsp; {len(changed)} field(s) changed
 {(' &nbsp;·&nbsp; <a href="/editor.html?id=' + pub_id + '" target="_blank" style="color:#2257CC;">Open in editor →</a>') if pub_id else ''}</p>
 
 <table class="diff-table">
@@ -3015,8 +3462,8 @@ async function gwDiscard() {{
     window.location.href = '/admin/generations';
   }} catch(e) {{ document.getElementById('status-msg').textContent = 'Error: ' + e.message; }}
 }}
-</script>
-</body></html>""")
+</script>"""
+        return render_template_string(_admin_page(f"Pending changes — {biz}", content, active="generations"))
     finally:
         db.close()
 
@@ -3130,7 +3577,7 @@ def admin_generation_form_data(gen_id):
 # Outreach approval queue (Track A) — admin-only. Prospects reach
 # funnel_stage="awaiting_approval" once the pipeline has sourced, website-
 # checked, scored and found a genuine email for them; a human then approves or
-# passes on each one via /outreach-queue.html, which drives these endpoints.
+# passes on each one via /admin/outreach, which drives these endpoints.
 # ---------------------------------------------------------------------------
 @app.route("/api/admin/outreach/queue/next")
 @admin_required
@@ -3251,7 +3698,25 @@ def admin_outreach_stats():
 @app.route("/admin/outreach")
 @admin_required
 def admin_outreach():
-    return redirect("/outreach-queue.html")
+    return render_template_string(_admin_page("Outreach queue", _ADMIN_OUTREACH_CONTENT, active="outreach"))
+
+
+@app.route("/admin/funnel")
+@admin_required
+def admin_funnel():
+    return _admin_coming_soon("Funnel", "funnel")
+
+
+@app.route("/admin/deliverability")
+@admin_required
+def admin_deliverability():
+    return _admin_coming_soon("Deliverability", "deliverability")
+
+
+@app.route("/admin/replies")
+@admin_required
+def admin_replies():
+    return _admin_coming_soon("Replies", "replies")
 
 
 # ---------------------------------------------------------------------------
