@@ -4154,14 +4154,20 @@ def _compute_kpis(db, range_from: datetime = None, range_to: datetime = None) ->
     # row exists at all, any status) over Generations that went live within
     # the period. Recomputed fresh every call rather than hardcoded, since
     # cancellations (or new domain purchases) change this number in real
-    # time.
+    # time. is_internal domains are excluded from the numerator — those are
+    # Groundwork's own internal/test domain rows, not a customer purchase
+    # (found one live: sussexleadcraftltd.com was flagged is_internal=True
+    # yet still counting toward "actual paid customers" here before this
+    # fix).
     period_gens_q = db.query(Generation).filter(Generation.status == "live")
     period_gens_q = period_gens_q.filter(Generation.created_at >= period_start, Generation.created_at <= period_end)
     period_gens = period_gens_q.all()
     domain_conv_denom = len(period_gens)
     domain_conv_numer = sum(
         1 for g in period_gens
-        if db.query(Domain).filter(Domain.generation_id == g.id).count() > 0
+        if db.query(Domain).filter(
+            Domain.generation_id == g.id, Domain.is_internal == False
+        ).count() > 0
     )
 
     # 5. Churn rate. Two modes:
