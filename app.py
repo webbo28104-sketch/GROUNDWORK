@@ -3822,11 +3822,11 @@ def admin_funnel():
             db.query(Prospect.funnel_substage, func.count(Prospect.id))
             .group_by(Prospect.funnel_substage).all()
         )
-        substage_order = ["sent", "opened", "clicked_generated", "account_created", "replied", "cold", None]
+        substage_order = ["sent", "opened", "clicked_generated", "account_created", "replied", "bounced", "cold", None]
         substage_labels = {
             "sent": "Sent", "opened": "Opened", "clicked_generated": "Clicked/Generated",
-            "account_created": "Account created", "replied": "Replied", "cold": "Cold",
-            None: "No substage",
+            "account_created": "Account created", "replied": "Replied", "bounced": "Bounced",
+            "cold": "Cold", None: "No substage",
         }
         summary_html = "".join(
             f'<span class="stat"><b>{substage_counts.get(k, 0)}</b> {escape(substage_labels[k])}</span>'
@@ -5404,6 +5404,20 @@ def resend_events_webhook():
     STAGE_BY_SUBSTAGE maps "opened" -> "B") — before this, nothing ever
     wrote a prospect into the "opened" substage, so Stage B was dead code.
 
+    NEW (2026-07-14): on an "email.bounced" event, pause that prospect's
+    follow-up sequence the same way a real reply does — sets
+    funnel_substage="bounced", which (like "replied"/"cold") isn't a key in
+    STAGE_BY_SUBSTAGE, so outreach/followup.py's run_followups() query
+    excludes it from consideration on every future run, on both channels.
+    Also sets email_unsubscribed=True specifically, since a bounced address
+    is dead — continuing to send there is pure waste and actively worsens
+    the bounce rate that just fed this exact event. Unlike the "opened"
+    handler, this always overrides funnel_substage regardless of the
+    prospect's current state — there's no state a dead email address should
+    still be emailed from. get_health_signal("email") in outreach/ramp.py
+    also now folds bounces into the same spam-rate/circuit-breaker
+    calculation as complaints (see that module's docstring).
+
     Requires two things outside this codebase to actually receive events:
     (1) open tracking enabled on the sending domain in the Resend dashboard
     (it's off by default — a tracking pixel has to be enabled per domain),
@@ -5460,6 +5474,21 @@ def resend_events_webhook():
                     )
             else:
                 app.logger.info(f"resend_events_webhook: open event for {to_email} — no matching prospect")
+
+        elif event_type == "email.bounced" and to_email:
+            prospect = db.query(Prospect).filter(
+                Prospect.email == to_email.strip().lower()
+            ).first()
+            if prospect:
+                prospect.email_unsubscribed = True
+                prospect.email_unsubscribed_at = datetime.utcnow()
+                prospect.funnel_substage = "bounced"
+                app.logger.info(
+                    f"resend_events_webhook: prospect {prospect.id} ({to_email}) bounced — "
+                    f"email_unsubscribed=True, funnel_substage=bounced, follow-ups paused"
+                )
+            else:
+                app.logger.info(f"resend_events_webhook: bounce event for {to_email} — no matching prospect")
 
         db.commit()
     finally:

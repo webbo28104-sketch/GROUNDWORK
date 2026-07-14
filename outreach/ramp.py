@@ -10,9 +10,15 @@ REAL STATE:
     function's query logic below needed ZERO changes for the provider
     switch, since it only ever read from SmsDeliveryEvent, never from
     Twilio-specific fields.
-  - Resend bounce/complaint webhooks: WIRED. app.py:resend_events_webhook
-    (Svix-signature-verified) logs each event to EmailEventLog. Requires a
-    webhook actually registered in the Resend dashboard pointing at
+  - Resend bounce/complaint webhooks: WIRED, and genuinely consumed here —
+    app.py:resend_events_webhook (Svix-signature-verified) logs each event
+    to EmailEventLog, and get_health_signal("email") below now folds BOTH
+    email.complained and email.bounced into the same spam_rate numerator
+    (added 2026-07-14 — bounced was previously logged but never read by
+    anything, a real gap, not just an oversight in this docstring). A
+    bounce is treated as a deliverability signal the circuit-breaker
+    should react to the same way a complaint does. Requires the webhook
+    actually registered in the Resend dashboard pointing at
     /api/webhooks/resend-events, and RESEND_WEBHOOK_SECRET set to match —
     infrastructure-side steps outside this codebase, same category as the
     Cloudflare Email Routing rule in Section 11a.
@@ -80,8 +86,10 @@ def get_health_signal(channel, now=None):
     Returns a dict describing this channel's health, or None if there isn't
     yet enough real data in the trailing window to compute a rate from.
 
-    email: {"spam_rate": float} — complaints (EmailEventLog) / total sent
-      (DailySendCount) over the trailing 7 days.
+    email: {"spam_rate": float} — (complaints + hard bounces, EmailEventLog)
+      / total sent (DailySendCount) over the trailing 7 days. Bounces are
+      folded into the same rate/trigger as complaints — both are real
+      deliverability harm signals, not tracked as two separate metrics.
     sms: {"delivery_rate": float, "delivery_rate_baseline": float,
       "opt_out_rate_today": float} — delivered/total distinct message_sids
       (SmsDeliveryEvent) for the trailing 7 days vs. the 7 days before
@@ -96,12 +104,14 @@ def get_health_signal(channel, now=None):
             total_sent = _total_sent(db, "email", week_ago, now)
             if total_sent == 0:
                 return None
-            complaints = db.query(EmailEventLog).filter(
-                EmailEventLog.event_type.in_(["email.complained", "complained"]),
+            harmful_events = db.query(EmailEventLog).filter(
+                EmailEventLog.event_type.in_(
+                    ["email.complained", "complained", "email.bounced", "bounced"]
+                ),
                 EmailEventLog.created_at >= week_ago,
                 EmailEventLog.created_at <= now,
             ).count()
-            return {"spam_rate": complaints / total_sent}
+            return {"spam_rate": harmful_events / total_sent}
 
         # sms
         def _delivery_rate(start, end):
