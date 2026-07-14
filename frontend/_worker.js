@@ -134,11 +134,35 @@ export default {
     // not through any Groundwork address. Requires
     // groundwork-build@outlook.com to be a verified destination address in
     // Cloudflare Email Routing, same as any other forwarding target.
+    let forwardError = null;
     try {
       await message.forward("groundwork-build@outlook.com");
     } catch (err) {
       // Swallow for the same reason as above — a failed forward must never
-      // block/reject the message or affect the webhook post.
+      // block/reject the message or affect the webhook post. Captured
+      // instead so the self-log call below can report it.
+      forwardError = err && err.message ? err.message : String(err);
+    }
+
+    // Self-log the forward outcome to our own backend — Cloudflare's Worker
+    // console is real-time-only (no historical retention here), so a
+    // forward failure would otherwise be unrecoverable after the fact. This
+    // lands in Railway's logs instead, which we can always query later.
+    try {
+      await fetch(`${RAILWAY_ORIGIN}/api/webhooks/email-forward-log`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Groundwork-Email-Secret": env.EMAIL_INBOUND_SHARED_SECRET || "",
+        },
+        body: JSON.stringify({
+          from: message.from,
+          success: forwardError === null,
+          error: forwardError,
+        }),
+      });
+    } catch (err) {
+      // Swallow — same reasoning as the other fetch calls in this handler.
     }
   },
 };

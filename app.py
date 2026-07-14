@@ -4673,6 +4673,48 @@ def email_inbound_webhook():
     return jsonify({"status": "ok"}), 200
 
 
+@app.route("/api/webhooks/email-forward-log", methods=["POST"])
+def email_forward_log():
+    """
+    Self-logging endpoint for frontend/_worker.js:email()'s message.forward()
+    call to groundwork-build@outlook.com — that forward is best-effort
+    (wrapped in its own try/catch so a failure there never blocks/rejects the
+    message), which means a silent failure would otherwise be invisible:
+    Cloudflare Worker console output is real-time-only (no historical
+    retention here), so a failed forward from the past is unrecoverable once
+    the tail session that would've shown it is gone. Logging the outcome
+    here instead lands it in Railway's logs, which we can always query after
+    the fact.
+
+    Same shared-secret auth as /api/webhooks/email-inbound (reuses
+    EMAIL_INBOUND_SHARED_SECRET — one Worker, one secret, not a second one to
+    provision/rotate for what's really the same trust boundary).
+
+    Body: {"from": <str>, "success": <bool>, "error": <str|null>}
+    """
+    shared_secret = os.environ.get("EMAIL_INBOUND_SHARED_SECRET")
+    if not shared_secret:
+        app.logger.error("email_forward_log: EMAIL_INBOUND_SHARED_SECRET not set — rejecting request")
+        return "", 503
+
+    provided = request.headers.get("X-Groundwork-Email-Secret", "")
+    if not provided or not hmac.compare_digest(provided, shared_secret):
+        app.logger.warning("email_forward_log: invalid or missing shared secret")
+        return "", 403
+
+    data = request.get_json(silent=True) or {}
+    from_email = (data.get("from") or "").strip()
+    success = bool(data.get("success"))
+    error = data.get("error")
+
+    if success:
+        app.logger.info(f"email_forward_log: forward to groundwork-build@outlook.com succeeded for reply from {from_email}")
+    else:
+        app.logger.error(f"email_forward_log: forward to groundwork-build@outlook.com FAILED for reply from {from_email}: {error}")
+
+    return jsonify({"status": "ok"}), 200
+
+
 @app.route("/api/webhooks/resend-events", methods=["POST"])
 def resend_events_webhook():
     """
