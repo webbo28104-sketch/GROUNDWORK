@@ -2078,13 +2078,26 @@ def _render_dashboard(email: str) -> str:
             card_parts = []
             for g in gens:
                 business_label = g.business_name or "Untitled site"
-                status_label = "Live" if g.status == "live" else "Draft — not yet published"
+                if g.status == "live" and g.cancel_at_period_end:
+                    ends_str = g.subscription_period_end.strftime("%d %b %Y") if g.subscription_period_end else "the end of your billing period"
+                    status_label = f"Live — ending {ends_str}"
+                elif g.status == "live":
+                    status_label = "Live"
+                else:
+                    status_label = "Draft — not yet published"
                 go_live_link = ""
                 if g.status != "live":
                     go_live_link = (
                         '<a href="/checkout.html?id=' + g.lead.public_id + '" '
                         'style="display:inline-block;background:#3B82F6;color:#fff;font-weight:700;font-size:14.5px;'
                         'text-decoration:none;padding:11px 18px;border-radius:9px;">Go live →</a>'
+                    )
+                cancel_link = ""
+                if g.status == "live" and not g.cancel_at_period_end:
+                    cancel_link = (
+                        '<a href="/account/subscription/' + str(g.id) + '/cancel" '
+                        'style="display:inline-block;background:#fff;color:#807E79;font-weight:600;font-size:13.5px;'
+                        'text-decoration:none;border:1px solid #E6E3DC;padding:11px 16px;border-radius:9px;">Cancel subscription</a>'
                     )
                 edit_text_link = (
                     '<a href="/editor.html?id=' + g.lead.public_id + '" '
@@ -2118,7 +2131,8 @@ def _render_dashboard(email: str) -> str:
                     'style="display:inline-block;background:#fff;color:#1C1C1C;font-weight:700;font-size:14.5px;'
                     'text-decoration:none;border:1px solid #D9D7D0;padding:11px 18px;border-radius:9px;">' + view_label + '</a>'
                     + edit_text_link
-                    + go_live_link +
+                    + go_live_link
+                    + cancel_link +
                     '</div>'
                     '</div>'
                     '</div>'
@@ -2285,6 +2299,162 @@ def _render_billing_section(customer_ids: list) -> str:
       <p style="margin:0 0 4px;font-size:14px;color:#5C5A56;">Your full payment history.</p>
       {"".join(rows)}
     </div>"""
+
+
+RETENTION_COUPON_ID = "groundwork-retention-1mo-free"
+
+
+def _get_or_create_retention_coupon():
+    """
+    Idempotently fetch-or-create the 100%-off, one-time coupon used by the
+    cancellation retention offer.
+
+    Mechanism chosen after checking Stripe's currently-supported options:
+    a duration="once" Coupon applied to the subscription is the standard,
+    well-documented pattern for "your next invoice is free, everything else
+    unchanged" — it zeroes exactly the next invoice generated for that
+    subscription and then stops applying on its own, no code needed to
+    track/expire it, no change to the subscription's billing anchor/dates,
+    and no separate cleanup step. Alternatives considered and rejected:
+    - Extending trial_end by ~30 days: works, but subscriptions here were
+      already given a 30-day trial at signup (see create_checkout_session),
+      so mutating trial_end on an already-live subscription is a less
+      direct/obvious fit than a coupon, which is what Stripe's own docs
+      recommend specifically for "one free month" retention offers.
+    - pause_collection: pauses indefinitely until manually resumed, which
+      is the wrong shape for "skip exactly one cycle then resume normally."
+    A fixed coupon `id` makes this call idempotent — creating it twice just
+    raises "already exists," handled below by fetching the existing one.
+    """
+    try:
+        return stripe.Coupon.retrieve(RETENTION_COUPON_ID)
+    except stripe.error.InvalidRequestError:
+        return stripe.Coupon.create(
+            id=RETENTION_COUPON_ID,
+            percent_off=100,
+            duration="once",
+            name="One month free (retention offer)",
+        )
+
+
+def _resolve_subscription_id(gen, db):
+    """
+    Returns gen.stripe_subscription_id, backfilling it first if missing —
+    covers every Generation that went live before this field existed (all
+    5 real live customers today predate it, since checkout.session.completed
+    only started capturing cs.subscription with this change). Looks up the
+    customer's current subscription via Stripe directly rather than assuming
+    the field will always be populated.
+    """
+    if gen.stripe_subscription_id:
+        return gen.stripe_subscription_id
+    if not gen.stripe_customer_id:
+        return None
+    subs = stripe.Subscription.list(customer=gen.stripe_customer_id, status="all", limit=10)
+    # Prefer an active/trialing subscription; fall back to the most recent of any status.
+    active = [s for s in subs.data if s.status in ("active", "trialing")]
+    chosen = active[0] if active else (subs.data[0] if subs.data else None)
+    if chosen:
+        gen.stripe_subscription_id = chosen.id
+        db.commit()
+        return chosen.id
+    return None
+
+
+def _account_owns_generation(db, email, gen_id):
+    gen = db.get(Generation, gen_id)
+    if not gen or gen.email != email:
+        return None
+    return gen
+
+
+def _render_cancel_offer_page(gen, error=None) -> str:
+    error_html = f'<p class="err">{escape(error)}</p>' if error else ""
+    business = escape(gen.business_name or "your site")
+    already_used = gen.retention_offer_used_at is not None
+    offer_block = "" if already_used else f"""
+      <div style="background:#F2F6FF;border:1px solid #BFD7FE;border-radius:12px;padding:20px 22px;margin:18px 0;">
+        <div style="font-weight:700;font-size:16px;margin-bottom:6px;">Before you go — have your next month free</div>
+        <p style="margin:0 0 14px;font-size:14.5px;color:#3A3A38;line-height:1.5;">No changes to your plan, nothing to set up — your next billing cycle is simply £0. Everything else stays exactly as it is.</p>
+        <form method="post" style="margin:0;">
+          <input type="hidden" name="action" value="accept_offer">
+          <button type="submit" class="acct-btn" style="width:auto;padding:12px 22px;">Yes, give me a free month</button>
+        </form>
+      </div>"""
+    inner = f"""<div class="acct-card">
+      <h1 style="margin:0 0 8px;font-weight:800;font-size:26px;letter-spacing:-.02em;">Cancel {business}?</h1>
+      <p style="margin:0;font-size:15px;color:#5C5A56;line-height:1.55;">Sorry to see you go.</p>
+      {error_html}
+      {offer_block}
+      <form method="post" style="margin-top:6px;">
+        <input type="hidden" name="action" value="confirm_cancel">
+        <button type="submit" style="width:100%;background:#fff;color:#B42318;border:1px solid #F3D4D0;font-weight:700;font-size:15px;padding:13px 0;border-radius:10px;cursor:pointer;">
+          {"Cancel anyway" if not already_used else "Confirm cancellation"}
+        </button>
+      </form>
+      <p style="margin:14px 0 0;text-align:center;"><a href="/account" style="color:#807E79;font-size:13.5px;text-decoration:none;">Never mind, keep my subscription</a></p>
+    </div>"""
+    return render_template_string(_account_page(inner, "Cancel subscription"))
+
+
+@app.route("/account/subscription/<int:gen_id>/cancel", methods=["GET", "POST"])
+def account_cancel_subscription(gen_id):
+    email = session.get("account_email")
+    if not email:
+        return redirect("/account/login")
+
+    db = SessionLocal()
+    try:
+        gen = _account_owns_generation(db, email, gen_id)
+        if not gen:
+            return "Not found", 404
+
+        if request.method == "GET":
+            return _render_cancel_offer_page(gen)
+
+        action = request.form.get("action", "")
+        sub_id = _resolve_subscription_id(gen, db)
+        if not sub_id:
+            return _render_cancel_offer_page(
+                gen, error="We couldn't find an active subscription for this site — please contact us directly."
+            )
+
+        if action == "accept_offer":
+            if gen.retention_offer_used_at is not None:
+                return _render_cancel_offer_page(gen, error="The free-month offer has already been used on this subscription.")
+            try:
+                coupon = _get_or_create_retention_coupon()
+                stripe.Subscription.modify(sub_id, coupon=coupon.id)
+            except stripe.error.StripeError as exc:
+                app.logger.error(f"account_cancel_subscription: failed to apply retention coupon for gen {gen_id}: {exc}")
+                return _render_cancel_offer_page(gen, error="Something went wrong applying the offer — please try again or contact us.")
+            gen.retention_offer_used_at = datetime.utcnow()
+            db.commit()
+            inner = f"""<div class="acct-card">
+              <h1 style="margin:0 0 8px;font-weight:800;font-size:26px;letter-spacing:-.02em;">You're all set</h1>
+              <p style="margin:0;font-size:15px;color:#5C5A56;line-height:1.55;">Your next billing cycle is free — nothing else has changed. Thanks for staying with Groundwork.</p>
+              <p style="margin:16px 0 0;"><a href="/account" class="acct-btn" style="display:inline-block;text-decoration:none;">Back to your account</a></p>
+            </div>"""
+            return render_template_string(_account_page(inner, "Offer applied"))
+
+        elif action == "confirm_cancel":
+            try:
+                stripe.Subscription.modify(sub_id, cancel_at_period_end=True)
+            except stripe.error.StripeError as exc:
+                app.logger.error(f"account_cancel_subscription: failed to cancel subscription for gen {gen_id}: {exc}")
+                return _render_cancel_offer_page(gen, error="Something went wrong cancelling — please try again or contact us.")
+            gen.cancel_at_period_end = True
+            db.commit()
+            inner = """<div class="acct-card">
+              <h1 style="margin:0 0 8px;font-weight:800;font-size:26px;letter-spacing:-.02em;">Subscription cancelled</h1>
+              <p style="margin:0;font-size:15px;color:#5C5A56;line-height:1.55;">You'll keep full access through the end of your current billing period — no further charges after that.</p>
+              <p style="margin:16px 0 0;"><a href="/account" class="acct-btn" style="display:inline-block;text-decoration:none;">Back to your account</a></p>
+            </div>"""
+            return render_template_string(_account_page(inner, "Subscription cancelled"))
+
+        return _render_cancel_offer_page(gen, error="Unrecognized action.")
+    finally:
+        db.close()
 
 
 def _password_field_html(field_id: str, name: str, placeholder: str) -> str:
@@ -5184,6 +5354,7 @@ def stripe_webhook():
             job_id = cs.client_reference_id
             customer_id = cs.customer
             invoice_id = cs.invoice
+            subscription_id = cs.subscription
             if job_id:
                 db = SessionLocal()
                 try:
@@ -5194,6 +5365,8 @@ def stripe_webhook():
                             gen.stripe_customer_id = customer_id
                         if invoice_id:
                             gen.stripe_setup_invoice_id = invoice_id
+                        if subscription_id:
+                            gen.stripe_subscription_id = subscription_id
                         # Assign subdomain (the checkout route already validated this;
                         # the double-check here guards the rare simultaneous-payment race).
                         if not gen.subdomain:
@@ -5225,6 +5398,53 @@ def stripe_webhook():
                         db.commit()
                 finally:
                     db.close()
+
+    elif event.type == "customer.subscription.updated":
+        # Catches cancel_at_period_end flipping true/false, and keeps
+        # current_period_end in sync so the account page can show "Live —
+        # ending <date>" between the customer clicking cancel and the
+        # subscription actually being deleted. NOT a churn event by itself —
+        # canceled_at is only ever written by customer.subscription.deleted
+        # below, once the subscription is genuinely gone.
+        sub = event.data.object
+        db = SessionLocal()
+        try:
+            gen = db.query(Generation).filter(Generation.stripe_subscription_id == sub.id).first()
+            if not gen and sub.customer:
+                # Legacy generations predating stripe_subscription_id being
+                # captured — fall back to customer id and backfill it.
+                gen = db.query(Generation).filter(Generation.stripe_customer_id == sub.customer).first()
+                if gen:
+                    gen.stripe_subscription_id = sub.id
+            if gen:
+                gen.cancel_at_period_end = bool(sub.cancel_at_period_end)
+                if sub.current_period_end:
+                    gen.subscription_period_end = datetime.utcfromtimestamp(sub.current_period_end)
+                db.commit()
+                app.logger.info(
+                    f"Stripe webhook: subscription.updated for gen {gen.id} — "
+                    f"cancel_at_period_end={gen.cancel_at_period_end}"
+                )
+        finally:
+            db.close()
+
+    elif event.type == "customer.subscription.deleted":
+        # The real churn event — the subscription is actually gone (either
+        # cancel_at_period_end ran its course, or an immediate cancellation
+        # happened via the Stripe dashboard). Writes Generation.canceled_at,
+        # the field the monthly-churn calculation reads.
+        sub = event.data.object
+        db = SessionLocal()
+        try:
+            gen = db.query(Generation).filter(Generation.stripe_subscription_id == sub.id).first()
+            if not gen and sub.customer:
+                gen = db.query(Generation).filter(Generation.stripe_customer_id == sub.customer).first()
+            if gen and gen.canceled_at is None:
+                gen.canceled_at = datetime.utcnow()
+                app.logger.info(f"Stripe webhook: subscription.deleted — gen {gen.id} churned (canceled_at set)")
+                db.commit()
+        finally:
+            db.close()
 
     return "", 200
 

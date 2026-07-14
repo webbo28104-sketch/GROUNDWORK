@@ -68,7 +68,23 @@ class Generation(Base):
     status = Column(String(30), nullable=False, default="draft")
     stripe_customer_id = Column(String(255))
     stripe_setup_invoice_id = Column(String(255))
+    stripe_subscription_id = Column(String(255), nullable=True, index=True)
     subdomain = Column(String(100), nullable=True, index=True)
+    # Cancellation / churn instrumentation (added 2026-07-14, cancellation-flow build).
+    # canceled_at is the actual churn timestamp — written by the
+    # customer.subscription.deleted webhook, once the subscription is
+    # genuinely gone (not merely scheduled to cancel).
+    canceled_at = Column(DateTime, nullable=True)
+    # cancel_at_period_end / current_period_end are written by
+    # customer.subscription.updated, so the account page can show an
+    # "ending on <date>" state between "customer clicked cancel" and the
+    # subscription actually being deleted at period end.
+    cancel_at_period_end = Column(Boolean, nullable=True, default=False)
+    subscription_period_end = Column(DateTime, nullable=True)
+    # Enforces the retention offer's one-per-customer limit — set the
+    # moment the free-month coupon is applied, checked before allowing it
+    # to be applied again.
+    retention_offer_used_at = Column(DateTime, nullable=True)
 
     lead = relationship("Lead", back_populates="generations")
 
@@ -336,6 +352,11 @@ def init_db():
     _ensure_column(Generation.__tablename__, "stripe_setup_invoice_id", "VARCHAR(255)")
     _ensure_column(Generation.__tablename__, "subdomain", "VARCHAR(100)")
     _ensure_column(Generation.__tablename__, "html_pending", "TEXT")
+    _ensure_column(Generation.__tablename__, "stripe_subscription_id", "VARCHAR(255)")
+    _ensure_column(Generation.__tablename__, "canceled_at", "TIMESTAMP")
+    _ensure_column(Generation.__tablename__, "cancel_at_period_end", "BOOLEAN DEFAULT FALSE")
+    _ensure_column(Generation.__tablename__, "subscription_period_end", "TIMESTAMP")
+    _ensure_column(Generation.__tablename__, "retention_offer_used_at", "TIMESTAMP")
     _ensure_column(Domain.__tablename__, "registered_at", "TIMESTAMP")
     _ensure_column(Domain.__tablename__, "dns_configured_at", "TIMESTAMP")
     _ensure_column(Domain.__tablename__, "railway_connected_at", "TIMESTAMP")
