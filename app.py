@@ -29,12 +29,13 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 from build_prompt import build_prompt
 from outreach.site_extract import extract_site_assets
-from models import SessionLocal, Lead, Generation, Account, GenerationImage, Domain, Prospect, SearchCell, PendingEmailDiscovery, EmailEventLog, OutreachTouch, DailySendCount, init_db
+from models import SessionLocal, Lead, Generation, Account, GenerationImage, Domain, Prospect, SearchCell, PendingEmailDiscovery, EmailEventLog, OutreachTouch, DailySendCount, RampState, SmsDeliveryEvent, init_db
 from emails import (send_verification_email, send_resend_email, send_password_reset_email,
                     send_support_message_email, send_enquiry_email,
                     send_domain_order_admin_email, send_domain_order_customer_email,
                     send_domain_setup_failed_email, send_domain_live_email)
 from outreach.reply_handling import handle_inbound_sms, handle_inbound_email, handle_forced_sms_stop
+from outreach.ramp import get_health_signal, get_remaining_ramp_today, EMAIL_SPAM_RATE_TRIGGER
 
 app = Flask(__name__, static_folder="frontend", static_url_path="")
 app.logger.setLevel(logging.INFO)
@@ -4662,16 +4663,258 @@ necessarily that specific one (opened_at is a single per-prospect timestamp, not
         db.close()
 
 
+_GMAIL_HARD_CEILING = 0.003  # 0.3% — not a circuit-breaker value in code (only
+# EMAIL_SPAM_RATE_TRIGGER, 0.1%, actually trips anything), this is the "degradation
+# begins well before this" reference ceiling docs/outreach-pipeline-spec.md
+# Section 15 cites Gmail as using. Plotted for context only.
+
+
+def _render_rate_chart(daily_points, trigger, ceiling):
+    """Inline SVG bar chart, no external chart library (none is used anywhere
+    else in this app) — daily_points is a list of (date_str, sent, harmful,
+    rate_or_None) tuples, oldest first. Bars are only drawn for days with a
+    real send count; days with zero sends are left empty rather than drawn
+    as a false 0%, since "no data" and "0% harmful" are different facts."""
+    if not daily_points:
+        return '<div class="muted" style="padding:20px;">No data.</div>'
+
+    w, h, pad_l, pad_b, pad_t = 900, 200, 46, 26, 14
+    chart_w, chart_h = w - pad_l - 10, h - pad_b - pad_t
+    real_rates = [p[3] for p in daily_points if p[3] is not None]
+    max_rate = max(real_rates + [ceiling]) * 1.15
+    bar_w = chart_w / len(daily_points)
+
+    def y_of(rate):
+        return pad_t + chart_h - (rate / max_rate) * chart_h
+
+    bars = ""
+    for i, (date_str, sent, harmful, rate) in enumerate(daily_points):
+        x = pad_l + i * bar_w
+        if rate is None:
+            continue
+        bar_h = (rate / max_rate) * chart_h
+        color = "#DC2626" if rate >= trigger else "#3B82F6"
+        bars += (
+            f'<rect x="{x + bar_w * 0.15:.1f}" y="{y_of(rate):.1f}" '
+            f'width="{bar_w * 0.7:.1f}" height="{bar_h:.1f}" fill="{color}" rx="1.5">'
+            f'<title>{date_str}: {harmful}/{sent} = {rate * 100:.3f}%</title></rect>'
+        )
+
+    trigger_y = y_of(trigger)
+    ceiling_y = y_of(ceiling) if ceiling <= max_rate else None
+    lines = (
+        f'<line x1="{pad_l}" y1="{trigger_y:.1f}" x2="{w - 10}" y2="{trigger_y:.1f}" '
+        f'stroke="#B45309" stroke-width="1.5" stroke-dasharray="5,4"/>'
+        f'<text x="{w - 10}" y="{trigger_y - 5:.1f}" text-anchor="end" font-size="11" '
+        f'fill="#B45309" font-weight="700">0.1% circuit-breaker trigger</text>'
+    )
+    if ceiling_y is not None:
+        lines += (
+            f'<line x1="{pad_l}" y1="{ceiling_y:.1f}" x2="{w - 10}" y2="{ceiling_y:.1f}" '
+            f'stroke="#9A9893" stroke-width="1.5" stroke-dasharray="2,3"/>'
+            f'<text x="{w - 10}" y="{ceiling_y - 5:.1f}" text-anchor="end" font-size="11" '
+            f'fill="#9A9893">0.3% Gmail hard ceiling (reference only)</text>'
+        )
+
+    first_label = daily_points[0][0]
+    last_label = daily_points[-1][0]
+    return f"""<svg viewBox="0 0 {w} {h}" style="width:100%;height:auto;display:block;">
+      <line x1="{pad_l}" y1="{pad_t}" x2="{pad_l}" y2="{pad_t + chart_h}" stroke="#E2E0DA"/>
+      <line x1="{pad_l}" y1="{pad_t + chart_h}" x2="{w - 10}" y2="{pad_t + chart_h}" stroke="#E2E0DA"/>
+      {bars}
+      {lines}
+      <text x="{pad_l}" y="{h - 4}" font-size="11" fill="#9A9893">{first_label}</text>
+      <text x="{w - 10}" y="{h - 4}" text-anchor="end" font-size="11" fill="#9A9893">{last_label}</text>
+    </svg>"""
+
+
 @app.route("/admin/deliverability")
 @admin_required
 def admin_deliverability():
-    return _admin_coming_soon("Deliverability", "deliverability")
+    now = datetime.utcnow()
+    db = SessionLocal()
+    try:
+        # ---- Email: 30-day daily spam/bounce rate from real webhook data ----
+        window_start = (now - timedelta(days=30)).replace(hour=0, minute=0, second=0, microsecond=0)
+        sent_rows = db.query(DailySendCount).filter(
+            DailySendCount.channel == "email",
+            DailySendCount.send_date >= window_start.strftime("%Y-%m-%d"),
+        ).all()
+        sent_by_day = {r.send_date: r.count for r in sent_rows}
+
+        event_rows = db.query(EmailEventLog).filter(
+            EmailEventLog.event_type.in_(["email.complained", "complained", "email.bounced", "bounced"]),
+            EmailEventLog.created_at >= window_start,
+        ).all()
+        harmful_by_day = Counter(e.created_at.strftime("%Y-%m-%d") for e in event_rows)
+
+        daily_points = []
+        for i in range(31):
+            d = (window_start + timedelta(days=i)).strftime("%Y-%m-%d")
+            sent = sent_by_day.get(d, 0)
+            harmful = harmful_by_day.get(d, 0)
+            daily_points.append((d, sent, harmful, (harmful / sent) if sent else None))
+
+        email_chart = _render_rate_chart(daily_points, EMAIL_SPAM_RATE_TRIGGER, _GMAIL_HARD_CEILING)
+        email_signal = get_health_signal("email")
+        email_ramp = db.query(RampState).filter(RampState.channel == "email").first()
+        email_remaining_today = get_remaining_ramp_today("email")
+
+        if email_signal is None:
+            email_signal_html = (
+                '<p class="muted">No spam-rate signal yet — the trailing 7-day window has zero '
+                'logged sends in DailySendCount. The ramp holds flat rather than advancing on this.</p>'
+            )
+        else:
+            rate = email_signal["spam_rate"]
+            over = rate >= EMAIL_SPAM_RATE_TRIGGER
+            color = "#DC2626" if over else "#059669"
+            email_signal_html = (
+                f'<p style="font-size:15px;"><b style="color:{color};font-size:20px;">{rate * 100:.3f}%</b> '
+                f'trailing 7-day spam+bounce rate vs. the <b>0.1%</b> trigger'
+                f'{" — <b>at or over the trigger</b>" if over else " — under the trigger"}.</p>'
+            )
+
+        if email_ramp:
+            status = "holding at floor (circuit breaker tripped)" if email_ramp.circuit_breaker_tripped else (
+                "advancing on schedule"
+            )
+            email_ramp_html = (
+                f'<p class="muted">Today\'s allowed volume: <b style="color:#1C1C1C;">{email_ramp.daily_volume}</b>'
+                f' · week {email_ramp.week_number} · {status}'
+                f' · {email_remaining_today} sends remaining today'
+                f'{" · last checked " + email_ramp.last_checked_at.strftime("%d %b %H:%M UTC") if email_ramp.last_checked_at else " · never checked by the nightly ramp job"}'
+                f'</p>'
+            )
+        else:
+            email_ramp_html = '<p class="muted">No ramp state row yet for email — the ramp hasn\'t run.</p>'
+
+        # ---- SMS: honest "is there real data" check ----
+        esendex_configured = bool(os.environ.get("ESENDEX_USERNAME") and os.environ.get("ESENDEX_PASSWORD"))
+        sms_event_count = db.query(func.count(SmsDeliveryEvent.id)).scalar() or 0
+        sms_signal = get_health_signal("sms")
+        sms_ramp = db.query(RampState).filter(RampState.channel == "sms").first()
+
+        if sms_event_count == 0:
+            sms_body_html = f"""
+            <div class="adm-card" style="padding:24px;">
+              <p style="font-weight:700;margin:0 0 8px;">Not yet configured — no real delivery data exists.</p>
+              <p class="muted" style="margin:0 0 6px;">
+                Esendex credentials {"are" if esendex_configured else "are <b>not</b>"} set in the environment,
+                but <code>SmsDeliveryEvent</code> has zero rows. The poll job that would create them
+                (<code>python -m outreach.sms_status_poll</code>, meant to run hourly per its own docstring)
+                is <b>not scheduled anywhere</b> — Railway's only cron job is <code>domain-billing-cron</code>,
+                and <code>Procfile</code> only runs the web process. Until that poll job runs on a schedule,
+                this section will stay empty no matter how many SMS sends go out.
+              </p>
+              <p class="muted" style="margin:0;">get_health_signal("sms") currently returns
+                <code>{"a value" if sms_signal else "None"}</code> — {"unexpected given zero events; investigate" if sms_signal else "expected, given no delivery events have ever been logged"}.</p>
+            </div>"""
+        else:
+            rate = sms_signal["delivery_rate"] if sms_signal else None
+            sms_body_html = f"""
+            <div class="adm-card" style="padding:24px;">
+              <p class="muted">{sms_event_count} delivery events logged.
+              {f'Current 7-day delivery rate: <b>{rate * 100:.1f}%</b> vs. baseline <b>{sms_signal["delivery_rate_baseline"] * 100:.1f}%</b>.' if sms_signal else 'Not enough data yet for a 7-day-vs-baseline comparison — the ramp holds flat.'}</p>
+            </div>"""
+
+        if sms_ramp:
+            status = "holding at floor (circuit breaker tripped)" if sms_ramp.circuit_breaker_tripped else "advancing on schedule"
+            sms_ramp_html = (
+                f'<p class="muted">Today\'s allowed volume: <b style="color:#1C1C1C;">{sms_ramp.daily_volume}</b>'
+                f' · week {sms_ramp.week_number} · {status}'
+                f'{" · last checked " + sms_ramp.last_checked_at.strftime("%d %b %H:%M UTC") if sms_ramp.last_checked_at else " · never checked by the nightly ramp job"}'
+                f'</p>'
+            )
+        else:
+            sms_ramp_html = '<p class="muted">No ramp state row yet for SMS — the ramp hasn\'t run.</p>'
+
+        content = f"""
+<h1 class="adm-title">Deliverability</h1>
+<p class="adm-sub">Circuit-breaker health for email and SMS sending, per docs/outreach-pipeline-spec.md Section 15.</p>
+
+<h2 style="font-size:16px;font-weight:800;margin:24px 0 4px;">Email</h2>
+<div class="adm-card" style="padding:20px 20px 8px;">{email_chart}</div>
+{email_signal_html}
+{email_ramp_html}
+
+<h2 style="font-size:16px;font-weight:800;margin:28px 0 4px;">SMS</h2>
+{sms_body_html}
+{sms_ramp_html}
+
+<h2 style="font-size:16px;font-weight:800;margin:28px 0 4px;">Google Postmaster Tools</h2>
+<div class="adm-card" style="padding:16px 20px;">
+  <p class="muted" style="margin:0;">
+    <b style="color:#1C1C1C;">Not connected.</b> Requires manual domain verification in the Postmaster
+    dashboard first (a one-time human step, not a code change) before any API access exists. Email
+    health above is computed entirely from the Resend webhook proxy in the meantime, per Section 15.
+  </p>
+</div>
+"""
+        return render_template_string(_admin_page("Deliverability", content, active="deliverability"))
+    finally:
+        db.close()
 
 
 @app.route("/admin/replies")
 @admin_required
 def admin_replies():
-    return _admin_coming_soon("Replies", "replies")
+    db = SessionLocal()
+    try:
+        replied = db.query(Prospect).filter(Prospect.funnel_substage == "replied").order_by(
+            Prospect.id.desc()
+        ).all()
+        stopped = db.query(Prospect).filter(
+            (Prospect.email_unsubscribed == True) | (Prospect.sms_unsubscribed == True)  # noqa: E712
+        ).order_by(Prospect.id.desc()).all()
+
+        rows = []
+        for p in replied:
+            rows.append((p, "Non-stop (paused for review)", None))
+        for p in stopped:
+            channel = "SMS" if p.sms_unsubscribed else "Email"
+            at = p.sms_unsubscribed_at if p.sms_unsubscribed else p.email_unsubscribed_at
+            rows.append((p, f"Stop ({channel})", at))
+
+        rows.sort(key=lambda r: r[2] or datetime.min, reverse=True)
+
+        if not rows:
+            table_html = '<div class="adm-card" style="padding:40px;text-align:center;color:#9A9893;font-size:14px;">No replies logged yet.</div>'
+        else:
+            trs = ""
+            for p, classification, at in rows:
+                badge_color = "#DC2626" if classification.startswith("Stop") else "#B45309"
+                when = at.strftime("%d %b %Y %H:%M UTC") if at else '<span class="muted">not tracked</span>'
+                trs += (
+                    f'<tr><td>{escape(p.business_name or "—")}</td>'
+                    f'<td>{escape(p.email or p.phone or "—")}</td>'
+                    f'<td><span class="status-pill" style="background:{badge_color}22;color:{badge_color};">{escape(classification)}</span></td>'
+                    f'<td>{when}</td></tr>'
+                )
+            table_html = f"""<div class="adm-card" style="overflow-x:auto;">
+<table><thead><tr><th>Business</th><th>Contact</th><th>Classification</th><th>When</th></tr></thead>
+<tbody>{trs}</tbody></table></div>"""
+
+        content = f"""
+<h1 class="adm-title">Replies</h1>
+<p class="adm-sub">
+  <b>The actual reply message text isn't stored anywhere in the app</b> — <code>handle_inbound_email()</code>
+  only classifies each reply as stop-intent or not and updates the prospect's funnel state. The real
+  message content only exists in the forwarded copy sitting in
+  <a href="mailto:groundwork-build@outlook.com">groundwork-build@outlook.com</a>. Check that inbox to
+  read what anyone actually wrote.
+</p>
+<p class="adm-sub" style="color:#B45309;background:#FEF3C7;padding:10px 14px;border-radius:8px;">
+  ⚠ Non-stop replies (paused for human review) have no timestamp in the schema — only stop-intent
+  opt-outs record one (<code>email_unsubscribed_at</code>/<code>sms_unsubscribed_at</code>). Rows below
+  marked "not tracked" are real gaps, not a rendering bug.
+</p>
+
+{table_html}
+"""
+        return render_template_string(_admin_page("Replies", content, active="replies"))
+    finally:
+        db.close()
 
 
 # ---------------------------------------------------------------------------
