@@ -28,6 +28,7 @@ from markupsafe import escape
 from werkzeug.security import generate_password_hash, check_password_hash
 
 from build_prompt import build_prompt
+from outreach.site_extract import extract_site_assets
 from models import SessionLocal, Lead, Generation, Account, GenerationImage, Domain, Prospect, SearchCell, PendingEmailDiscovery, EmailEventLog, OutreachTouch, DailySendCount, init_db
 from emails import (send_verification_email, send_resend_email, send_password_reset_email,
                     send_support_message_email, send_enquiry_email,
@@ -2771,12 +2772,13 @@ def _prospect_to_form_data(p):
     cold outreach (see docs/outreach-pipeline-spec.md Section 9a).
 
     Section 7's "pulled logo/colours/copy from their existing site" step for
-    has_website_dated/has_website_modern prospects is NOT implemented here —
-    no code exists anywhere that downloads/extracts a logo from a prospect's
-    existing website (only _extract_logo_colors, which works on an already-
-    uploaded image file from the form flow). Flagged in Section 9a as a
-    separate follow-up. build_prompt's own Step 1 web-search verification
-    still runs as normal, which may surface some of this incidentally.
+    has_website_dated/has_website_modern prospects: logo_uploaded/
+    portfolio_uploaded below always start False/False, since form_data is
+    built before extraction runs. _try_extract_prospect_assets() (called
+    from _claim_generate_and_redirect, after this function) overwrites both
+    flags on lead.form_data if it manages to pull a usable logo/photos from
+    prospect.website — see that function's docstring. build_prompt's own
+    Step 1 web-search verification still runs as normal regardless.
     """
     return {
         "business_name": p.business_name or "",
@@ -2788,6 +2790,72 @@ def _prospect_to_form_data(p):
         "logo_uploaded": False,
         "portfolio_uploaded": False,
     }
+
+
+# website_status values that mean "this prospect has an existing site to pull
+# from." has_website_dated/has_website_modern are the legacy values from the
+# old Cowork vision-judgment step; has_website is what the current pipeline
+# writes going forward. All three carry the same meaning for this purpose.
+_HAS_EXISTING_WEBSITE_STATUSES = {"has_website_dated", "has_website_modern", "has_website"}
+
+
+def _try_extract_prospect_assets(prospect, lead, job_dir):
+    """
+    Best-effort logo/portfolio-photo extraction from a has_website_dated /
+    has_website_modern prospect's existing site, run at click-time (inside
+    _claim_generate_and_redirect, before _kickoff_generation) so it only
+    ever runs for prospects who actually click through.
+
+    Saves files into job_dir using the exact same on-disk convention as
+    manually-uploaded logos/photos (logo.<ext>, photo_0.<ext>, ...), so
+    everything downstream (_build_media_placeholders, _process_logo, the
+    Claude vision-input read in _kickoff_generation) works unchanged.
+
+    Never raises and never partially corrupts lead state: any failure
+    anywhere in extract_site_assets() results in no files being written and
+    lead.logo_path staying None, which is exactly the current default
+    behaviour (generated look, no photos) — a bad extraction can't produce
+    a worse site than not extracting at all.
+    """
+    if not prospect.website or prospect.website_status not in _HAS_EXISTING_WEBSITE_STATUSES:
+        return
+
+    try:
+        assets = extract_site_assets(prospect.website)
+    except Exception:
+        logging.exception("Prospect site asset extraction failed for %s", prospect.website)
+        return
+
+    logo = assets.get("logo")
+    photos = assets.get("photos") or []
+    if not logo and not photos:
+        return
+
+    try:
+        os.makedirs(job_dir, exist_ok=True)
+
+        if logo:
+            fname = f"logo{logo.ext}"
+            with open(os.path.join(job_dir, fname), "wb") as f:
+                f.write(logo.bytes)
+            lead.logo_path = fname
+            lead.logo_mime = logo.mime
+
+        for i, photo in enumerate(photos):
+            fname = f"photo_{i}{photo.ext}"
+            with open(os.path.join(job_dir, fname), "wb") as f:
+                f.write(photo.bytes)
+
+        form_data = dict(lead.form_data or {})
+        form_data["logo_uploaded"] = bool(logo)
+        form_data["portfolio_uploaded"] = bool(photos)
+        lead.form_data = form_data
+    except Exception:
+        logging.exception("Failed persisting extracted assets for prospect %s", prospect.id)
+        # Best-effort cleanup so a half-written job_dir doesn't leave a
+        # logo_path pointing at a partial/corrupt file.
+        lead.logo_path = None
+        lead.logo_mime = None
 
 
 def _claim_email_form(prospect, error=None):
@@ -2838,6 +2906,10 @@ def _claim_generate_and_redirect(db, prospect):
     db.flush()
     prospect.lead_id = lead.id
     prospect.funnel_substage = "clicked_generated"
+
+    job_dir = os.path.join(UPLOAD_DIR, lead.public_id)
+    _try_extract_prospect_assets(prospect, lead, job_dir)
+
     db.commit()
 
     _kickoff_generation(lead)
