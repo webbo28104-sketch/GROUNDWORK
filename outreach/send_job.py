@@ -59,13 +59,21 @@ def _record_sms_submitted(db, message_id, to_phone):
 
 def _eligible_initial_send_query(db):
     """Section 5a: qualified prospects, automatically eligible, no approval
-    gate. Includes both the email-track (funnel_stage='awaiting_approval')
-    and the phone-only track (funnel_stage='qualified_no_email', which under
+    gate. Includes the email-track (funnel_stage='awaiting_approval'), the
+    phone-only track (funnel_stage='qualified_no_email', which under
     Section 10a's parallel-SMS-channel design is now a legitimate send
     target via SMS rather than a dead end — see the Section 4/10a
-    reconciliation note in the spec)."""
+    reconciliation note in the spec), and 'approved' — /admin/outreach's
+    approve button (app.py:admin_outreach_approve) moves a prospect's
+    funnel_stage to 'approved', a value this query didn't originally
+    include, which meant every prospect a human approved became invisible
+    to the real send job and would sit there forever (found 2026-07-15,
+    while testing a redirected real single-send — 11 real prospects were
+    stuck in this state). approval_status is audit-only per the spec (no
+    longer a send gate), but funnel_stage='approved' is still a real state
+    prospects land in via that UI action and must remain sendable."""
     return db.query(Prospect).filter(
-        Prospect.funnel_stage.in_(["awaiting_approval", "qualified_no_email"]),
+        Prospect.funnel_stage.in_(["awaiting_approval", "qualified_no_email", "approved"]),
         Prospect.score.isnot(None),
     ).order_by(Prospect.score.desc())
 
