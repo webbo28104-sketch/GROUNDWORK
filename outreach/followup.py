@@ -23,7 +23,7 @@ from datetime import datetime
 from models import SessionLocal, Prospect, SmsDeliveryEvent, OutreachTouch
 from emails import send_outreach_email
 from outreach.sms import send_outreach_sms
-from outreach.templates import render_email, render_sms, PRE_CLICK_STAGES
+from outreach.templates import render_email, render_sms, PRE_CLICK_STAGES, POST_CLICK_STAGES, branding_ps_line
 from outreach.ramp import record_sends
 from outreach.link_identity import ensure_link_identity
 
@@ -116,11 +116,17 @@ def _fire_touch(db, p, stage, now, remaining_ramp, unsubscribe_link_fn, preview_
             sms_used = 1
     else:
         if EMAIL_REPLY_CAPTURE_READY and not p.email_unsubscribed and remaining_ramp["email"] > 0:
+            # branding_ps only ever renders non-empty for post-click stages
+            # (extraction runs at claim-click time, so pre-click prospects
+            # have no extraction_quality yet) — passing "" for A/B is inert
+            # since those templates have no {branding_ps} placeholder.
+            branding_ps = branding_ps_line(p.extraction_quality) if stage in POST_CLICK_STAGES else ""
             msg = render_email(
                 stage,
                 business_name=p.business_name,
                 preview_link=preview_link_fn(p),
                 unsubscribe_link=unsubscribe_link_fn(p),
+                branding_ps=branding_ps,
             )
             send_outreach_email(p.email, msg["subject"], msg["body"], unsubscribe_link_fn(p))
             db.add(OutreachTouch(prospect_id=p.id, stage=stage, channel="email", sent_at=now))

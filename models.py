@@ -218,6 +218,13 @@ class Prospect(Base):
     opened_at = Column(DateTime, nullable=True)
     clicked_at = Column(DateTime, nullable=True)
     paid_at = Column(DateTime, nullable=True)
+    # Set once, at claim-click time, by _try_extract_prospect_assets (app.py)
+    # for has_website_dated/has_website_modern/has_website prospects:
+    # "full" (logo + photos pulled), "partial" (one of the two), "none"
+    # (extraction ran but nothing usable came back). Stays NULL for
+    # prospects extraction never ran for (no existing site, or hasn't
+    # clicked yet) — distinct from "none", which means it ran and failed.
+    extraction_quality = Column(String(10), nullable=True)
     sms_sent_at = Column(DateTime, nullable=True)
     sms_delivered = Column(Boolean, nullable=True)
     email_unsubscribed = Column(Boolean, default=False)
@@ -435,6 +442,7 @@ def init_db():
     _ensure_column(Prospect.__tablename__, "lead_id", "INTEGER")
     _ensure_column(Prospect.__tablename__, "email_unsubscribed_at", "TIMESTAMP")
     _ensure_column(Prospect.__tablename__, "sms_unsubscribed_at", "TIMESTAMP")
+    _ensure_column(Prospect.__tablename__, "extraction_quality", "VARCHAR(10)")
     _ensure_column(SearchCell.__tablename__, "last_searched_at", "TIMESTAMP")
     _ensure_column(SearchCell.__tablename__, "search_count", "INTEGER DEFAULT 0")
     _ensure_column(SearchCell.__tablename__, "results_found", "INTEGER DEFAULT 0")

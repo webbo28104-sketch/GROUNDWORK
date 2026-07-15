@@ -2816,6 +2816,13 @@ def _try_extract_prospect_assets(prospect, lead, job_dir):
     lead.logo_path staying None, which is exactly the current default
     behaviour (generated look, no photos) — a bad extraction can't produce
     a worse site than not extracting at all.
+
+    Also sets prospect.extraction_quality ("full"/"partial"/"none") so the
+    outcome is queryable later without re-running extraction — see
+    docs on the Prospect model and the Funnel dashboard's breakdown panel.
+    extraction_quality is only set when extraction actually runs (website
+    present + matching status); it stays NULL otherwise, distinct from
+    "none" (ran, found nothing usable).
     """
     if not prospect.website or prospect.website_status not in _HAS_EXISTING_WEBSITE_STATUSES:
         return
@@ -2824,38 +2831,51 @@ def _try_extract_prospect_assets(prospect, lead, job_dir):
         assets = extract_site_assets(prospect.website)
     except Exception:
         logging.exception("Prospect site asset extraction failed for %s", prospect.website)
+        prospect.extraction_quality = "none"
         return
 
     logo = assets.get("logo")
     photos = assets.get("photos") or []
-    if not logo and not photos:
-        return
+    logo_persisted = False
+    photos_persisted = False
 
-    try:
-        os.makedirs(job_dir, exist_ok=True)
+    if logo or photos:
+        try:
+            os.makedirs(job_dir, exist_ok=True)
 
-        if logo:
-            fname = f"logo{logo.ext}"
-            with open(os.path.join(job_dir, fname), "wb") as f:
-                f.write(logo.bytes)
-            lead.logo_path = fname
-            lead.logo_mime = logo.mime
+            if logo:
+                fname = f"logo{logo.ext}"
+                with open(os.path.join(job_dir, fname), "wb") as f:
+                    f.write(logo.bytes)
+                lead.logo_path = fname
+                lead.logo_mime = logo.mime
+                logo_persisted = True
 
-        for i, photo in enumerate(photos):
-            fname = f"photo_{i}{photo.ext}"
-            with open(os.path.join(job_dir, fname), "wb") as f:
-                f.write(photo.bytes)
+            for i, photo in enumerate(photos):
+                fname = f"photo_{i}{photo.ext}"
+                with open(os.path.join(job_dir, fname), "wb") as f:
+                    f.write(photo.bytes)
+            photos_persisted = bool(photos)
 
-        form_data = dict(lead.form_data or {})
-        form_data["logo_uploaded"] = bool(logo)
-        form_data["portfolio_uploaded"] = bool(photos)
-        lead.form_data = form_data
-    except Exception:
-        logging.exception("Failed persisting extracted assets for prospect %s", prospect.id)
-        # Best-effort cleanup so a half-written job_dir doesn't leave a
-        # logo_path pointing at a partial/corrupt file.
-        lead.logo_path = None
-        lead.logo_mime = None
+            form_data = dict(lead.form_data or {})
+            form_data["logo_uploaded"] = logo_persisted
+            form_data["portfolio_uploaded"] = photos_persisted
+            lead.form_data = form_data
+        except Exception:
+            logging.exception("Failed persisting extracted assets for prospect %s", prospect.id)
+            # Best-effort cleanup so a half-written job_dir doesn't leave a
+            # logo_path pointing at a partial/corrupt file.
+            lead.logo_path = None
+            lead.logo_mime = None
+            logo_persisted = False
+            photos_persisted = False
+
+    if logo_persisted and photos_persisted:
+        prospect.extraction_quality = "full"
+    elif logo_persisted or photos_persisted:
+        prospect.extraction_quality = "partial"
+    else:
+        prospect.extraction_quality = "none"
 
 
 def _claim_email_form(prospect, error=None):
@@ -4388,6 +4408,81 @@ def _funnel_pct(numer, denom):
     return round(100.0 * numer / denom, 1)
 
 
+# Minimum outcomes per extraction_quality tier before a full/partial/none
+# conversion-rate comparison is treated as a real signal rather than noise.
+# Matches the threshold docs/outreach-pipeline-spec.md Section 5b already
+# uses for the (separate, not-yet-built) scoring-feedback factor analysis —
+# "require 30+ click/paid outcomes per factor-tier before treating a
+# divergence as real." Reused here for the same reason: this is a
+# comparative claim across groups, not a single KPI's raw rate, so it needs
+# the stricter of the two thresholds already established in this codebase
+# (the 5/10 used by _render_kpi_strip's low_n is for a single metric's own
+# denominator, not for comparing groups against each other).
+_EXTRACTION_QUALITY_MIN_SAMPLE = 30
+
+
+def _render_extraction_quality_breakdown(db):
+    """
+    Conversion rate (account created, paid) by extraction_quality tier
+    (full/partial/none), for prospects the click-triggered logo/photo
+    extraction actually ran for (see _try_extract_prospect_assets).
+    Purely observational instrumentation — not shown as a meaningful
+    correlation until each tier clears _EXTRACTION_QUALITY_MIN_SAMPLE.
+    """
+    # Aggregated in Python rather than SQL (small dataset, and avoids a
+    # boolean->int CAST that behaves differently between SQLite dev and
+    # Postgres prod).
+    prospects = db.query(Prospect).filter(Prospect.extraction_quality.isnot(None)).all()
+    by_tier = {}
+    for p in prospects:
+        t = by_tier.setdefault(p.extraction_quality, {"n": 0, "account_n": 0, "paid_n": 0})
+        t["n"] += 1
+        if p.account_created_at is not None:
+            t["account_n"] += 1
+        if p.paid_at is not None:
+            t["paid_n"] += 1
+    total_n = sum(t["n"] for t in by_tier.values())
+
+    tier_order = [("full", "Full (logo + photos)"), ("partial", "Partial (one of the two)"), ("none", "None (fallback)")]
+    body_rows = ""
+    for key, label in tier_order:
+        t = by_tier.get(key, {"n": 0, "account_n": 0, "paid_n": 0})
+        low_n = t["n"] < _EXTRACTION_QUALITY_MIN_SAMPLE
+        account_pct = _funnel_pct(t["account_n"], t["n"])
+        paid_pct = _funnel_pct(t["paid_n"], t["n"])
+        note = ' <span style="color:#B45309;font-size:11px;">· insufficient sample</span>' if low_n and t["n"] else ""
+        body_rows += (
+            f'<tr><td style="font-weight:600;">{escape(label)}{note}</td>'
+            f'<td style="text-align:center;">{t["n"]}</td>'
+            f'<td style="text-align:center;">{f"{account_pct}%" if account_pct is not None else "—"}</td>'
+            f'<td style="text-align:center;">{f"{paid_pct}%" if paid_pct is not None else "—"}</td>'
+            f'</tr>'
+        )
+
+    threshold_note = (
+        f'<p class="adm-sub" style="color:#B45309;background:#FEF3C7;padding:10px 14px;'
+        f'border-radius:8px;margin:0 0 14px;">⚠ Each tier needs {_EXTRACTION_QUALITY_MIN_SAMPLE}+ prospects '
+        f'before its conversion rate is treated as a real signal rather than noise (same threshold used for '
+        f'factor-tier comparisons in the scoring feedback loop — see docs/outreach-pipeline-spec.md Section 5b). '
+        f'Currently {total_n} prospect(s) total across all three tiers — nowhere near enough to draw any '
+        f'conclusion yet. This panel is instrumentation for the future, not something to interpret today.</p>'
+    )
+
+    return f"""
+<h2 style="font-size:15px;font-weight:700;margin:28px 0 10px;">Conversion by extraction quality</h2>
+<p class="adm-sub">For has_website_dated/has_website_modern prospects, whether the click-time logo/photo
+extraction (outreach/site_extract.py) found a usable logo and photos, one of the two, or neither —
+and how that cohort's account-creation and paid rates compare. Set once per prospect at claim-click time.</p>
+{threshold_note}
+<div class="adm-card" style="overflow-x:auto;">
+<table>
+<thead><tr><th>Extraction quality</th><th style="text-align:center;">Prospects</th><th style="text-align:center;">Account created</th><th style="text-align:center;">Paid</th></tr></thead>
+<tbody>{body_rows}</tbody>
+</table>
+</div>
+"""
+
+
 @app.route("/admin/funnel")
 @admin_required
 def admin_funnel():
@@ -4428,6 +4523,7 @@ def admin_funnel():
     db = SessionLocal()
     try:
         kpi_strip = _render_kpi_strip(_compute_kpis(db))
+        extraction_quality_breakdown = _render_extraction_quality_breakdown(db)
 
         rows_html = ""
         any_sent_at_all = False
@@ -4558,6 +4654,8 @@ necessarily that specific one (opened_at is a single per-prospect timestamp, not
 
 <h2 style="font-size:15px;font-weight:700;margin:28px 0 10px;">Currently in the pipeline ({total_in_pipeline})</h2>
 <div class="statsbar" style="justify-content:flex-start;text-align:left;">{summary_html}</div>
+
+{extraction_quality_breakdown}
 """
         return render_template_string(_admin_page("Funnel", content, active="funnel"))
     finally:

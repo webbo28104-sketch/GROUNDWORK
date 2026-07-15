@@ -2,7 +2,8 @@
 Groundwork outreach — initial + follow-up template copy.
 
 Placeholders substituted by the caller: {business_name}, {preview_link},
-{short_code}, {unsubscribe_link}.
+{short_code}, {unsubscribe_link}, {branding_ps} (stages C/D only — see
+branding_ps_line() below).
 
 Content accuracy rule (docs/outreach-pipeline-spec.md Section 10c): templates
 for the "sent" and "opened" substages (pre-click) must never claim the site
@@ -398,6 +399,7 @@ FOLLOWUP_EMAIL = {
       <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:15.5px;line-height:1.65;color:#2A2A28;padding:0 0 8px;">
         Any questions, just reply to this email.
       </td></tr>
+      {branding_ps}
       <tr><td style="padding:6px 0 26px;">
         <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;font-family:Arial,Helvetica,sans-serif;">
         <tbody><tr>
@@ -499,6 +501,7 @@ FOLLOWUP_EMAIL = {
       <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:15.5px;line-height:1.65;color:#2A2A28;padding:0 0 8px;">
         Any questions, just reply to this email.
       </td></tr>
+      {branding_ps}
       <tr><td style="padding:6px 0 26px;">
         <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;font-family:Arial,Helvetica,sans-serif;">
         <tbody><tr>
@@ -571,6 +574,39 @@ FOLLOWUP_SMS = {
 PRE_CLICK_STAGES = ("A", "B")
 # Stages after a real click — site generation has actually happened.
 POST_CLICK_STAGES = ("C", "D")
+
+_BRANDING_PS_ROW = (
+    '<tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:14px;'
+    'line-height:1.65;color:#5C5A56;padding:0 0 18px;">P.S. — {text}</td></tr>'
+)
+
+# Deliberately generic wording for "partial" — it's true whether we pulled
+# the logo, the photos, or just one of the two, without claiming a specific
+# asset we may not actually have used (see _try_extract_prospect_assets in
+# app.py, which sets Prospect.extraction_quality but not which asset(s)
+# succeeded).
+_BRANDING_PS_TEXT = {
+    "full": "we pulled your logo and photos straight from your current site, so it already looks like you.",
+    "partial": "we used some of your existing branding when building this, so it already looks like you.",
+}
+
+
+def branding_ps_line(extraction_quality):
+    """
+    Renders the optional "kept your branding" P.S. row for the {branding_ps}
+    placeholder in stages C/D — the only stages sent after a real site has
+    been generated, so extraction (which runs at claim-click time, before
+    generation) has already happened and Prospect.extraction_quality is set.
+
+    Returns "" for "none"/None/unrecognised values — the row must never
+    appear for a prospect nothing was actually pulled for; str.format()
+    with an empty string for {branding_ps} just collapses to no extra row,
+    since the placeholder sits alone on its own line in the template.
+    """
+    text = _BRANDING_PS_TEXT.get(extraction_quality)
+    if not text:
+        return ""
+    return _BRANDING_PS_ROW.format(text=text)
 
 
 def render_email(stage_key, **kwargs):
