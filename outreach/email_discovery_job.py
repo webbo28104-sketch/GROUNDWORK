@@ -21,9 +21,21 @@ What it does:
      human/Cowork-submitted result. Reuses that exact finalization logic
      (_try_finalize) rather than duplicating the scoring/funnel-stage rules
      in a second place.
+
+     If find_email() raises EmailDiscoveryAPIError (billing/credit, rate
+     limit, network, auth — the API call itself failed, no search happened),
+     the PendingEmailDiscovery row is left untouched for automatic retry
+     next run, NOT deleted, and the Prospect is NOT written to. This is a
+     hard-learned distinction (2026-07-15 incident: a "credit balance too
+     low" 400 got silently folded into "genuinely searched, found nothing,"
+     wrongly marking ~55 real prospects qualified_no_email/unreachable with
+     no search ever having run). After 3 consecutive API errors, the run
+     aborts entirely rather than grinding through the rest of the queue
+     doing nothing but logging identical failures — same root cause,
+     stopping fast instead of silently no-op'ing hundreds of rows.
   5. Print a summary: how many found a real email, how many came up empty
      and where they landed (qualified_no_email vs unreachable), how many
-     errored.
+     hit an API-level error (left pending, not touched).
 
 Needs to run on a real recurring schedule (a Railway Cron service pointed at
 this script, same as outreach/domain_billing.py and outreach/pipeline.py) —
@@ -55,11 +67,13 @@ from models import (  # noqa: E402
 )
 
 try:
-    from outreach.email_discovery import find_email, is_valid_email, looks_like_guess
+    from outreach.email_discovery import find_email, is_valid_email, looks_like_guess, EmailDiscoveryAPIError
     from outreach.apply_result import _try_finalize
 except ImportError:
-    from email_discovery import find_email, is_valid_email, looks_like_guess
+    from email_discovery import find_email, is_valid_email, looks_like_guess, EmailDiscoveryAPIError
     from apply_result import _try_finalize
+
+MAX_CONSECUTIVE_API_ERRORS = 3
 
 logging.basicConfig(
     level=logging.INFO,
@@ -86,7 +100,15 @@ def _resolve_one(db, pending, dry_run):
         logger.info("[dry-run] would search for: %s (%s)", prospect.business_name, prospect.location)
         return "dry_run"
 
-    email, source = find_email(prospect.business_name, prospect.location, prospect.website)
+    try:
+        email, source = find_email(prospect.business_name, prospect.location, prospect.website)
+    except EmailDiscoveryAPIError as e:
+        # No search happened — do NOT touch the Prospect row and do NOT
+        # delete the pending row, so this stays queued for a genuine retry
+        # once whatever's wrong (credits, rate limit, etc.) is fixed.
+        logger.error("API-level failure for prospect %s (%s) — leaving pending for retry: %s",
+                     prospect.id, prospect.business_name, e)
+        return "discovery_errored"
 
     if email:
         # Belt-and-braces: find_email() already validates/guess-checks
@@ -147,7 +169,9 @@ def run_email_discovery(limit=None, dry_run=False, sleep_between=1.0):
         pending_rows = q.all()
         logger.info("Loaded %d pending email-discovery rows", len(pending_rows))
 
-        counts = {"found": 0, "not_found": 0, "stale": 0, "dry_run": 0}
+        counts = {"found": 0, "not_found": 0, "stale": 0, "dry_run": 0, "discovery_errored": 0}
+        consecutive_api_errors = 0
+        aborted_early = False
         for i, pending in enumerate(pending_rows):
             try:
                 status = _resolve_one(db, pending, dry_run)
@@ -156,6 +180,22 @@ def run_email_discovery(limit=None, dry_run=False, sleep_between=1.0):
                 logger.exception("Error resolving PendingEmailDiscovery %s (prospect %s)",
                                   pending.id, pending.prospect_id)
                 counts["error"] = counts.get("error", 0) + 1
+                status = "error"
+
+            if status == "discovery_errored":
+                consecutive_api_errors += 1
+                if consecutive_api_errors >= MAX_CONSECUTIVE_API_ERRORS:
+                    logger.error(
+                        "%d consecutive API-level failures — aborting the run rather than grinding "
+                        "through the remaining %d pending rows doing nothing but logging identical "
+                        "failures. Nothing further was touched; all remaining rows stay pending for "
+                        "the next run.", consecutive_api_errors, len(pending_rows) - i - 1,
+                    )
+                    aborted_early = True
+                    break
+            else:
+                consecutive_api_errors = 0
+
             # Small pause between real API calls — not rate-limit-critical at
             # this volume, just avoids hammering the API back-to-back across
             # a batch that could be in the hundreds.
@@ -171,9 +211,13 @@ def run_email_discovery(limit=None, dry_run=False, sleep_between=1.0):
     print(f"  Rows processed:                {sum(counts.values())}")
     print(f"  Genuine email found:           {counts.get('found', 0)}")
     print(f"  No genuine email found:        {counts.get('not_found', 0)}")
+    print(f"  API-level errors (left pending, not touched): {counts.get('discovery_errored', 0)}")
     print(f"  Stale rows (no prospect left): {counts.get('stale', 0)}")
     if counts.get("error"):
         print(f"  Errored (see log above):       {counts.get('error', 0)}")
+    if aborted_early:
+        print(f"  ABORTED EARLY after {MAX_CONSECUTIVE_API_ERRORS} consecutive API errors — remaining "
+              f"rows left untouched for next run.")
     print("=" * 56)
     print("")
 

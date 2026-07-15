@@ -47,6 +47,19 @@ logger = logging.getLogger("outreach.email_discovery")
 
 DISCOVERY_MODEL = "claude-sonnet-4-6"
 
+
+class EmailDiscoveryAPIError(Exception):
+    """Raised when the Anthropic API call itself fails (billing/credit
+    errors, rate limits, network errors, etc.) — distinct from a call that
+    genuinely succeeded and found no email. A caller MUST NOT treat this the
+    same as a real empty result: no search actually happened, so nothing
+    about the prospect should be concluded from it. Added 2026-07-15 after a
+    real incident where a "credit balance too low" 400 got silently folded
+    into (None, None) — identical to a genuine miss — and a batch of ~55
+    prospects got wrongly marked qualified_no_email/unreachable with no
+    search ever having run against them."""
+    pass
+
 TRADE_DIRECTORIES = [
     "Checkatrade", "Yell", "TrustATrader", "Rated People", "Bark", "MyBuilder", "FreeIndex",
 ]
@@ -171,13 +184,19 @@ def find_email(business_name, location, website=None):
     """Return (email, source) for a real, genuinely-published contact email
     found via the Anthropic API + web_search tool, checking sources in the
     Section 4 order (own site -> Facebook -> UK trade directories -> general
-    search). Returns (None, None) if nothing genuine was found, the API key
-    is unset, or any error occurs — never raises, so a caller looping over a
-    batch of prospects can't have one failure take down the run."""
+    search).
+
+    Returns (None, None) ONLY when the API call itself succeeded and Claude
+    genuinely searched but found nothing — a real empty result.
+
+    Raises EmailDiscoveryAPIError if the API call itself fails for any
+    reason (billing/credit, rate limit, network, auth, etc.) or the API key
+    is unset — these are NOT the same as a genuine empty result, and a
+    caller must not write email_found=False / qualified_no_email off the
+    back of one. No search happened."""
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
-        logger.error("ANTHROPIC_API_KEY not set; skipping email discovery")
-        return None, None
+        raise EmailDiscoveryAPIError("ANTHROPIC_API_KEY not set")
 
     try:
         client = anthropic.Anthropic(api_key=api_key)
@@ -190,7 +209,7 @@ def find_email(business_name, location, website=None):
         )
     except Exception as e:
         logger.error("Email discovery API call failed for '%s': %s", business_name, e)
-        return None, None
+        raise EmailDiscoveryAPIError(str(e)) from e
 
     text = _extract_final_text(resp)
     parsed = _extract_json(text)
