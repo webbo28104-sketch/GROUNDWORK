@@ -120,8 +120,8 @@ a:focus-visible,button:focus-visible{outline:3px solid #3B82F6;outline-offset:2p
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#807E79" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M14 4h6v6"/><path d="M20 4L10 14"/><path d="M18 14v6H4V6h6"/></svg>
         </a>
         <div class="browser-scroll" style="height:340px;">
-          <div style="width:100%;height:1484px;position:relative;" id="hero-mount">
-            <iframe src="https://sussexleadcraftltd.com" title="Sussex Leadcraft Ltd — live generated website" loading="lazy" scrolling="no" style="width:1440px;height:5300px;"></iframe>
+          <div style="width:100%;height:1406px;position:relative;" id="hero-mount">
+            <iframe src="https://sussexleadcraftltd.com" title="Sussex Leadcraft Ltd — live generated website" loading="lazy" scrolling="no" style="width:1440px;height:5021px;"></iframe>
           </div>
         </div>
       </div>
@@ -191,8 +191,8 @@ a:focus-visible,button:focus-visible{outline:3px solid #3B82F6;outline-offset:2p
         <div class="browser-frame" id="roofing-frame" style="background:#26241F;border:1px solid #3A362E;box-shadow:0 26px 52px -26px rgba(0,0,0,.5);">
           <a href="https://richardsoanroofing.groundworkbuild.com" target="_blank" rel="noopener" style="display:flex;align-items:center;gap:7px;padding:11px 14px;background:#1E1C18;border-bottom:1px solid #333029;text-decoration:none;"><span style="width:9px;height:9px;border-radius:50%;background:#4A4640;display:block;"></span><span style="width:9px;height:9px;border-radius:50%;background:#4A4640;display:block;"></span><span style="width:9px;height:9px;border-radius:50%;background:#4A4640;display:block;"></span><div style="margin:0 auto;background:#141310;border-radius:6px;padding:4px 16px;"><span style="color:#8B8478;font-size:11.5px;">richardsoanroofing.groundworkbuild.com</span></div><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#8B8478" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M14 4h6v6"/><path d="M20 4L10 14"/><path d="M18 14v6H4V6h6"/></svg></a>
           <div class="browser-scroll" style="height:300px;">
-            <div style="width:100%;height:1652px;position:relative;" id="roofing-mount">
-              <iframe src="https://richardsoanroofing.groundworkbuild.com" title="Richard Soan Roofing — live generated website" loading="lazy" scrolling="no" style="width:1440px;height:5900px;"></iframe>
+            <div style="width:100%;height:1458px;position:relative;" id="roofing-mount">
+              <iframe src="https://richardsoanroofing.groundworkbuild.com" title="Richard Soan Roofing — live generated website" loading="lazy" scrolling="no" style="width:1440px;height:5206px;"></iframe>
             </div>
           </div>
         </div>
@@ -339,9 +339,16 @@ function toggleMenu() {
 
 // Scale each embedded live-site iframe to fit its frame's actual width,
 // so the 1440px-wide real site renders proportionally at any viewport size.
+// rawH is the real page's watermark-bottom position (+ a small buffer),
+// not the full scrollHeight — measured with a headless browser against the
+// live sites (2026-07-15): Sussex Leadcraft's true scrollHeight is 5040 with
+// the watermark ending at 5009; Richard Soan Roofing's is 5221 with the
+// watermark at 5194. The previous values (5300/5900) were rough guesses,
+// off by 260-679px, which is what left a wall of white below the watermark
+// once overscroll bounce (fixed separately) was ruled out as the cause.
 const GW_IFRAMES = [
-  { frame: 'hero-frame', mount: 'hero-mount', rawW: 1440, rawH: 5300 },
-  { frame: 'roofing-frame', mount: 'roofing-mount', rawW: 1440, rawH: 5900 },
+  { frame: 'hero-frame', mount: 'hero-mount', rawW: 1440, rawH: 5021 },
+  { frame: 'roofing-frame', mount: 'roofing-mount', rawW: 1440, rawH: 5206 },
 ];
 
 function gwScaleIframe(cfg) {
