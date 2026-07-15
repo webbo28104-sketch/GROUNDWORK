@@ -68,9 +68,11 @@ from models import (  # noqa: E402
 
 try:
     from outreach.email_discovery import find_email, is_valid_email, looks_like_guess, EmailDiscoveryAPIError
+    from outreach.email_scrape import scrape_website_email
     from outreach.apply_result import _try_finalize
 except ImportError:
     from email_discovery import find_email, is_valid_email, looks_like_guess, EmailDiscoveryAPIError
+    from email_scrape import scrape_website_email
     from apply_result import _try_finalize
 
 MAX_CONSECUTIVE_API_ERRORS = 3
@@ -100,15 +102,22 @@ def _resolve_one(db, pending, dry_run):
         logger.info("[dry-run] would search for: %s (%s)", prospect.business_name, prospect.location)
         return "dry_run"
 
-    try:
-        email, source = find_email(prospect.business_name, prospect.location, prospect.website)
-    except EmailDiscoveryAPIError as e:
-        # No search happened — do NOT touch the Prospect row and do NOT
-        # delete the pending row, so this stays queued for a genuine retry
-        # once whatever's wrong (credits, rate limit, etc.) is fixed.
-        logger.error("API-level failure for prospect %s (%s) — leaving pending for retry: %s",
-                     prospect.id, prospect.business_name, e)
-        return "discovery_errored"
+    # Tier 1: plain code, no AI call, no cost. Only prospects where this
+    # finds nothing reach Tier 2 below.
+    email, source = scrape_website_email(prospect.website)
+    tier = "tier1" if email else None
+
+    if not email:
+        try:
+            email, source = find_email(prospect.business_name, prospect.location, prospect.website)
+            tier = "tier2" if email else None
+        except EmailDiscoveryAPIError as e:
+            # No search happened — do NOT touch the Prospect row and do NOT
+            # delete the pending row, so this stays queued for a genuine retry
+            # once whatever's wrong (credits, rate limit, etc.) is fixed.
+            logger.error("API-level failure for prospect %s (%s) — leaving pending for retry: %s",
+                         prospect.id, prospect.business_name, e)
+            return "discovery_errored"
 
     if email:
         # Belt-and-braces: find_email() already validates/guess-checks
@@ -126,8 +135,9 @@ def _resolve_one(db, pending, dry_run):
         prospect.email = email
         prospect.email_source = source
         prospect.email_found = True
-        status = "found"
-        logger.info("Prospect %s (%s) -> %s (source: %s)", prospect.id, prospect.business_name, email, source)
+        status = "found_tier1" if tier == "tier1" else "found_tier2"
+        logger.info("Prospect %s (%s) -> %s (source: %s, %s)",
+                    prospect.id, prospect.business_name, email, source, tier)
     else:
         prospect.email_found = False
         status = "not_found"
@@ -169,7 +179,12 @@ def run_email_discovery(limit=None, dry_run=False, sleep_between=1.0):
         pending_rows = q.all()
         logger.info("Loaded %d pending email-discovery rows", len(pending_rows))
 
-        counts = {"found": 0, "not_found": 0, "stale": 0, "dry_run": 0, "discovery_errored": 0}
+        counts = {"found_tier1": 0, "found_tier2": 0, "not_found": 0, "stale": 0,
+                  "dry_run": 0, "discovery_errored": 0}
+        # Statuses that mean a real Tier 2 API call actually ran this
+        # iteration — Tier 1 hits and stale rows never touched the API, so
+        # pausing after them just wastes wall-clock time for nothing.
+        _API_CALL_STATUSES = {"found_tier2", "not_found", "discovery_errored", "error"}
         consecutive_api_errors = 0
         aborted_early = False
         for i, pending in enumerate(pending_rows):
@@ -196,21 +211,29 @@ def run_email_discovery(limit=None, dry_run=False, sleep_between=1.0):
             else:
                 consecutive_api_errors = 0
 
-            # Small pause between real API calls — not rate-limit-critical at
-            # this volume, just avoids hammering the API back-to-back across
-            # a batch that could be in the hundreds.
-            if not dry_run and i < len(pending_rows) - 1:
+            # Small pause between real API calls only — not rate-limit-critical
+            # at this volume, just avoids hammering the API back-to-back
+            # across a batch that could be in the hundreds. Tier 1 hits made
+            # zero API calls, so there's nothing to pace.
+            if not dry_run and status in _API_CALL_STATUSES and i < len(pending_rows) - 1:
                 time.sleep(sleep_between)
     finally:
         db.close()
+
+    total = sum(counts.values())
+    tier2_attempts = counts.get("found_tier2", 0) + counts.get("not_found", 0)
+    tier1_of_resolved = counts.get("found_tier1", 0) / total if total else 0.0
 
     print("")
     print("=" * 56)
     print("Email discovery job summary")
     print("-" * 56)
-    print(f"  Rows processed:                {sum(counts.values())}")
-    print(f"  Genuine email found:           {counts.get('found', 0)}")
+    print(f"  Rows processed:                {total}")
+    print(f"  Found at Tier 1 (no AI call):  {counts.get('found_tier1', 0)}"
+          f"  ({tier1_of_resolved * 100:.0f}% of this run resolved with zero API cost)")
+    print(f"  Found at Tier 2 (AI search):   {counts.get('found_tier2', 0)}")
     print(f"  No genuine email found:        {counts.get('not_found', 0)}")
+    print(f"  Tier 2 API calls attempted:    {tier2_attempts}")
     print(f"  API-level errors (left pending, not touched): {counts.get('discovery_errored', 0)}")
     print(f"  Stale rows (no prospect left): {counts.get('stale', 0)}")
     if counts.get("error"):
