@@ -15,8 +15,22 @@ what's built/tested/assumed there. Token + short_code are generated here,
 at the point a send is queued (ensure_link_identity), not before.
 """
 import os
+import sys
 import logging
 from datetime import datetime
+
+# Bootstrap sys.path with the project root before importing models/app-level
+# modules — running `python outreach/send_job.py` puts sys.path[0] at this
+# file's own directory (outreach/), not the project root, so `from models
+# import ...` fails with ModuleNotFoundError unless this runs first. Same
+# fix already applied in outreach/domain_billing.py, email_discovery_job.py,
+# and pipeline.py — this file was missing it (found 2026-07-16: send-job-cron
+# crashed on startup with this exact error before this was added).
+_THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+_PROJECT_ROOT = os.path.dirname(_THIS_DIR)
+for _p in (_PROJECT_ROOT, _THIS_DIR):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 from models import SessionLocal, Prospect, SmsDeliveryEvent, OutreachTouch, init_db
 from emails import send_outreach_email
