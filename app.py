@@ -4952,6 +4952,65 @@ def admin_deliverability():
         else:
             email_ramp_html = '<p class="muted">No ramp state row yet for email — the ramp hasn\'t run.</p>'
 
+        # ---- Bounce rate by discovery source (added 2026-07-16) ----
+        # Pure visibility, NOT fed into scoring/selection — the first real
+        # send showed a 50% bounce rate on email_source='web_search' vs 0%
+        # on own_website/own_website_text (6 vs 4 sends, too small to act
+        # on alone). Flagged here so the pattern can be watched over a
+        # larger sample before deciding whether web_search-sourced emails
+        # need a confidence penalty or a verification step —
+        # _eligible_initial_send_query in outreach/send_job.py still treats
+        # every email_source equally today.
+        source_touches = (
+            db.query(Prospect.email_source)
+            .join(OutreachTouch, OutreachTouch.prospect_id == Prospect.id)
+            .filter(OutreachTouch.channel == "email")
+            .all()
+        )
+        sent_by_source = Counter((src or "unknown") for (src,) in source_touches)
+
+        bounce_events = db.query(EmailEventLog).filter(
+            EmailEventLog.event_type.in_(["email.complained", "complained", "email.bounced", "bounced"]),
+        ).all()
+        # Normalize the same way the bounce-webhook fix does — some logged
+        # events predate that fix and may still carry Resend's quoted
+        # '"addr" <addr>' form rather than a bare address.
+        bounced_emails = {
+            (email_utils.parseaddr(e.to_email)[1] or e.to_email or "").strip().lower()
+            for e in bounce_events if e.to_email
+        }
+        email_to_source = {
+            em.strip().lower(): (src or "unknown")
+            for em, src in db.query(Prospect.email, Prospect.email_source).filter(Prospect.email.isnot(None)).all()
+            if em
+        }
+        bounced_by_source = Counter(email_to_source[em] for em in bounced_emails if em in email_to_source)
+
+        source_rows_html = "".join(
+            f'<tr><td style="padding:6px 10px;">{escape(src)}</td>'
+            f'<td style="padding:6px 10px;text-align:right;">{sent_by_source[src]}</td>'
+            f'<td style="padding:6px 10px;text-align:right;">{bounced_by_source.get(src, 0)}</td>'
+            f'<td style="padding:6px 10px;text-align:right;color:'
+            f'{"#DC2626" if (bounced_by_source.get(src, 0) / sent_by_source[src] * 100 if sent_by_source[src] else 0) >= 20 else ("#D97706" if bounced_by_source.get(src, 0) else "#059669")}'
+            f';font-weight:700;">'
+            f'{(bounced_by_source.get(src, 0) / sent_by_source[src] * 100 if sent_by_source[src] else 0):.0f}%</td></tr>'
+            for src in sorted(sent_by_source.keys(), key=lambda s: -sent_by_source[s])
+        )
+        source_breakdown_html = f"""
+        <div class="adm-card" style="padding:16px 20px;margin-top:10px;">
+          <p style="font-weight:700;margin:0 0 6px;">Bounce rate by discovery source (all-time, monitoring only)</p>
+          <p class="muted" style="margin:0 0 10px;">Not fed into scoring/selection yet — watch this as volume grows.</p>
+          <table style="width:100%;border-collapse:collapse;font-size:13.5px;">
+            <thead><tr style="border-bottom:1px solid #E6E3DC;">
+              <th style="text-align:left;padding:6px 10px;color:#9A9893;font-size:11px;text-transform:uppercase;">Source</th>
+              <th style="text-align:right;padding:6px 10px;color:#9A9893;font-size:11px;text-transform:uppercase;">Sent</th>
+              <th style="text-align:right;padding:6px 10px;color:#9A9893;font-size:11px;text-transform:uppercase;">Bounced</th>
+              <th style="text-align:right;padding:6px 10px;color:#9A9893;font-size:11px;text-transform:uppercase;">Rate</th>
+            </tr></thead>
+            <tbody>{source_rows_html or '<tr><td colspan="4" style="padding:10px;color:#9A9893;">No email sends recorded yet.</td></tr>'}</tbody>
+          </table>
+        </div>"""
+
         # ---- SMS: honest "is there real data" check ----
         esendex_configured = bool(os.environ.get("ESENDEX_USERNAME") and os.environ.get("ESENDEX_PASSWORD"))
         sms_event_count = db.query(func.count(SmsDeliveryEvent.id)).scalar() or 0
@@ -5000,6 +5059,7 @@ def admin_deliverability():
 <div class="adm-card" style="padding:20px 20px 8px;">{email_chart}</div>
 {email_signal_html}
 {email_ramp_html}
+{source_breakdown_html}
 
 <h2 style="font-size:16px;font-weight:800;margin:28px 0 4px;">SMS</h2>
 {sms_body_html}
