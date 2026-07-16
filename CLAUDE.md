@@ -59,6 +59,15 @@ Groundwork generates AI-built marketing websites for UK trades businesses. A use
 
 8. **Checkout** (`frontend/checkout.html`) — Stripe stub, untouched by this pass.
 
+## Text editing (before and after going live)
+
+`frontend/editor.html` — reached via an "Edit text" button on the account dashboard / preview page (`/editor.html?id=<public_id>`). Lists every `data-gw-text`-tagged element (`_extract_gw_text_fields`) in a sidebar; clicking one in the live iframe preview jumps to its textarea. Each field autosaves on a 1.2s debounce (`PATCH /api/generate/<id>/text`), and a top-nav **Save** button flushes all dirty fields immediately regardless of the debounce timer (badge shows the dirty-field count; a `beforeunload` guard warns if you navigate away with saves still pending).
+
+- **Pre-launch** (`Generation.status != "live"`) — edits write straight to `html_content`, visible in the preview instantly. No approval step.
+- **Post-launch** (`Generation.status == "live"`) — edits accumulate in `html_pending`; the live site (`html_content`) is untouched until applied. `GET /api/generate/<id>/text-fields` reads from `html_pending` first (falling back to `html_content`) so the editor always reflects the customer's latest requested state, not the stale live one.
+
+**Applying pending edits to a live site** — `run_pending_edits_apply()` in `app.py` promotes `html_pending → html_content` for every live generation with pending edits and emails the customer (`send_changes_live_email`). This is a plain nightly job (`apply_pending_edits_job.py`, same "Railway Cron service + standalone script, nothing in-process schedules it" pattern as `outreach/domain_billing.py` and `outreach/email_discovery_job.py` — needs a Railway Cron service pointed at it), **not** an LLM/Claude Code step: by the time a row reaches this job, every field has already been validated as a literal string substitution at save time (`_update_gw_text_field`), so there's no judgement call left to make and no reason to pay for/wait on an API call. An admin can still force an immediate apply or discard pending edits from `/admin/generations/<id>/pending-changes` (e.g. to reject spam/garbage input) — that page is now a manual override, not the only path to going live.
+
 ## Admin
 
 - `/admin/login` — plain username/password form against `ADMIN_USERNAME`/`ADMIN_PASSWORD`, sets a Flask session flag. `/admin/logout` clears it.

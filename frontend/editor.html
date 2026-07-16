@@ -89,6 +89,12 @@ a:focus-visible,button:focus-visible{outline:3px solid #3B82F6;outline-offset:2p
           <span id="edit-toggle-label">Edit text</span>
         </button>
 
+        <!-- Top-nav Save button — flushes all pending field saves at once -->
+        <button id="save-all-btn" onclick="saveAll()" disabled
+          style="display:none;align-items:center;gap:7px;background:#16A34A;border:none;color:#fff;font-weight:700;font-size:13px;padding:8px 14px;border-radius:7px;cursor:pointer;white-space:nowrap;opacity:.5;transition:opacity .15s;">
+          <span id="save-all-label">Save</span>
+        </button>
+
         <a id="checkout-link" href="checkout.html" style="background:#3B82F6;color:#fff;font-weight:700;font-size:13px;text-decoration:none;padding:8px 14px;border-radius:7px;white-space:nowrap;">Go live →</a>
       </div>
     </div>
@@ -105,7 +111,7 @@ a:focus-visible,button:focus-visible{outline:3px solid #3B82F6;outline-offset:2p
         <!-- Shown for live sites only -->
         <div id="live-notice" style="display:none;background:#FEF3C7;border:1px solid #FCD34D;border-radius:9px;padding:13px 14px;margin-bottom:14px;">
           <div style="font-size:12.5px;font-weight:700;color:#92400E;margin-bottom:4px;">Your site is live</div>
-          <p style="margin:0;font-size:12.5px;color:#78350F;line-height:1.5;">Changes you make here are saved to your account. We'll apply them to your live site within <strong>3 working days</strong> and email you when they're done.</p>
+          <p style="margin:0;font-size:12.5px;color:#78350F;line-height:1.5;">Changes you make here are saved to your account and go live automatically <strong>overnight</strong> — we'll email you as soon as they're live.</p>
         </div>
 
         <div id="loading-state" style="text-align:center;padding:32px 0;color:#807E79;font-size:14px;">Loading…</div>
@@ -310,9 +316,34 @@ async function load() {
 
   render(d.fields);
   if (!isLive) document.getElementById('sidebar-footer').style.display = 'block';
+  document.getElementById('save-all-btn').style.display = 'flex';
 }
 
 // ── Render sidebar fields ─────────────────────────────────────────────────────
+
+// id -> { immediate: async fn(val), cancelDebounce: fn, textarea: el }
+const fieldSavers = {};
+const dirtyFields = new Set();
+
+function updateSaveAllButton() {
+  const btn = document.getElementById('save-all-btn');
+  const label = document.getElementById('save-all-label');
+  const n = dirtyFields.size;
+  btn.disabled = n === 0;
+  btn.style.opacity = n === 0 ? '.5' : '1';
+  label.textContent = n === 0 ? 'Saved' : `Save${n > 1 ? ` (${n})` : ''}`;
+}
+
+async function saveAll() {
+  const ids = Array.from(dirtyFields);
+  if (!ids.length) return;
+  const btn = document.getElementById('save-all-btn');
+  const label = document.getElementById('save-all-label');
+  btn.disabled = true;
+  label.textContent = 'Saving…';
+  await Promise.all(ids.map(id => fieldSavers[id]?.immediate(fieldSavers[id].textarea.value)));
+  updateSaveAllButton();
+}
 
 function render(fields) {
   const container = document.getElementById('fields-container');
@@ -341,7 +372,7 @@ function render(fields) {
     const st = document.getElementById('st-' + id);
     const card = ta.closest('.field-card');
 
-    const save = debounce(async val => {
+    const immediate = async val => {
       st.textContent = 'Saving…';
       st.className = 'status s-saving';
       try {
@@ -354,6 +385,8 @@ function render(fields) {
         if (d.ok) {
           st.textContent = '✓ Saved';
           st.className = 'status s-saved';
+          dirtyFields.delete(id);
+          updateSaveAllButton();
           setTimeout(() => { if (st.textContent === '✓ Saved') st.textContent = ''; }, 3000);
         } else {
           st.textContent = d.error || 'Save failed';
@@ -363,7 +396,10 @@ function render(fields) {
         st.textContent = 'Network error';
         st.className = 'status s-error';
       }
-    }, 1200);
+    };
+
+    const debouncedSave = debounce(immediate, 1200);
+    fieldSavers[id] = { immediate, textarea: ta };
 
     ta.addEventListener('focus', () => {
       document.querySelectorAll('.field-card').forEach(c => c.classList.remove('active'));
@@ -376,7 +412,9 @@ function render(fields) {
       st.className = 'status s-unsaved';
       const el = getIframeEl(id);
       if (el) el.textContent = ta.value;
-      save(ta.value);
+      dirtyFields.add(id);
+      updateSaveAllButton();
+      debouncedSave(ta.value);
     });
   });
 
@@ -385,7 +423,14 @@ function render(fields) {
       if (e.target.tagName !== 'TEXTAREA') card.querySelector('textarea')?.focus();
     });
   });
+
+  updateSaveAllButton();
 }
+
+// Warn before leaving with unsaved edits still in flight
+window.addEventListener('beforeunload', e => {
+  if (dirtyFields.size > 0) { e.preventDefault(); e.returnValue = ''; }
+});
 
 load();
 </script>

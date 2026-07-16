@@ -3870,8 +3870,9 @@ def admin_pending_changes(gen_id):
 </table>
 
 <div class="action-bar">
-  <button class="btn btn-green" onclick="gwApply()">Apply all changes &amp; notify customer</button>
+  <button class="btn btn-green" onclick="gwApply()">Apply now &amp; notify customer</button>
   <button class="btn btn-red" onclick="gwDiscard()">Discard pending changes</button>
+  <span style="font-size:12.5px;color:#9A9893;">(applies automatically overnight otherwise)</span>
   <span id="status-msg"></span>
 </div>
 
@@ -3923,6 +3924,48 @@ def admin_apply_pending(gen_id):
             app.logger.exception(f"Failed to send changes-live email to {gen.email}")
         app.logger.info(f"Admin applied pending changes for gen {gen_id} ({gen.business_name!r})")
         return jsonify({"ok": True})
+    finally:
+        db.close()
+
+
+def run_pending_edits_apply() -> None:
+    """Nightly job: promote html_pending -> html_content for every live
+    generation with pending text edits, then email the customer. Same
+    promotion + notification logic as admin_apply_pending above, run
+    unattended across all rows instead of one at a time by an admin click.
+
+    Text edits are plain string substitutions already validated field-by-field
+    at save time (_update_gw_text_field) — there's no judgement call to make
+    here, so this applies them directly rather than routing through Claude.
+
+    Needs to run on a real recurring schedule (a Railway Cron service pointed
+    at apply_pending_edits_job.py) — there is no in-process scheduler in this
+    codebase, so nothing calls this automatically on its own.
+    """
+    from emails import send_changes_live_email
+    db = SessionLocal()
+    try:
+        pending_gens = (
+            db.query(Generation)
+            .filter(Generation.status == "live", Generation.html_pending.isnot(None))
+            .all()
+        )
+        applied, failed = 0, 0
+        for gen in pending_gens:
+            try:
+                gen.html_content = gen.html_pending
+                gen.html_pending = None
+                db.commit()
+                try:
+                    send_changes_live_email(gen.email, gen.business_name)
+                except Exception:
+                    app.logger.exception(f"Failed to send changes-live email to {gen.email}")
+                applied += 1
+            except Exception:
+                db.rollback()
+                app.logger.exception(f"Failed to apply pending edits for gen {gen.id} ({gen.business_name!r})")
+                failed += 1
+        app.logger.info(f"Nightly pending-edits job: applied {applied}, failed {failed}, of {len(pending_gens)} live generations with pending edits.")
     finally:
         db.close()
 
