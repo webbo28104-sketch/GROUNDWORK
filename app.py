@@ -11,6 +11,7 @@ import shutil
 import logging
 import threading
 import urllib.request
+import email.utils as email_utils
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
@@ -7139,7 +7140,18 @@ def resend_events_webhook():
     event_type = payload.get("type", "")
     data = payload.get("data", {}) or {}
     to_list = data.get("to") or []
-    to_email = (to_list[0] if to_list else data.get("email", "")) or ""
+    to_email_raw = (to_list[0] if to_list else data.get("email", "")) or ""
+    # Resend doesn't always send a bare address here — confirmed 2026-07-16:
+    # a bounce event for a prospect we sent to as a plain "user@domain"
+    # string (see send_outreach_email — no display name is ever set on our
+    # side) came back as '"user@domain" <user@domain>', apparently echoing
+    # the receiving mail server's own bounce-report formatting. A raw
+    # .strip().lower() match against Prospect.email (a bare-address column)
+    # silently failed to find the prospect, so the bounce was logged to
+    # EmailEventLog but never applied — email_unsubscribed stayed False and
+    # a dead address kept looking sendable. email.utils.parseaddr handles
+    # both the bare and quoted/display-name forms correctly.
+    to_email = email_utils.parseaddr(to_email_raw)[1] or to_email_raw
 
     db = SessionLocal()
     try:
