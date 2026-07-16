@@ -85,6 +85,11 @@ class Generation(Base):
     # moment the free-month coupon is applied, checked before allowing it
     # to be applied again.
     retention_offer_used_at = Column(DateTime, nullable=True)
+    # Set by the charge.refunded webhook — a Stripe-side refund doesn't
+    # cancel the subscription by itself (that's a separate dashboard/API
+    # action), so this is a visibility flag for admins to act on, not an
+    # automatic status change.
+    refunded_at = Column(DateTime, nullable=True)
 
     lead = relationship("Lead", back_populates="generations")
 
@@ -160,6 +165,10 @@ class Domain(Base):
     # on the next successful invoice. Drives the grace-period-then-disable-
     # autorenew flow — see _domain_payment_failed_webhook handling.
     renewal_payment_failed_at = Column(DateTime, nullable=True)
+    # Set by the charge.refunded webhook when the refunded charge's
+    # payment_intent matches this domain's stripe_payment_id (the one-time
+    # purchase charge — not the recurring renewal subscription).
+    refunded_at = Column(DateTime, nullable=True)
 
 
 class Prospect(Base):
@@ -380,6 +389,7 @@ def init_db():
     _ensure_column(Generation.__tablename__, "cancel_at_period_end", "BOOLEAN DEFAULT FALSE")
     _ensure_column(Generation.__tablename__, "subscription_period_end", "TIMESTAMP")
     _ensure_column(Generation.__tablename__, "retention_offer_used_at", "TIMESTAMP")
+    _ensure_column(Generation.__tablename__, "refunded_at", "TIMESTAMP")
     _ensure_column(Domain.__tablename__, "registered_at", "TIMESTAMP")
     _ensure_column(Domain.__tablename__, "dns_configured_at", "TIMESTAMP")
     _ensure_column(Domain.__tablename__, "railway_connected_at", "TIMESTAMP")
@@ -393,6 +403,7 @@ def init_db():
     _ensure_column(Domain.__tablename__, "stripe_subscription_id", "VARCHAR(255)")
     _ensure_column(Domain.__tablename__, "last_repriced_period_end", "TIMESTAMP")
     _ensure_column(Domain.__tablename__, "renewal_payment_failed_at", "TIMESTAMP")
+    _ensure_column(Domain.__tablename__, "refunded_at", "TIMESTAMP")
     # Prospect / SearchCell columns — create_all() handles brand-new tables, but
     # these _ensure_column calls backfill columns onto an older prospects table
     # that predates a given field (same dependency-free migration pattern above).

@@ -43,6 +43,32 @@ CORS(app)
 app.secret_key = os.environ.get("SECRET_KEY", "dev-insecure-secret-change-me")
 serializer = URLSafeTimedSerializer(app.secret_key)
 
+# Session cookie config — explicit, not left to Flask/Werkzeug defaults.
+# Verified against the installed versions (Flask 3.1, Werkzeug 3.1): Flask's
+# own defaults are SESSION_COOKIE_SAMESITE=None (attribute omitted entirely
+# — browsers then apply their own default, which is Lax as of Chrome 80+/
+# Firefox 96+/Safari 13.1+, but that's a browser fallback this app doesn't
+# control, not a guarantee) and SESSION_COOKIE_SECURE=False (cookie would be
+# sent over plain HTTP too). SESSION_COOKIE_HTTPONLY already defaults to
+# True, which is correct as-is.
+#
+# SameSite=Lax is set explicitly here as this app's actual CSRF defense: it
+# blocks the session cookie from being attached to cross-site POST requests
+# (the standard CSRF vector — a form or fetch on an attacker's page can't
+# ride the victim's session), while still allowing normal top-level
+# navigation (e.g. clicking an emailed magic link) to carry the cookie. No
+# separate CSRF-token library is used; every session-mutating endpoint here
+# is either a same-site form POST or a same-site fetch (see CLAUDE.md's
+# "Frontend API URL" section on why cookie-dependent calls are always
+# relative/same-origin), so there's no legitimate cross-site case Lax would
+# need to allow through.
+#
+# SESSION_COOKIE_SECURE is forced True only when RAILWAY_ENVIRONMENT is set
+# (i.e. actually running on Railway, always HTTPS there) so local dev over
+# plain http:// still works without the cookie silently failing to be set.
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["SESSION_COOKIE_SECURE"] = bool(os.environ.get("RAILWAY_ENVIRONMENT"))
+
 TOKEN_MAX_AGE = 24 * 3600  # 24h magic-link expiry
 RESET_TOKEN_MAX_AGE = 3600  # 1h — shorter-lived since it grants a password change
 IP_RATE_LIMIT_PER_HOUR = int(os.environ.get("IP_RATE_LIMIT_PER_HOUR", "5"))
@@ -162,6 +188,64 @@ def _contact_rate_limited(ip: str) -> bool:
         times.append(now)
         _contact_submissions[ip] = times
     return False
+
+
+# ---------------------------------------------------------------------------
+# Generic in-memory sliding-window rate limiter, shared by admin login,
+# account login, and domain search below. Same tradeoff as
+# _contact_rate_limited above — ephemeral, resets on redeploy, which is
+# acceptable since these are throttles against brute force / abuse, not a
+# source of truth for anything.
+# ---------------------------------------------------------------------------
+_rate_buckets: dict[str, dict[str, list[float]]] = {}
+_rate_buckets_lock = threading.Lock()
+
+
+def _rate_limited(bucket_name: str, key: str, limit: int, window_seconds: int) -> bool:
+    """True if `key` has hit `limit` events within `window_seconds` inside
+    `bucket_name`'s namespace (and records this event only when False is
+    returned, i.e. real attempts count, not the block itself)."""
+    now = time.time()
+    cutoff = now - window_seconds
+    with _rate_buckets_lock:
+        bucket = _rate_buckets.setdefault(bucket_name, {})
+        times = [t for t in bucket.get(key, []) if t > cutoff]
+        if len(times) >= limit:
+            bucket[key] = times
+            return True
+        times.append(now)
+        bucket[key] = times
+    return False
+
+
+# Admin login lockout — tracked separately from _rate_limited above because
+# this counts only *failed* attempts (a correct login never adds to it, and
+# a success clears it), whereas _rate_limited counts every request
+# regardless of outcome. Keyed by a constant since there's a single admin
+# account — this is a lockout on the account, not per-IP, so a distributed
+# brute force (many IPs, same credentials) is still caught.
+_admin_login_failures: list[float] = []
+_admin_login_failures_lock = threading.Lock()
+_ADMIN_LOGIN_MAX_FAILURES = 5
+_ADMIN_LOGIN_LOCKOUT_WINDOW = 900  # 15 minutes
+
+
+def _admin_login_locked_out() -> bool:
+    now = time.time()
+    cutoff = now - _ADMIN_LOGIN_LOCKOUT_WINDOW
+    with _admin_login_failures_lock:
+        _admin_login_failures[:] = [t for t in _admin_login_failures if t > cutoff]
+        return len(_admin_login_failures) >= _ADMIN_LOGIN_MAX_FAILURES
+
+
+def _record_admin_login_failure() -> None:
+    with _admin_login_failures_lock:
+        _admin_login_failures.append(time.time())
+
+
+def _clear_admin_login_failures() -> None:
+    with _admin_login_failures_lock:
+        _admin_login_failures.clear()
 
 
 def _logo_to_favicon(data_uri: str) -> str | None:
@@ -2561,6 +2645,13 @@ def account_login():
 
     if stage == "password":
         # Step 2: password-login attempt for an account that already has one set.
+        ip = request.headers.get("X-Forwarded-For", request.remote_addr or "unknown").split(",")[0].strip()
+        # Two buckets: per-IP (catches one attacker spraying many emails) and
+        # per-email (catches many IPs targeting one account) — either alone
+        # misses the other pattern.
+        if (_rate_limited("account_login_ip", ip, limit=15, window_seconds=900)
+                or _rate_limited("account_login_email", email, limit=8, window_seconds=900)):
+            return _render_password_form(email, "password", error="Too many attempts. Please try again in a few minutes.")
         password = request.form.get("password", "")
         db = SessionLocal()
         try:
@@ -3190,14 +3281,24 @@ def admin_required(view):
 def admin_login():
     error = None
     if request.method == "POST":
-        u = request.form.get("username", "")
-        p = request.form.get("password", "")
-        admin_user = os.environ.get("ADMIN_USERNAME")
-        admin_pass = os.environ.get("ADMIN_PASSWORD")
-        if admin_user and admin_pass and u == admin_user and p == admin_pass:
-            session["is_admin"] = True
-            return redirect(request.args.get("next") or url_for("admin_dashboard"))
-        error = "Invalid credentials."
+        ip = request.headers.get("X-Forwarded-For", request.remote_addr or "unknown").split(",")[0].strip()
+        if _admin_login_locked_out():
+            error = "Too many failed attempts. Try again in a few minutes."
+        elif _rate_limited("admin_login", ip, limit=10, window_seconds=900):
+            error = "Too many attempts from your network. Try again in a few minutes."
+        else:
+            u = request.form.get("username", "")
+            p = request.form.get("password", "")
+            admin_user = os.environ.get("ADMIN_USERNAME")
+            admin_pass = os.environ.get("ADMIN_PASSWORD")
+            if (admin_user and admin_pass
+                    and hmac.compare_digest(u, admin_user)
+                    and hmac.compare_digest(p, admin_pass)):
+                _clear_admin_login_failures()
+                session["is_admin"] = True
+                return redirect(request.args.get("next") or url_for("admin_dashboard"))
+            _record_admin_login_failure()
+            error = "Invalid credentials."
     error_html = f'<p class="err">{error}</p>' if error else ""
     return render_template_string(f"""<!DOCTYPE html><html><head><meta charset="utf-8">
 <title>Admin login</title><link rel="icon" type="image/x-icon" href="/favicon.ico"><link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png"><style>{_PAGE_STYLE}</style></head>
@@ -4976,7 +5077,7 @@ def _check_outreach_token():
     if not expected:
         return jsonify({"error": "OUTREACH_API_TOKEN not configured on server"}), 500
     auth = request.headers.get("Authorization", "")
-    if not auth.startswith("Bearer ") or auth[len("Bearer "):] != expected:
+    if not auth.startswith("Bearer ") or not hmac.compare_digest(auth[len("Bearer "):], expected):
         return jsonify({"error": "Unauthorized"}), 401
     return None
 
@@ -5117,23 +5218,51 @@ def outreach_apply_email():
 
 
 # ---------------------------------------------------------------------------
-# GET-based outreach judgment endpoints — query-string token auth only.
+# GET-based outreach judgment endpoints.
 #
-# These exist solely because Cowork's web-fetch tooling can only send plain
-# GET requests with no custom headers. A separate env var (OUTREACH_API_TOKEN_GET)
-# is used so this token can be rotated independently if it ever appears in logs.
+# These exist because Cowork's web-fetch tooling can only send plain GET
+# requests. A separate env var (OUTREACH_API_TOKEN_GET) is used so this
+# token can be rotated independently of OUTREACH_API_TOKEN.
 #
-# GET /api/admin/outreach/g/pending?token=<token>
-# GET /api/admin/outreach/g/apply-email?token=<token>&prospect_id=<id>&email=<e>&source=<s>
+# Preferred: X-Outreach-Token header (or Authorization: Bearer <token>) —
+# never appears in URLs, so it's never written to access/proxy logs or
+# browser history. A ?token=<token> query-string fallback still works and is
+# logged loudly (app.logger.warning) whenever it's actually used, since it's
+# the thing this header move is meant to get rid of — if Cowork's fetch
+# tooling genuinely cannot set custom headers, that warning will fire on
+# every real call and the fallback stays load-bearing indefinitely.
+#
+# GET /api/admin/outreach/g/pending  (X-Outreach-Token: <token>)
+# GET /api/admin/outreach/g/apply-email?prospect_id=<id>&email=<e>&source=<s>  (X-Outreach-Token: <token>)
 # ---------------------------------------------------------------------------
 
 def _check_outreach_get_token():
     expected = os.environ.get("OUTREACH_API_TOKEN_GET", "")
     if not expected:
         return jsonify({"error": "OUTREACH_API_TOKEN_GET not configured on server"}), 500
-    if request.args.get("token", "") != expected:
-        return jsonify({"error": "Unauthorized"}), 401
-    return None
+
+    header_token = request.headers.get("X-Outreach-Token", "")
+    if not header_token:
+        auth = request.headers.get("Authorization", "")
+        if auth.startswith("Bearer "):
+            header_token = auth[len("Bearer "):]
+    if header_token:
+        if not hmac.compare_digest(header_token, expected):
+            return jsonify({"error": "Unauthorized"}), 401
+        return None
+
+    query_token = request.args.get("token", "")
+    if query_token:
+        app.logger.warning(
+            f"{request.path}: authenticated via ?token= query string, not a header — "
+            "this token is being written to access/proxy logs. Switch the caller to the "
+            "X-Outreach-Token header."
+        )
+        if not hmac.compare_digest(query_token, expected):
+            return jsonify({"error": "Unauthorized"}), 401
+        return None
+
+    return jsonify({"error": "Unauthorized"}), 401
 
 
 @app.route("/api/admin/outreach/g/pending")
@@ -5552,6 +5681,13 @@ def _check_domain(domain: str) -> dict:
 def domain_search():
     """Check domain availability for a business name query via WHOIS.
     Accepts ?tlds=co.uk,com,uk (comma-separated). Checks all TLD × name variants in parallel."""
+    ip = request.headers.get("X-Forwarded-For", request.remote_addr or "unknown").split(",")[0].strip()
+    # Each request fans out up to ~16 parallel WHOIS lookups (candidates x
+    # TLDs) — a generous per-request limit still caps sustained WHOIS load
+    # from a single client to a level that can't realistically get us
+    # rate-limited/blocked by upstream registries.
+    if _rate_limited("domain_search", ip, limit=30, window_seconds=300):
+        return jsonify({"error": "rate_limited", "message": "Too many domain searches — please wait a moment."}), 429
     query = request.args.get("q", "").strip()
     tlds_param = request.args.get("tlds", "").strip()
 
@@ -6394,6 +6530,16 @@ def create_checkout_session():
         gen = db.query(Generation).join(Lead).filter(Lead.public_id == job_id).first()
         if not gen:
             return jsonify({"error": "not found"}), 404
+        # If the requester is signed into an account, that account must own
+        # this job_id — stops a logged-in user from paying to activate a
+        # different account's generation just by knowing/guessing its
+        # job_id. No session at all (the normal guest-checkout path, before
+        # anyone's ever set a password) is left unchanged: job_id is the
+        # existing capability token for the whole pre-account funnel
+        # (preview/editor links work the same way — see CLAUDE.md).
+        session_email = session.get("account_email")
+        if session_email and gen.email and session_email != gen.email:
+            return jsonify({"error": "forbidden"}), 403
         if gen.status == "live":
             return jsonify({"error": "already live"}), 409
 
@@ -6698,6 +6844,45 @@ def stripe_webhook():
                     app.logger.info(f"Stripe webhook: renewal payment failed for {dom.domain} — grace period started")
             finally:
                 db.close()
+
+    elif event.type == "charge.refunded":
+        # A refund doesn't cancel the subscription or take a site down by
+        # itself (that's a separate action, either via customer.subscription.
+        # deleted or a manual admin call) — this just records that money
+        # went back out, so the database doesn't silently disagree with
+        # Stripe about billing state. Matches against both possible charges:
+        # a site subscription's setup-fee invoice (Generation) and a
+        # one-time domain purchase (Domain).
+        charge = event.data.object
+        customer_id = charge.customer
+        payment_intent_id = charge.payment_intent
+        db = SessionLocal()
+        try:
+            matched = False
+            if customer_id:
+                gen = db.query(Generation).filter(Generation.stripe_customer_id == customer_id).first()
+                if gen and gen.refunded_at is None:
+                    gen.refunded_at = datetime.utcnow()
+                    matched = True
+                    app.logger.warning(
+                        f"Stripe webhook: charge.refunded for gen {gen.id} ({gen.business_name!r}) — "
+                        f"refunded_at set, status/site left untouched, needs admin review."
+                    )
+            if payment_intent_id:
+                dom = db.query(Domain).filter(Domain.stripe_payment_id == payment_intent_id).first()
+                if dom and dom.refunded_at is None:
+                    dom.refunded_at = datetime.utcnow()
+                    matched = True
+                    app.logger.warning(
+                        f"Stripe webhook: charge.refunded for domain {dom.domain} — "
+                        f"refunded_at set, needs admin review."
+                    )
+            if matched:
+                db.commit()
+            else:
+                app.logger.info(f"Stripe webhook: charge.refunded — no matching Generation/Domain for customer={customer_id}, payment_intent={payment_intent_id}")
+        finally:
+            db.close()
 
     elif event.type == "invoice.paid":
         # Clears the grace-period flag if a previously-failed renewal

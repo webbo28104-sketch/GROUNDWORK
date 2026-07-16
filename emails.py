@@ -13,6 +13,21 @@ import resend
 
 ACCENT = "#3B82F6"
 
+_HARDCODED_EMAIL_FALLBACK = "groundwork-build@outlook.com"
+
+
+def _env_email_or_warn(key: str, default: str = _HARDCODED_EMAIL_FALLBACK) -> str:
+    """os.environ.get(key, default), but logs a warning whenever the env var
+    isn't set — silently falling back to a hardcoded address here means
+    domain-order alerts, support messages, etc. go to the wrong inbox with
+    no visible sign anything's wrong, until someone notices mail never
+    arrived."""
+    val = os.environ.get(key)
+    if not val:
+        print(f"[emails] WARNING: {key} not set — falling back to hardcoded {default!r}")
+        return default
+    return val
+
 
 def _html_to_text(html_content: str) -> str:
     """Derive a plain-text alternative from an email's HTML body. Spam filters
@@ -31,7 +46,7 @@ def _html_to_text(html_content: str) -> str:
 def _send(to_email: str, subject: str, html_content: str, reply_to: str = None,
           raise_on_error: bool = False) -> None:
     api_key = os.environ.get("RESEND_API_KEY")
-    from_email = os.environ.get("RESEND_FROM_EMAIL", "groundwork-build@outlook.com")
+    from_email = _env_email_or_warn("RESEND_FROM_EMAIL")
 
     if not api_key:
         msg = f"[emails] RESEND_API_KEY not set — skipping send of '{subject}' to {to_email}"
@@ -166,7 +181,7 @@ def send_domain_order_admin_email(domain: str, price_gbp: float, customer_email:
                                    site_id: str, automated: bool = False) -> None:
     """Audit trail to admin inbox when a domain order is processed. automated=True means
     registration ran automatically; False means it still needs manual action."""
-    support_inbox = os.environ.get("SUPPORT_INBOX_EMAIL", "groundwork-build@outlook.com")
+    support_inbox = _env_email_or_warn("SUPPORT_INBOX_EMAIL")
     d = escape(domain)
     e = escape(customer_email)
     s = escape(site_id)
@@ -223,7 +238,7 @@ def send_domain_order_customer_email(to_email: str, domain: str, business_name: 
 def send_domain_setup_failed_email(domain: str, site_id: str, customer_email: str,
                                     price_gbp: float, failed_step: str, error_msg: str) -> None:
     """Alert admin that automated domain setup failed and manual intervention is needed."""
-    support_inbox = os.environ.get("SUPPORT_INBOX_EMAIL", "groundwork-build@outlook.com")
+    support_inbox = _env_email_or_warn("SUPPORT_INBOX_EMAIL")
     d = escape(domain)
     e = escape(customer_email)
     s = escape(site_id)
@@ -313,7 +328,14 @@ def send_outreach_email(to_email: str, subject: str, html_body: str, unsubscribe
     should log/print this id, not just call the function and move on.
     """
     api_key = os.environ.get("RESEND_API_KEY")
-    from_email = os.environ.get("OUTREACH_RESEND_FROM_EMAIL", os.environ.get("RESEND_FROM_EMAIL", "groundwork-build@outlook.com"))
+    outreach_from = os.environ.get("OUTREACH_RESEND_FROM_EMAIL")
+    if outreach_from:
+        from_email = outreach_from
+    else:
+        print("[emails] WARNING: OUTREACH_RESEND_FROM_EMAIL not set — falling back to RESEND_FROM_EMAIL "
+              "(cold-outreach sends will share the transactional sender's reputation, defeating the point "
+              "of the separate subdomain — see send_outreach_email's docstring)")
+        from_email = _env_email_or_warn("RESEND_FROM_EMAIL")
     reply_to = reply_to or os.environ.get("OUTREACH_REPLY_TO_EMAIL", "reply@groundworkbuild.com")
 
     if not api_key:
@@ -348,7 +370,7 @@ def send_support_message_email(from_email: str, message: str, *, business_name: 
     support inbox, with reply_to set to the customer's email. Includes
     business name and site URL when available so the team has context.
     """
-    support_inbox = os.environ.get("SUPPORT_INBOX_EMAIL", "groundwork-build@outlook.com")
+    support_inbox = _env_email_or_warn("SUPPORT_INBOX_EMAIL")
     meta_rows = f'<p style="margin:0 0 4px;font-size:13.5px;color:#807E79;">From: {escape(from_email)}</p>'
     if business_name:
         meta_rows += f'<p style="margin:0 0 4px;font-size:13.5px;color:#807E79;">Business: {escape(business_name)}</p>'
