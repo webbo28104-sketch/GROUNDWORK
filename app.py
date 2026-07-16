@@ -3007,6 +3007,24 @@ def _claim_generate_and_redirect(db, prospect):
             return redirect(f"/api/generate/{lead.public_id}/html")
         return redirect(f"/loading.html?id={lead.public_id}")
 
+    # First-time claim for this prospect, but the email itself may already
+    # have a generation from an unrelated path (e.g. they used the direct
+    # signup form before ever getting/clicking this outreach link) —
+    # _has_generation is the same one-generation-per-email guard /api/generate
+    # enforces; without this check a claim would silently kick off a second,
+    # redundant (paid) Claude generation instead of just showing the one
+    # that already exists.
+    if prospect.email:
+        existing_gen = (
+            db.query(Generation).filter(Generation.email == prospect.email)
+            .order_by(Generation.created_at.desc()).first()
+        )
+        if existing_gen:
+            prospect.lead_id = existing_gen.lead_id
+            db.commit()
+            existing_lead = db.get(Lead, existing_gen.lead_id)
+            return redirect(f"/api/generate/{existing_lead.public_id}/html")
+
     lead = Lead(
         public_id=uuid.uuid4().hex[:10],
         email=prospect.email or "",
@@ -3088,7 +3106,7 @@ def claim_email(token):
             return _claim_email_form(prospect)
 
         email = (request.form.get("email") or "").strip().lower()
-        if not email or "@" not in email or "." not in email.rsplit("@", 1)[-1]:
+        if not email or not re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', email):
             return _claim_email_form(prospect, error="Enter a valid email address.")
 
         prospect.email = email
