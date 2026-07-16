@@ -110,10 +110,15 @@ def _fire_touch(db, p, stage, now, remaining_ramp, unsubscribe_link_fn, preview_
         if SMS_REPLY_CAPTURE_READY and not p.sms_unsubscribed and remaining_ramp["sms"] > 0:
             body = render_sms(sms_stage, business_name=p.business_name, short_code=short_code_fn(p))
             sms_id = send_outreach_sms(p.phone, body)
+            # send_outreach_sms returns None (doesn't raise) on failure — only
+            # record a touch when a message id actually came back, same fix
+            # as send_job.py's send_initial_touch and for the same reason: a
+            # down/misconfigured Esendex would otherwise silently mark every
+            # follow-up "sent" with nothing real going out, never retried.
             if sms_id:
                 db.add(SmsDeliveryEvent(message_sid=sms_id, to_phone=p.phone, status="submitted"))
-            db.add(OutreachTouch(prospect_id=p.id, stage=sms_stage, channel="sms", sent_at=now))
-            sms_used = 1
+                db.add(OutreachTouch(prospect_id=p.id, stage=sms_stage, channel="sms", sent_at=now))
+                sms_used = 1
     else:
         if EMAIL_REPLY_CAPTURE_READY and not p.email_unsubscribed and remaining_ramp["email"] > 0:
             # branding_ps only ever renders non-empty for post-click stages
@@ -128,16 +133,17 @@ def _fire_touch(db, p, stage, now, remaining_ramp, unsubscribe_link_fn, preview_
                 unsubscribe_link=unsubscribe_link_fn(p),
                 branding_ps=branding_ps,
             )
-            send_outreach_email(p.email, msg["subject"], msg["body"], unsubscribe_link_fn(p))
-            db.add(OutreachTouch(prospect_id=p.id, stage=stage, channel="email", sent_at=now))
-            email_used = 1
+            email_id = send_outreach_email(p.email, msg["subject"], msg["body"], unsubscribe_link_fn(p))
+            if email_id:
+                db.add(OutreachTouch(prospect_id=p.id, stage=stage, channel="email", sent_at=now))
+                email_used = 1
         if SMS_REPLY_CAPTURE_READY and not p.sms_unsubscribed and p.phone and remaining_ramp["sms"] > 0:
             body = render_sms(stage, business_name=p.business_name, short_code=short_code_fn(p))
             sms_id = send_outreach_sms(p.phone, body)
             if sms_id:
                 db.add(SmsDeliveryEvent(message_sid=sms_id, to_phone=p.phone, status="submitted"))
-            db.add(OutreachTouch(prospect_id=p.id, stage=stage, channel="sms", sent_at=now))
-            sms_used = 1
+                db.add(OutreachTouch(prospect_id=p.id, stage=stage, channel="sms", sent_at=now))
+                sms_used = 1
 
     if email_used or sms_used:
         p.touch_count = (p.touch_count or 0) + 1

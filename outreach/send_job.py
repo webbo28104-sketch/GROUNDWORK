@@ -103,12 +103,22 @@ def send_initial_touch(db, p, now, remaining_ramp=None):
         if p.phone and not p.sms_unsubscribed and (unlimited or remaining_ramp["sms"] > 0):
             body = render_sms("initial", business_name=p.business_name, short_code=_short_code(p))
             sms_id = send_outreach_sms(p.phone, body)
-            _record_sms_submitted(db, sms_id, p.phone)
-            db.add(OutreachTouch(prospect_id=p.id, stage="initial", channel="sms", sent_at=now))
-            if not unlimited:
-                remaining_ramp["sms"] -= 1
-            record_sends("sms", 1, now, db=db)
-            touched = True
+            # send_outreach_sms swallows its own failures and returns None
+            # rather than raising (see outreach/sms.py) — that keeps a
+            # provider outage from crashing the whole run, but it also means
+            # a failed send looks identical to a skip unless checked here.
+            # Only count this as a real touch (funnel_stage -> "sent", ramp
+            # consumed, OutreachTouch written) when a message id actually
+            # came back — otherwise a down/misconfigured Esendex would
+            # permanently mark every phone-only prospect "sent" without a
+            # single real message going out, and they'd never be retried.
+            if sms_id:
+                _record_sms_submitted(db, sms_id, p.phone)
+                db.add(OutreachTouch(prospect_id=p.id, stage="initial", channel="sms", sent_at=now))
+                if not unlimited:
+                    remaining_ramp["sms"] -= 1
+                record_sends("sms", 1, now, db=db)
+                touched = True
     else:
         if not p.email_unsubscribed and (unlimited or remaining_ramp["email"] > 0):
             msg = render_email(
@@ -116,23 +126,27 @@ def send_initial_touch(db, p, now, remaining_ramp=None):
                 preview_link=_preview_link(p), unsubscribe_link=_unsubscribe_link(p),
             )
             email_id = send_outreach_email(p.email, msg["subject"], msg["body"], _unsubscribe_link(p))
-            db.add(OutreachTouch(prospect_id=p.id, stage="initial", channel="email", sent_at=now))
-            if not unlimited:
-                remaining_ramp["email"] -= 1
-            record_sends("email", 1, now, db=db)
-            touched = True
+            # Same reasoning as the SMS branch above — send_outreach_email
+            # also returns None (not an exception) on failure.
+            if email_id:
+                db.add(OutreachTouch(prospect_id=p.id, stage="initial", channel="email", sent_at=now))
+                if not unlimited:
+                    remaining_ramp["email"] -= 1
+                record_sends("email", 1, now, db=db)
+                touched = True
         # Email-track prospects get both channels in parallel, same as the
         # follow-up sequence's channel logic — SMS piggybacks on the same
         # touch if a phone number is on record.
         if p.phone and not p.sms_unsubscribed and (unlimited or remaining_ramp["sms"] > 0):
             body = render_sms("initial", business_name=p.business_name, short_code=_short_code(p))
             sms_id = send_outreach_sms(p.phone, body)
-            _record_sms_submitted(db, sms_id, p.phone)
-            db.add(OutreachTouch(prospect_id=p.id, stage="initial", channel="sms", sent_at=now))
-            if not unlimited:
-                remaining_ramp["sms"] -= 1
-            record_sends("sms", 1, now, db=db)
-            touched = True
+            if sms_id:
+                _record_sms_submitted(db, sms_id, p.phone)
+                db.add(OutreachTouch(prospect_id=p.id, stage="initial", channel="sms", sent_at=now))
+                if not unlimited:
+                    remaining_ramp["sms"] -= 1
+                record_sends("sms", 1, now, db=db)
+                touched = True
 
     if not touched:
         return {"touched": False, "email_id": None}
