@@ -201,6 +201,26 @@ def run_daily_send(now=None):
     logger.info("Today's ramp — email: %d/day (%d remaining), sms: %d/day (%d remaining)",
                 email_volume, remaining["email"], sms_volume, remaining["sms"])
 
+    # Manual kill switch for the SMS channel only — set SMS_SENDS_PAUSED=true
+    # on this service to hold every SMS send (phone-only initial sends, the
+    # parallel-SMS leg on email-track initial sends, and follow-up SMS) while
+    # leaving email completely unaffected. Deliberately doesn't touch
+    # RampState/DailySendCount — those drive advance_or_hold's week
+    # progression and get_health_signal's spam/delivery-rate denominators,
+    # and writing a fake "already sent" count into DailySendCount to zero
+    # today's allowance would corrupt that accounting. This just caps
+    # remaining["sms"] to 0 for this run; both fill_initial_sends and
+    # run_followups already treat remaining_ramp["sms"] <= 0 as "no budget
+    # left" for every SMS branch, so one flag covers all of them. Remove or
+    # unset the var to resume — no other cleanup needed, since nothing
+    # persistent was changed.
+    if os.environ.get("SMS_SENDS_PAUSED", "").lower() == "true":
+        logger.warning(
+            "SMS_SENDS_PAUSED=true — holding SMS at 0 for today's run "
+            "(was %d remaining). Email is unaffected.", remaining["sms"]
+        )
+        remaining["sms"] = 0
+
     remaining = run_followups(remaining, _unsubscribe_link, _preview_link, _short_code, now)
     n_initial = fill_initial_sends(remaining, now)
 
