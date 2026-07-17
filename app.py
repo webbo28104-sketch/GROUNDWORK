@@ -30,7 +30,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 from build_prompt import build_prompt
 from outreach.site_extract import extract_site_assets
-from models import SessionLocal, Lead, Generation, Account, GenerationImage, Domain, Prospect, SearchCell, PendingEmailDiscovery, EmailEventLog, OutreachTouch, DailySendCount, RampState, SmsDeliveryEvent, SurveyResponse, init_db
+from models import SessionLocal, Lead, Generation, Account, GenerationImage, Domain, Prospect, SearchCell, PendingEmailDiscovery, EmailEventLog, OutreachTouch, DailySendCount, RampState, SmsDeliveryEvent, SurveyResponse, DiscoveryRunLog, init_db
 from emails import (send_verification_email, send_resend_email, send_password_reset_email,
                     send_support_message_email, send_enquiry_email,
                     send_domain_order_admin_email, send_domain_order_customer_email,
@@ -1958,6 +1958,7 @@ def _admin_page(title: str, content: str, active: str = "") -> str:
         ("Sites",    "/admin/generations",    "generations"),
         ("Domains &amp; margins", "/admin/domains", "domains"),
         ("Outreach", "/admin/outreach",  "outreach"),
+        ("Discovery", "/admin/discovery", "discovery"),
         ("Funnel", "/admin/funnel", "funnel"),
         ("Deliverability", "/admin/deliverability", "deliverability"),
         ("Replies", "/admin/replies", "replies"),
@@ -4536,6 +4537,93 @@ def admin_outreach_stats():
 @admin_required
 def admin_outreach():
     return render_template_string(_admin_page("Outreach queue", _ADMIN_OUTREACH_CONTENT, active="outreach"))
+
+
+@app.route("/admin/discovery")
+@admin_required
+def admin_discovery():
+    """Overnight free email-discovery routine's results (added 2026-07-18,
+    docs/outreach-pipeline-spec.md Section 4a) — the routine itself is a
+    scheduled Claude Code cloud agent, not code in this repo, so this page
+    is the only place its results are visible without checking
+    claude.ai/code/routines directly. It writes one DiscoveryRunLog row as
+    the last step of each run; this page just displays those rows,
+    freshest first."""
+    db = SessionLocal()
+    try:
+        runs = db.query(DiscoveryRunLog).order_by(DiscoveryRunLog.run_at.desc()).limit(30).all()
+        pending_n = db.query(PendingEmailDiscovery).count()
+
+        if not runs:
+            content = f"""
+<h1 class="adm-title">Discovery</h1>
+<p class="adm-sub">Nightly free email-discovery routine (WebSearch-based, replaces the deleted paid Tier 2 —
+see docs/outreach-pipeline-spec.md Section 4a). Runs at 03:30 UTC, after the free Tier 1 sweep and well
+before send-job-cron.</p>
+<div class="adm-card" style="padding:20px;">
+  <p style="margin:0;">No runs logged yet — {pending_n} prospect(s) currently waiting in the discovery queue.
+  First scheduled run: tomorrow 03:30 UTC. You can also trigger a run manually any time from
+  <a href="https://claude.ai/code/routines" target="_blank">claude.ai/code/routines</a>.</p>
+</div>
+"""
+            return render_template_string(_admin_page("Discovery", content, active="discovery"))
+
+        latest = runs[0]
+        source_rows = "".join(
+            f'<tr><td style="padding:6px 10px;">{escape(str(k))}</td><td style="padding:6px 10px;text-align:right;">{v}</td></tr>'
+            for k, v in (latest.source_breakdown or {}).items()
+        ) or '<tr><td colspan="2" style="padding:10px;color:#9A9893;">No breakdown recorded.</td></tr>'
+
+        latest_html = f"""
+<div class="adm-card" style="padding:20px 22px;margin-bottom:20px;">
+  <p class="adm-sub" style="margin:0 0 10px;">Most recent run — {_fmt_dt(latest.run_at)}</p>
+  <div style="display:flex;gap:32px;flex-wrap:wrap;margin-bottom:14px;">
+    <div><div style="font-size:22px;font-weight:800;">{latest.processed_n}</div><div class="muted" style="font-size:12px;">Processed</div></div>
+    <div><div style="font-size:22px;font-weight:800;color:#059669;">{latest.found_n}</div><div class="muted" style="font-size:12px;">Emails found</div></div>
+    <div><div style="font-size:22px;font-weight:800;">{latest.website_rediscovered_n}</div><div class="muted" style="font-size:12px;">Websites re-discovered</div></div>
+    <div><div style="font-size:22px;font-weight:800;color:#9A9893;">{latest.finalized_null_n}</div><div class="muted" style="font-size:12px;">Finalized (no email found)</div></div>
+  </div>
+  <table style="width:60%;min-width:260px;border-collapse:collapse;font-size:13.5px;">
+    <thead><tr style="color:#9A9893;font-size:11px;text-transform:uppercase;"><th style="text-align:left;padding:6px 10px;">Source</th><th style="text-align:right;padding:6px 10px;">Found</th></tr></thead>
+    <tbody>{source_rows}</tbody>
+  </table>
+  {f'<p class="muted" style="margin:14px 0 0;">{escape(latest.notes)}</p>' if latest.notes else ""}
+</div>"""
+
+        history_rows = "".join(
+            f'<tr><td style="padding:6px 10px;">{_fmt_dt(r.run_at)}</td>'
+            f'<td style="padding:6px 10px;text-align:right;">{r.processed_n}</td>'
+            f'<td style="padding:6px 10px;text-align:right;color:#059669;">{r.found_n}</td>'
+            f'<td style="padding:6px 10px;text-align:right;">{r.website_rediscovered_n}</td>'
+            f'<td style="padding:6px 10px;text-align:right;color:#9A9893;">{r.finalized_null_n}</td></tr>'
+            for r in runs
+        )
+
+        content = f"""
+<h1 class="adm-title">Discovery</h1>
+<p class="adm-sub">Nightly free email-discovery routine (WebSearch-based, replaces the deleted paid Tier 2 —
+see docs/outreach-pipeline-spec.md Section 4a). Runs at 03:30 UTC, after the free Tier 1 sweep and well
+before send-job-cron. {pending_n} prospect(s) currently waiting in the discovery queue.</p>
+
+{latest_html}
+
+<h2 style="font-size:15px;font-weight:700;margin:28px 0 10px;">Run history ({len(runs)})</h2>
+<div class="adm-card" style="overflow-x:auto;">
+<table style="width:100%;border-collapse:collapse;font-size:13.5px;">
+<thead><tr style="color:#9A9893;font-size:11px;text-transform:uppercase;border-bottom:1px solid #E6E3DC;">
+  <th style="text-align:left;padding:6px 10px;">Run</th>
+  <th style="text-align:right;padding:6px 10px;">Processed</th>
+  <th style="text-align:right;padding:6px 10px;">Found</th>
+  <th style="text-align:right;padding:6px 10px;">Websites re-discovered</th>
+  <th style="text-align:right;padding:6px 10px;">Finalized (none)</th>
+</tr></thead>
+<tbody>{history_rows}</tbody>
+</table>
+</div>
+"""
+        return render_template_string(_admin_page("Discovery", content, active="discovery"))
+    finally:
+        db.close()
 
 
 def _prospect_score_breakdown(p):

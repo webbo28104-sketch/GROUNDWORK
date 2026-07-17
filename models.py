@@ -293,6 +293,26 @@ class SurveyResponse(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class DiscoveryRunLog(Base):
+    """One row per run of the nightly free email-discovery routine (added
+    2026-07-18, replaced the paid Tier 2 API-based discovery — see
+    docs/outreach-pipeline-spec.md Section 4a). The routine itself
+    (a scheduled Claude Code cloud agent, not code in this repo) writes
+    this row as its last step, using its own Bash+DB access — this table
+    is how its results become visible in the admin dashboard without
+    having to check the routine's run history on claude.ai separately."""
+    __tablename__ = "discovery_run_logs"
+
+    id = Column(Integer, primary_key=True)
+    run_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    processed_n = Column(Integer, default=0)
+    found_n = Column(Integer, default=0)
+    website_rediscovered_n = Column(Integer, default=0)
+    finalized_null_n = Column(Integer, default=0)
+    source_breakdown = Column(JSON, nullable=True)  # e.g. {"own_website": 2, "web_search": 1, "facebook": 0}
+    notes = Column(Text, nullable=True)
+
+
 class SearchCell(Base):
     __tablename__ = "search_cells"
 
