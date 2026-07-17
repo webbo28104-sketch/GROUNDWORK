@@ -48,8 +48,10 @@ from models import (  # noqa: E402
 
 try:
     from outreach.sourcer import search_places, get_pending_cells, parse_place, upsert_prospect
+    from outreach.email_scrape import fetch_and_assess_quality
 except ImportError:
     from sourcer import search_places, get_pending_cells, parse_place, upsert_prospect
+    from email_scrape import fetch_and_assess_quality
 
 logging.basicConfig(
     level=logging.INFO,
@@ -122,6 +124,17 @@ def _queue_pending(dry_run):
                 # Website status — free binary check straight off Places' own
                 # website field, no screenshot or vision judgment call.
                 p.website_status = "has_website" if (p.website and str(p.website).strip()) else "no_website"
+
+                # Website quality — free code-only staleness heuristic (see
+                # outreach/site_quality assess in email_scrape.py), computed
+                # once here so outreach/scorer.py can read it as a plain
+                # stored attribute later without ever fetching live at score
+                # time. Best-effort — never blocks queuing on a bad fetch.
+                if p.website_status == "has_website":
+                    try:
+                        p.website_quality = fetch_and_assess_quality(p.website)
+                    except Exception as e:
+                        logger.warning("Website quality check failed for prospect %s: %s", p.id, e)
 
                 # Email discovery ─────────────────────────────────────────────
                 existing_ed = db.query(PendingEmailDiscovery).filter(

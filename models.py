@@ -213,6 +213,12 @@ class Prospect(Base):
     google_photos_count = Column(Integer, nullable=True)
     opening_hours_complete = Column(Boolean, nullable=True)
     website_status = Column(String(30), nullable=True)
+    # Free, code-only staleness heuristic for has_website prospects — see
+    # outreach/site_quality.py. "modern" / "dated" / "unreachable" / null
+    # (not yet checked). Computed once at sourcing time (outreach/pipeline.py
+    # :_queue_pending), read by outreach/scorer.py — never fetched live at
+    # score time, so score_prospect() stays a pure/sync function.
+    website_quality = Column(String(20), nullable=True)
     vision_flag_layout = Column(Boolean, nullable=True)
     vision_flag_design = Column(Boolean, nullable=True)
     vision_flag_cta = Column(Boolean, nullable=True)
@@ -532,6 +538,7 @@ def init_db():
     _ensure_column(Prospect.__tablename__, "email_unsubscribed_at", "TIMESTAMP")
     _ensure_column(Prospect.__tablename__, "sms_unsubscribed_at", "TIMESTAMP")
     _ensure_column(Prospect.__tablename__, "extraction_quality", "VARCHAR(10)")
+    _ensure_column(Prospect.__tablename__, "website_quality", "VARCHAR(20)")
     _ensure_column(SearchCell.__tablename__, "last_searched_at", "TIMESTAMP")
     _ensure_column(SearchCell.__tablename__, "search_count", "INTEGER DEFAULT 0")
     _ensure_column(SearchCell.__tablename__, "results_found", "INTEGER DEFAULT 0")

@@ -4631,12 +4631,14 @@ def _prospect_score_breakdown(p):
     the same private helpers outreach/scorer.py's score_prospect() calls —
     so this can never silently drift from the actual scoring logic."""
     from outreach import scorer
+    website_label = p.website_status or "—"
+    if p.website_status == "has_website":
+        website_label = f"has_website ({p.website_quality or 'unchecked'})"
     return [
-        ("Rating", f"{p.rating:.1f}" if p.rating is not None else "—", scorer._rating_points(p.rating), 30),
-        ("Website status", p.website_status or "—", scorer._website_points(p.website_status), 25),
+        ("Website status", website_label, scorer._website_points(p.website_status, p.website_quality), 40),
         ("Trade tier", p.trade_tier or "—", scorer._tier_points(p.trade_tier), 20),
-        ("Review count", p.review_count if p.review_count is not None else "—", scorer._review_points(p.review_count), 15),
-        ("Team size signal", "—", scorer._team_size_points(p.business_name, p.review_count), 10),
+        ("Review count", p.review_count if p.review_count is not None else "—", scorer._review_points(p.review_count), 20),
+        ("Rating", f"{p.rating:.1f}" if p.rating is not None else "—", scorer._rating_points(p.rating), 20),
     ]
 
 

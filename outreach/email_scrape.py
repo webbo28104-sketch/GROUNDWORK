@@ -14,6 +14,7 @@ never-guess, never-crash contract the rest of the discovery pipeline uses.
 """
 import re
 import logging
+from datetime import datetime
 from urllib.parse import urljoin, unquote
 
 import requests
@@ -120,6 +121,78 @@ def _find_contact_link(html, base_url):
         if any(hint in hay for hint in CONTACT_LINK_HINTS):
             return urljoin(base_url, href)
     return None
+
+
+_STALE_COPYRIGHT_YEARS = 3  # a copyright year this many+ behind today reads as unmaintained
+_COPYRIGHT_RE = re.compile(r"(?:©|\(c\)|copyright)\s*(\d{4})", re.I)
+_THIN_PAGE_BYTES = 3000  # near-empty template/placeholder page
+
+
+def assess_site_quality(html, final_url):
+    """Free, code-only staleness heuristic for a has_website prospect's own
+    site — reuses HTML already fetched elsewhere in this module (no extra
+    request). No vision call, no screenshot; see docs/outreach-pipeline-spec.md
+    Section 3's retired vision checklist for why that approach was dropped,
+    and Section 5's scoring writeup for how this replaces it more cheaply.
+
+    Deliberately conservative: only "modern" gets rewarded confidently, and
+    the signals below are chosen to be low-false-positive (a real 2020s
+    template almost always has a viewport meta tag and HTTPS) rather than
+    an exhaustive design-quality judgment. Returns "modern" / "dated" /
+    "unknown" — never raises.
+    """
+    if not html:
+        return "unknown"
+
+    signals = 0
+    html_lower = html.lower()
+
+    if "viewport" not in html_lower:
+        signals += 1
+
+    if final_url and final_url.lower().startswith("http://"):
+        signals += 1
+
+    match = _COPYRIGHT_RE.search(html)
+    if match:
+        try:
+            year = int(match.group(1))
+            if year <= datetime.utcnow().year - _STALE_COPYRIGHT_YEARS:
+                signals += 1
+        except ValueError:
+            pass
+
+    if len(html) < _THIN_PAGE_BYTES:
+        signals += 1
+
+    if signals == 0:
+        return "modern"
+    if signals >= 2:
+        return "dated"
+    return "unknown"  # exactly one weak signal — not confident either way
+
+
+def fetch_and_assess_quality(website):
+    """Fetch a prospect's own site and return a website_quality value to
+    store on the Prospect row: "modern" / "dated" / "unreachable" / "unknown".
+    Never raises — same never-crash contract as scrape_website_email().
+
+    "unreachable" is deliberately narrow (DNS/connection failure only, not
+    a timeout or non-200 status) — those are also consistent with a site
+    that works fine for a human but blocks this scraper's user agent, and
+    conflating the two would misclassify a real, working site as broken.
+    """
+    if not website:
+        return "unknown"
+    try:
+        final_url, html = _fetch(website)
+    except (requests.ConnectionError, requests.exceptions.SSLError) as e:
+        logger.info("Site unreachable for quality check %s: %s", website, e)
+        return "unreachable"
+    except Exception as e:
+        logger.info("Site quality fetch failed for %s: %s", website, e)
+        return "unknown"
+    return assess_site_quality(html, final_url)
 
 
 def scrape_website_email(website):

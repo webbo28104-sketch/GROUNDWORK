@@ -77,15 +77,37 @@ A real, unexpected finding from testing this: WebSearch sometimes surfaces a gen
 
 ## 5. Scoring (0–100, applied after gates + website check)
 
+**Redesigned 2026-07-18** after a full audit of what the live data actually looks like, prompted by a direct challenge to the original model's assumptions: does a high review count really mean a *better* prospect, and should having a website score any points at all? Querying the production `prospects` table (684 rows at the time) against the original 5-factor model found two real, evidence-backed problems, not just theoretical ones:
+
+1. **`review_count`'s bucket edges (0 / 1 / 2–5 / 6+) didn't match the real distribution.** Real median review_count is **50** (IQR 19–108, max 964) — not single digits. 622 of 678 prospects (91.7%) already cleared the old "6+" ceiling, so this factor was maxed out for nearly the entire pool and differentiated almost nothing.
+2. **The direction was backwards.** Grouping by `website_status`: `no_website` prospects have a median review_count of **21**; `has_website_modern` prospects have a median of **91** (~4x higher). High review count correlates with *already having invested in a better web presence*, not with wanting to invest in one now. Rewarding more reviews with more points was pushing the least-likely-to-convert segment to the top of the queue.
+
+`rating` had a milder version of the same problem — 600/678 prospects (88.5%) are already 4.8+, so the old 4.5+ cutoff barely differentiated within the qualified pool. And `team_size`'s heuristic (`"ltd"` in the business name AND review_count > 100) only matched 30% of prospects and had no real evidentiary basis — dropped.
+
+**What changed:**
+
+| Factor | Old max | New max | Why |
+|---|---|---|---|
+| Website status | 25 | **40** | The single most direct "do they need this" signal — increased weight, and no longer a flat 10 for every `has_website` row (see below) |
+| Trade tier | 20 | 20 | Unchanged — no evidence against it |
+| Review count | 15 | 20 | Same weight-ish, but rebuilt as non-monotonic (see below) — this is where team_size's 10pts and part of rating's cut went |
+| Rating | 30 | 20 | Reduced — real distribution barely differentiates within the qualified pool; still a legitimacy signal, just not a primary predictor |
+| Team size | 10 | 0 (removed) | Unreliable string-match proxy, no real basis; folded into review count |
+
 | Factor | Max pts | Breakdown |
 |---|---|---|
-| Rating | 30 | 4.0–4.4 = 15, 4.5+ = 30 |
-| Website status | 25 | no_website = 25, has_website = 10 (flat — binary check only, no dated/modern distinction; legacy rows scored has_website_dated = 20 / has_website_modern = 0 still supported) |
+| Website status | 40 | `no_website` = 40. `has_website` now reads a free staleness heuristic (`website_quality`, see below) instead of a flat value: `unreachable` (their own site doesn't load) = 38, `dated` = 24, `modern` = 6, not-yet-checked = 14. Legacy vision-judged rows: `has_website_dated` = 30, `has_website_modern` = 4 |
 | Trade type tier | 20 | High = 20, Medium = 12, Low = 5 (see Section 6) |
-| Review count | 15 | 1 review = 3, 2–5 = 8, 6+ = 15 |
-| Team size signal | 10 | Solo/small = 10 |
+| Review count | 20 | Non-monotonic — 0 = 4, 1–9 = 14, 10–49 = 20 (sweet spot), 50–149 = 10, 150+ = 4. Rewards proof of being real/active without rewarding scale, per the finding above |
+| Rating | 20 | <4.3 = 6, 4.3–4.6 = 12, 4.6–4.8 = 16, 4.8+ = 20 (bucket edges reset to match the real distribution, not the old 4.0/4.5 cutoffs) |
+
+**`website_quality` — a free replacement for the retired vision check.** Section 3's dated/modern vision judgment was deleted for cost in an earlier pass, leaving every `has_website` prospect scored identically regardless of whether their site is actually a 2026 template or a broken GeoCities-era stub — exactly the differentiation this factor most needs. Rather than pay for vision again, `outreach/email_scrape.py:assess_site_quality()` reads the HTML Tier 1 email discovery already fetches (or a dedicated fetch at sourcing time, `outreach/pipeline.py:_queue_pending`, if Tier 1 hasn't run yet) and checks four low-false-positive signals: missing viewport meta tag, plain HTTP instead of HTTPS, a stale copyright year (3+ years behind), and a suspiciously thin page (<3KB). Zero or one signal → `modern`/`unknown`; two or more → `dated`. A connection/DNS failure specifically (not a timeout or non-200, which could just mean the scraper's user-agent got blocked) → `unreachable`. Stored once on the `Prospect` row, never fetched live at score time — `score_prospect()` stays a pure function safe to call on every admin page render. See `outreach/rescore_all.py` for the one-off backfill that applied this to the existing prospect pool alongside the new weights.
 
 Take the top N by score from the day's qualified, email-found pool, where N is the current ramp allowance (see Section 15). Selection is automated — no manual approval step. No regional/trade caps.
+
+**Honest limitation:** this redesign is reasoned from the real *input data* distribution (rating/review_count/website_status), not from real *outcome* data — at the time of this audit the pipeline had only 20 sends, 1 click, 0 paid conversions, far below the 30-outcome minimum Section 5b already requires before trusting a correlation. Section 5b's adaptive feedback loop is the mechanism that will eventually confirm or correct these weights against real click/paid behavior — this pass fixes concrete, demonstrable bugs (stale bucket edges, backwards-direction reward, a flat score hiding a differentiable signal) rather than claiming to have found the provably optimal weights.
+
+**Also audited, not currently usable:** `google_photos_count`, `opening_hours_complete`, `competitor_density`, and `email_domain_type` are all documented schema fields but are 100% unpopulated in production — the sourcing pipeline declares them but never writes them. They're not part of this scoring redesign; wiring them up (photo count and opening-hours completeness are already returned by the Places API call being made today, just not read into the row) is a reasonable future follow-up but out of scope here.
 
 ---
 
@@ -494,6 +516,7 @@ Built and tested (`app.py:unsubscribe`, `outreach/send_job.py`, `emails.py`):
 | `google_photos_count` | Integer | Photo count from Places API — proxy for how professionally the business presents itself online |
 | `opening_hours_complete` | Boolean | Whether Places API returns complete opening hours — signal of profile investment |
 | `website_status` | String | `no_website` / `has_website` — set for free, directly off Places' own website field, at sourcing time (`outreach/pipeline.py`). No screenshot or Cowork vision judgment call. Legacy rows may still carry `has_website_dated` / `has_website_modern` from before this change; `outreach/scorer.py` still scores those values, they're just no longer written going forward. |
+| `website_quality` | String | `modern` / `dated` / `unreachable` / null (not checked) — free code-only staleness heuristic for `has_website` prospects, computed once at sourcing time (`outreach/email_scrape.py:fetch_and_assess_quality`, added 2026-07-18 alongside the Section 5 scoring redesign). Read by `outreach/scorer.py`, never fetched live. |
 | `vision_flag_layout` | Boolean | Unused since the vision-judgment step was replaced by the binary website check above. Column kept on the schema for potential future use, not populated by the current pipeline. Vision checklist item 1 (fixed/non-responsive layout) |
 | `vision_flag_design` | Boolean | Unused, see above. Vision checklist item 2: outdated design cues |
 | `vision_flag_cta` | Boolean | Unused, see above. Vision checklist item 3: no clear call-to-action |
