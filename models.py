@@ -465,6 +465,7 @@ def init_db():
     _ensure_column(SearchCell.__tablename__, "results_found", "INTEGER DEFAULT 0")
     _ensure_column(PendingVisionCheck.__tablename__, "screenshot_path", "VARCHAR(500)")
     _ensure_column(PendingEmailDiscovery.__tablename__, "website", "VARCHAR(500)")
+    _ensure_column(RampState.__tablename__, "consecutive_clean_days", "INTEGER DEFAULT 0")
 
 
 def _ensure_column(table_name: str, column_name: str, ddl_type: str) -> None:
