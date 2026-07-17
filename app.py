@@ -22,7 +22,7 @@ from urllib.parse import urlparse as _urlparse
 import anthropic
 import stripe
 from PIL import Image, ImageDraw, ImageFilter
-from flask import Flask, request, jsonify, send_from_directory, session, redirect, url_for, render_template_string
+from flask import Flask, request, jsonify, send_from_directory, session, redirect, url_for, render_template_string, abort
 from flask_cors import CORS
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from markupsafe import escape
@@ -4340,6 +4340,221 @@ def admin_outreach():
     return render_template_string(_admin_page("Outreach queue", _ADMIN_OUTREACH_CONTENT, active="outreach"))
 
 
+def _prospect_score_breakdown(p):
+    """Re-derive the per-factor point breakdown behind Prospect.score, using
+    the same private helpers outreach/scorer.py's score_prospect() calls —
+    so this can never silently drift from the actual scoring logic."""
+    from outreach import scorer
+    return [
+        ("Rating", f"{p.rating:.1f}" if p.rating is not None else "—", scorer._rating_points(p.rating), 30),
+        ("Website status", p.website_status or "—", scorer._website_points(p.website_status), 25),
+        ("Trade tier", p.trade_tier or "—", scorer._tier_points(p.trade_tier), 20),
+        ("Review count", p.review_count if p.review_count is not None else "—", scorer._review_points(p.review_count), 15),
+        ("Team size signal", "—", scorer._team_size_points(p.business_name, p.review_count), 10),
+    ]
+
+
+def _fmt_dt(dt):
+    return dt.strftime("%d %b %Y, %H:%M UTC") if dt else None
+
+
+def _elapsed(a, b):
+    """Human-readable gap between two datetimes (b after a), or None if
+    either is missing."""
+    if not a or not b:
+        return None
+    secs = (b - a).total_seconds()
+    if secs < 0:
+        return None
+    if secs < 3600:
+        return f"{int(secs // 60)}m"
+    if secs < 86400:
+        return f"{secs / 3600:.1f}h"
+    return f"{secs / 86400:.1f}d"
+
+
+@app.route("/admin/prospects/<int:prospect_id>")
+@admin_required
+def admin_prospect_detail(prospect_id):
+    """Full context on one prospect — score breakdown, funnel timeline,
+    every touch, every email/SMS delivery event, and the generation/lead
+    it produced if it clicked. Built so contextualizing a click or
+    conversion is a page load, not a DB query someone has to ask for."""
+    db = SessionLocal()
+    try:
+        p = db.query(Prospect).filter(Prospect.id == prospect_id).first()
+        if not p:
+            abort(404)
+
+        score_rows = _prospect_score_breakdown(p)
+        score_rows_html = "".join(
+            f'<tr><td style="padding:6px 10px;">{escape(str(label))}</td>'
+            f'<td style="padding:6px 10px;color:#5C5A56;">{escape(str(val))}</td>'
+            f'<td style="padding:6px 10px;text-align:right;font-weight:700;">{pts}</td>'
+            f'<td style="padding:6px 10px;text-align:right;color:#9A9893;">/ {maxpts}</td></tr>'
+            for label, val, pts, maxpts in score_rows
+        )
+
+        timeline_steps = [
+            ("Sourced", p.created_at),
+            ("Email/vision processed", p.processed_at),
+            ("Approved", p.approved_at),
+            ("Sent", p.sent_at),
+            ("Opened", p.opened_at),
+            ("Clicked (site generated)", p.clicked_at),
+            ("Account created", p.account_created_at),
+            ("Paid", p.paid_at),
+        ]
+        timeline_rows_html = ""
+        prev_dt = None
+        for label, dt in timeline_steps:
+            if dt is None:
+                timeline_rows_html += (
+                    f'<tr style="opacity:.45;"><td style="padding:6px 10px;">{escape(label)}</td>'
+                    f'<td style="padding:6px 10px;" colspan="2">— not reached —</td></tr>'
+                )
+                continue
+            gap = _elapsed(prev_dt, dt)
+            gap_html = f'<span style="color:#9A9893;"> (+{gap} later)</span>' if gap else ""
+            timeline_rows_html += (
+                f'<tr><td style="padding:6px 10px;font-weight:600;">{escape(label)}</td>'
+                f'<td style="padding:6px 10px;" colspan="2">{_fmt_dt(dt)}{gap_html}</td></tr>'
+            )
+            prev_dt = dt
+
+        touches = db.query(OutreachTouch).filter(
+            OutreachTouch.prospect_id == p.id
+        ).order_by(OutreachTouch.sent_at).all()
+        touches_html = "".join(
+            f'<tr><td style="padding:6px 10px;">{escape(t.stage)}</td>'
+            f'<td style="padding:6px 10px;">{escape(t.channel)}</td>'
+            f'<td style="padding:6px 10px;">{_fmt_dt(t.sent_at)}</td></tr>'
+            for t in touches
+        ) or '<tr><td colspan="3" style="padding:10px;color:#9A9893;">No logged touches (may predate the OutreachTouch table, added 2026-07-14).</td></tr>'
+
+        email_events_html = ""
+        if p.email:
+            events = db.query(EmailEventLog).filter(
+                func.lower(EmailEventLog.to_email).like(f"%{p.email.lower()}%")
+            ).order_by(EmailEventLog.created_at).all()
+            email_events_html = "".join(
+                f'<tr><td style="padding:6px 10px;">{escape(e.event_type or "—")}</td>'
+                f'<td style="padding:6px 10px;">{_fmt_dt(e.created_at)}</td></tr>'
+                for e in events
+            ) or '<tr><td colspan="2" style="padding:10px;color:#9A9893;">No Resend events logged for this address.</td></tr>'
+
+        sms_events_html = ""
+        if p.phone:
+            sms_events = db.query(SmsDeliveryEvent).filter(
+                SmsDeliveryEvent.to_phone == p.phone
+            ).order_by(SmsDeliveryEvent.created_at).all()
+            sms_events_html = "".join(
+                f'<tr><td style="padding:6px 10px;">{escape(s.status or "—")}</td>'
+                f'<td style="padding:6px 10px;">{_fmt_dt(s.created_at)}</td></tr>'
+                for s in sms_events
+            ) or '<tr><td colspan="2" style="padding:10px;color:#9A9893;">No SMS delivery events logged for this number.</td></tr>'
+
+        generation = None
+        lead = None
+        if p.lead_id:
+            lead = db.query(Lead).filter(Lead.id == p.lead_id).first()
+            generation = db.query(Generation).filter(Generation.lead_id == p.lead_id).first()
+
+        generation_html = '<p class="muted">No claim yet — magic link not clicked.</p>'
+        if lead:
+            gen_links = ""
+            if generation:
+                gen_links = (
+                    f'<a href="/admin/generations/{generation.id}/html" target="_blank">View generated site</a> · '
+                    f'<a href="/admin/generations/{generation.id}/form-data" target="_blank">Raw form data</a>'
+                    f'<p class="muted" style="margin:8px 0 0;">Status: <b style="color:#1C1C1C;">{escape(generation.status)}</b> · created {_fmt_dt(generation.created_at)}</p>'
+                )
+            else:
+                gen_links = '<p class="muted">Lead exists but no Generation row yet — likely still generating or failed.</p>'
+            generation_html = f'<p style="margin:0 0 6px;">Lead <code>{escape(lead.public_id)}</code></p>{gen_links}'
+
+        magic_link = f"{SITE_URL}/claim/{p.token}" if p.token else "—"
+        short_link = f"{SITE_URL}/s/{p.short_code}" if p.short_code else "—"
+
+        facts = [
+            ("Trade", p.trade), ("Trade tier", p.trade_tier),
+            ("Location", p.location), ("Postcode area", p.postcode_area),
+            ("Rating", f"{p.rating} ({p.review_count} reviews)" if p.rating else None),
+            ("Business status", p.business_status),
+            ("Website", p.website), ("Website status", p.website_status),
+            ("Phone", p.phone),
+            ("Email", p.email), ("Email source", p.email_source),
+            ("Email domain type", p.email_domain_type),
+            ("Competitor density", p.competitor_density),
+            ("Google photos count", p.google_photos_count),
+            ("Opening hours complete", p.opening_hours_complete),
+            ("Funnel stage", p.funnel_stage), ("Funnel substage", p.funnel_substage),
+            ("Touch count", p.touch_count),
+            ("Extraction quality", p.extraction_quality),
+            ("Email unsubscribed", "Yes" if p.email_unsubscribed else "No"),
+            ("SMS unsubscribed", "Yes" if p.sms_unsubscribed else "No"),
+            ("Sent day-of-week / hour", f"{p.sent_at_dow} / {p.sent_at_hour}" if p.sent_at_dow is not None else None),
+        ]
+        facts_html = "".join(
+            f'<tr><td style="padding:6px 10px;color:#9A9893;">{escape(k)}</td>'
+            f'<td style="padding:6px 10px;">{escape(str(v))}</td></tr>'
+            for k, v in facts if v not in (None, "")
+        )
+
+        content = f"""
+<a href="/admin/funnel" style="font-size:13px;color:#807E79;text-decoration:none;">&larr; Back to Funnel</a>
+<h1 class="adm-title" style="margin-top:8px;">{escape(p.business_name or "Unknown business")}</h1>
+<p class="adm-sub">Prospect #{p.id} · Score <b style="color:#1C1C1C;">{p.score if p.score is not None else "—"}</b></p>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px;">
+  <div class="adm-card" style="padding:16px 20px;">
+    <p style="font-weight:700;margin:0 0 10px;">Score breakdown</p>
+    <table style="width:100%;border-collapse:collapse;font-size:13.5px;">{score_rows_html}</table>
+  </div>
+  <div class="adm-card" style="padding:16px 20px;">
+    <p style="font-weight:700;margin:0 0 10px;">Prospect facts</p>
+    <table style="width:100%;border-collapse:collapse;font-size:13.5px;">{facts_html}</table>
+  </div>
+</div>
+
+<div class="adm-card" style="padding:16px 20px;margin-bottom:20px;">
+  <p style="font-weight:700;margin:0 0 10px;">Funnel timeline</p>
+  <table style="width:100%;border-collapse:collapse;font-size:13.5px;">{timeline_rows_html}</table>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px;">
+  <div class="adm-card" style="padding:16px 20px;">
+    <p style="font-weight:700;margin:0 0 10px;">Touches sent</p>
+    <table style="width:100%;border-collapse:collapse;font-size:13.5px;">
+      <thead><tr style="color:#9A9893;font-size:11px;text-transform:uppercase;">
+        <th style="text-align:left;padding:6px 10px;">Stage</th><th style="text-align:left;padding:6px 10px;">Channel</th><th style="text-align:left;padding:6px 10px;">Sent</th>
+      </tr></thead>
+      <tbody>{touches_html}</tbody>
+    </table>
+  </div>
+  <div class="adm-card" style="padding:16px 20px;">
+    <p style="font-weight:700;margin:0 0 10px;">Email delivery events</p>
+    <table style="width:100%;border-collapse:collapse;font-size:13.5px;"><tbody>{email_events_html}</tbody></table>
+    {f'<p style="font-weight:700;margin:16px 0 10px;">SMS delivery events</p><table style="width:100%;border-collapse:collapse;font-size:13.5px;"><tbody>{sms_events_html}</tbody></table>' if p.phone else ""}
+  </div>
+</div>
+
+<div class="adm-card" style="padding:16px 20px;margin-bottom:20px;">
+  <p style="font-weight:700;margin:0 0 10px;">Magic link</p>
+  <p style="margin:0 0 4px;font-size:13.5px;"><a href="{escape(magic_link)}" target="_blank">{escape(magic_link)}</a></p>
+  <p style="margin:0;font-size:13.5px;color:#9A9893;">Short link: <a href="{escape(short_link)}" target="_blank">{escape(short_link)}</a></p>
+</div>
+
+<div class="adm-card" style="padding:16px 20px;">
+  <p style="font-weight:700;margin:0 0 10px;">Generated site</p>
+  {generation_html}
+</div>
+"""
+        return render_template_string(_admin_page(escape(p.business_name or "Prospect"), content, active="funnel"))
+    finally:
+        db.close()
+
+
 _KPI_INSTRUMENTATION_START = datetime(2026, 7, 14)
 
 
@@ -4377,13 +4592,28 @@ def _compute_kpis(db, range_from: datetime = None, range_to: datetime = None) ->
 
     # 1. Emails sent in the period — DailySendCount, not OutreachTouch
     # (confirmed the right source in the earlier Funnel-dashboard investigation:
-    # it has real history predating OutreachTouch's creation).
+    # it has real history predating OutreachTouch's creation). DailySendCount
+    # counts send *attempts*, recorded by record_sends() at dispatch time,
+    # before Resend has any chance to report a bounce back — so it always
+    # includes addresses that immediately hard-bounced. A bounce is not a
+    # successfully sent email (the message never reached an inbox), so this
+    # KPI subtracts distinct bounced-address events (EmailEventLog) logged
+    # within the same period. Real incident that prompted this: the first
+    # production batch (2026-07-16) showed 10 attempted / 3 bounced, and the
+    # dashboard reported "10 emails sent" — overstating actual delivered
+    # volume by 43%.
     email_rows = db.query(DailySendCount).filter(
         DailySendCount.channel == "email",
         DailySendCount.send_date >= period_start_str,
         DailySendCount.send_date <= period_end_str,
     ).all()
-    emails_sent = sum(r.count for r in email_rows)
+    emails_attempted = sum(r.count for r in email_rows)
+    bounced_n = db.query(EmailEventLog.resend_email_id).filter(
+        EmailEventLog.event_type.in_(["email.bounced", "bounced"]),
+        EmailEventLog.created_at >= period_start,
+        EmailEventLog.created_at <= period_end,
+    ).distinct().count()
+    emails_sent = max(0, emails_attempted - bounced_n)
 
     # 2. Magic link click rate (aggregate, not per-stage) — Prospect.sent_at
     # vs clicked_at, both real fields with history predating today's fixes.
@@ -4469,6 +4699,8 @@ def _compute_kpis(db, range_from: datetime = None, range_to: datetime = None) ->
         "period_label": period_label,
         "emails_sent_month": {
             "value": emails_sent,
+            "attempted": emails_attempted,
+            "bounced": bounced_n,
             "month_label": period_label,
         },
         "click_rate": {
@@ -4513,7 +4745,10 @@ def _render_kpi_strip(kpis: dict) -> str:
     ch = kpis["churn_rate"]
 
     tiles = ""
-    tiles += tile("Emails sent / month", str(e["value"]), e["month_label"])
+    sent_sub = e["month_label"]
+    if e["bounced"]:
+        sent_sub = f'{e["month_label"]} · {e["attempted"]} attempted, {e["bounced"]} bounced'
+    tiles += tile("Emails sent / month", str(e["value"]), sent_sub)
     tiles += tile(
         "Magic link click rate",
         f'{c["pct"]}%' if c["pct"] is not None else "—",
@@ -4689,6 +4924,44 @@ def admin_funnel():
         kpi_strip = _render_kpi_strip(_compute_kpis(db))
         extraction_quality_breakdown = _render_extraction_quality_breakdown(db)
 
+        # Recent clicks — every prospect who has clicked their magic link,
+        # most recent first, with enough context to see WHY at a glance
+        # (score, trade, source, time-to-click) without a drill-down. Links
+        # to /admin/prospects/<id> for the full picture.
+        recent_clicked = db.query(Prospect).filter(
+            Prospect.clicked_at.isnot(None)
+        ).order_by(Prospect.clicked_at.desc()).limit(25).all()
+        recent_clicks_rows = "".join(
+            f'<tr>'
+            f'<td style="padding:6px 10px;"><a href="/admin/prospects/{cp.id}">{escape(cp.business_name or "—")}</a></td>'
+            f'<td style="padding:6px 10px;">{escape(cp.trade or "—")}</td>'
+            f'<td style="padding:6px 10px;text-align:right;">{cp.score if cp.score is not None else "—"}</td>'
+            f'<td style="padding:6px 10px;">{escape(cp.website_status or "—")}</td>'
+            f'<td style="padding:6px 10px;">{escape(cp.email_source or "—")}</td>'
+            f'<td style="padding:6px 10px;">{_elapsed(cp.sent_at, cp.clicked_at) or "—"}</td>'
+            f'<td style="padding:6px 10px;">{_fmt_dt(cp.clicked_at)}</td>'
+            f'<td style="padding:6px 10px;">{"Paid" if cp.paid_at else ("Account created" if cp.account_created_at else "Not converted")}</td>'
+            f'</tr>'
+            for cp in recent_clicked
+        ) or '<tr><td colspan="8" style="padding:10px;color:#9A9893;">No clicks yet.</td></tr>'
+        recent_clicks_html = f"""
+<h2 style="font-size:15px;font-weight:700;margin:28px 0 10px;">Recent clicks ({len(recent_clicked)})</h2>
+<div class="adm-card" style="overflow-x:auto;">
+<table style="width:100%;border-collapse:collapse;font-size:13.5px;">
+<thead><tr style="color:#9A9893;font-size:11px;text-transform:uppercase;border-bottom:1px solid #E6E3DC;">
+  <th style="text-align:left;padding:6px 10px;">Business</th>
+  <th style="text-align:left;padding:6px 10px;">Trade</th>
+  <th style="text-align:right;padding:6px 10px;">Score</th>
+  <th style="text-align:left;padding:6px 10px;">Website</th>
+  <th style="text-align:left;padding:6px 10px;">Email source</th>
+  <th style="text-align:left;padding:6px 10px;">Time to click</th>
+  <th style="text-align:left;padding:6px 10px;">Clicked</th>
+  <th style="text-align:left;padding:6px 10px;">Outcome</th>
+</tr></thead>
+<tbody>{recent_clicks_rows}</tbody>
+</table>
+</div>"""
+
         rows_html = ""
         any_sent_at_all = False
 
@@ -4818,6 +5091,8 @@ necessarily that specific one (opened_at is a single per-prospect timestamp, not
 
 <h2 style="font-size:15px;font-weight:700;margin:28px 0 10px;">Currently in the pipeline ({total_in_pipeline})</h2>
 <div class="statsbar" style="justify-content:flex-start;text-align:left;">{summary_html}</div>
+
+{recent_clicks_html}
 
 {extraction_quality_breakdown}
 """
