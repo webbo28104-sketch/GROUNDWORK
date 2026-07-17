@@ -6125,6 +6125,7 @@ def outreach_get_apply_email():
         return denied
 
     from outreach.email_discovery import is_valid_email, looks_like_guess
+    from outreach.email_verify import has_deliverable_domain
 
     try:
         prospect_id = int(request.args.get("prospect_id", ""))
@@ -6152,6 +6153,19 @@ def outreach_get_apply_email():
                         "Add &force=true to override."
                     )
                 }), 422
+            # Added 2026-07-18 — this GET endpoint predates the MX-check work
+            # done elsewhere in the pipeline (outreach/apply_result.py's CLI
+            # path, outreach/send_job.py's pre-send re-check) and never got
+            # it; without this, an agent calling this endpoint directly
+            # could write a guaranteed-bounce address that only gets caught
+            # later at send time instead of right here.
+            if not force and not has_deliverable_domain(email):
+                return jsonify({
+                    "error": (
+                        f"'{email}' has no MX or A/AAAA record — mail to it would hard-bounce. "
+                        "Add &force=true to submit anyway if you're certain this is right."
+                    )
+                }), 422
             p.email = email
             p.email_source = source
             p.email_found = True
@@ -6167,6 +6181,46 @@ def outreach_get_apply_email():
             "email": p.email, "email_found": p.email_found,
             "email_row_deleted": bool(deleted),
             "funnel_stage": p.funnel_stage,
+        })
+    finally:
+        db.close()
+
+
+@app.route("/api/admin/outreach/g/update-website")
+def outreach_get_update_website():
+    """Added 2026-07-18 for the nightly WebSearch-based discovery routine's
+    website-rediscovery step (docs/outreach-pipeline-spec.md Section 4a) —
+    when Places API's website field was empty/wrong, this lets the routine
+    correct it via the same scoped-token GET pattern as the two endpoints
+    above, without needing raw database credentials. Deliberately narrow:
+    only touches `website`/`website_status`, nothing else — re-scoring
+    happens naturally the next time this prospect is finalized via
+    apply-email, not here."""
+    denied = _check_outreach_get_token()
+    if denied:
+        return denied
+
+    try:
+        prospect_id = int(request.args.get("prospect_id", ""))
+    except (ValueError, TypeError):
+        return jsonify({"error": "prospect_id must be an integer"}), 400
+
+    website = request.args.get("website", "").strip()
+    if not website or not website.lower().startswith(("http://", "https://")):
+        return jsonify({"error": "website must be a real http(s) URL"}), 400
+
+    db = SessionLocal()
+    try:
+        p = db.get(Prospect, prospect_id)
+        if not p:
+            return jsonify({"error": f"Prospect {prospect_id} not found"}), 404
+        p.website = website
+        p.website_status = "has_website"
+        db.commit()
+        return jsonify({
+            "status": "ok", "prospect_id": p.id,
+            "business_name": p.business_name, "website": p.website,
+            "website_status": p.website_status,
         })
     finally:
         db.close()
