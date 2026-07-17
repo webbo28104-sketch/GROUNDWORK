@@ -33,7 +33,13 @@ jobs:
       - name: Export fresh pending batch
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: python outreach/export_pending_batch.py --limit 20
+        # High cap, not a real limit — the point is "export the whole
+        # backlog," not "cap it at 20." 2000 comfortably covers the
+        # current ~200-prospect queue plus months of growth; the routine
+        # runs overnight with nothing else competing for its time, so it
+        # should work the full list until it's done or hits its own
+        # usage limit, not stop artificially early.
+        run: python outreach/export_pending_batch.py --limit 2000
 
       - name: Commit and push
         run: |
