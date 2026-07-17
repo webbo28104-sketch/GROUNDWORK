@@ -6090,13 +6090,31 @@ def outreach_get_pending():
     denied = _check_outreach_get_token()
     if denied:
         return denied
+
+    # Added 2026-07-18: this used to return every pending row unpaginated
+    # (up to 218+ in production) — fine for a raw JSON consumer, but the
+    # discovery routine reads this via WebFetch (the only tool that could
+    # actually reach this domain from its sandbox — see the 2026-07-18
+    # incident where raw curl/Bash got a 403 policy denial and raw-TCP
+    # Postgres was blocked outright), which runs the response through a
+    # small summarizing model rather than returning exact bytes. A 218-item
+    # JSON array through that path risks truncation/lossy relay. Capped,
+    # small default keeps what the routine actually needs (processes ~20
+    # a night) well within safe relay size.
+    try:
+        limit = min(int(request.args.get("limit", 20)), 50)
+    except (ValueError, TypeError):
+        limit = 20
+
     # Delegate to the same DB logic as the POST version.
     db = SessionLocal()
     try:
         email_rows = (
             db.query(PendingEmailDiscovery, Prospect)
             .join(Prospect, PendingEmailDiscovery.prospect_id == Prospect.id)
-            .order_by(PendingEmailDiscovery.id).all()
+            .order_by(PendingEmailDiscovery.id)
+            .limit(limit)
+            .all()
         )
         pending_email = [
             {
@@ -6110,9 +6128,10 @@ def outreach_get_pending():
             }
             for ed, p in email_rows
         ]
+        total_pending = db.query(PendingEmailDiscovery).count()
         return jsonify({
             "pending_email": pending_email,
-            "counts": {"pending_email": len(pending_email)},
+            "counts": {"returned": len(pending_email), "total_pending": total_pending},
         })
     finally:
         db.close()
