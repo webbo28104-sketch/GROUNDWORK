@@ -6226,6 +6226,58 @@ def outreach_get_update_website():
         db.close()
 
 
+@app.route("/api/admin/outreach/g/log-run", methods=["GET", "POST"])
+def outreach_get_log_run():
+    """Added 2026-07-18 — lets the nightly discovery routine log its own
+    summary via the same scoped token, rather than relying on someone
+    manually reading its final chat output. Powers /admin/discovery.
+    Accepts GET (query string) or POST (JSON body) — GET for parity with
+    the other g/ endpoints (simple for a curl-only agent), POST because
+    `sources` is a JSON object and query strings are an awkward place for
+    that if the caller prefers a real body."""
+    denied = _check_outreach_get_token()
+    if denied:
+        return denied
+
+    if request.method == "POST":
+        data = request.get_json(silent=True) or {}
+    else:
+        data = request.args
+
+    def _int(key):
+        try:
+            return int(data.get(key, 0))
+        except (ValueError, TypeError):
+            return 0
+
+    sources_raw = data.get("sources")
+    source_breakdown = None
+    if sources_raw:
+        if isinstance(sources_raw, dict):
+            source_breakdown = sources_raw
+        else:
+            try:
+                source_breakdown = json.loads(sources_raw)
+            except (ValueError, TypeError):
+                source_breakdown = None
+
+    db = SessionLocal()
+    try:
+        log = DiscoveryRunLog(
+            processed_n=_int("processed"),
+            found_n=_int("found"),
+            website_rediscovered_n=_int("website_rediscovered"),
+            finalized_null_n=_int("finalized_null"),
+            source_breakdown=source_breakdown,
+            notes=(data.get("notes") or "").strip()[:1000] or None,
+        )
+        db.add(log)
+        db.commit()
+        return jsonify({"status": "ok", "run_id": log.id, "run_at": log.run_at.isoformat()})
+    finally:
+        db.close()
+
+
 @app.route("/api/generate/<job_id>/status")
 def job_status(job_id):
     with _jobs_lock:
