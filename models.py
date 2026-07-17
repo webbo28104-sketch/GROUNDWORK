@@ -91,6 +91,25 @@ class Generation(Base):
     # automatic status change.
     refunded_at = Column(DateTime, nullable=True)
 
+    # View/engagement tracking (added 2026-07-18) — closes the "clicked the
+    # magic link, then what?" gap. Bumped on every real serve of the
+    # generated HTML (GET /api/generate/<id>/html — see app.py's
+    # _record_generation_view), so this applies retroactively to every
+    # existing generation the next time its link is opened, not just future
+    # ones (the injected tracking script lives in _inject_watermark(), which
+    # already dynamically rewrites stored HTML at serve time rather than
+    # baking anything in — same mechanism the watermark itself uses).
+    view_count = Column(Integer, nullable=False, default=0)
+    first_viewed_at = Column(DateTime, nullable=True)
+    last_viewed_at = Column(DateTime, nullable=True)
+    # Cumulative seconds across every visit (sendBeacon reports a delta
+    # since its last report, not total-since-load, so tab-switching in and
+    # out doesn't double-count — see the injected script in _inject_watermark).
+    total_view_seconds = Column(Integer, nullable=False, default=0)
+    # Deepest scroll position ever recorded, all-time across every visit
+    # (0-100) — not per-visit history, which would need its own table.
+    max_scroll_pct = Column(Integer, nullable=False, default=0)
+
     lead = relationship("Lead", back_populates="generations")
 
 
@@ -424,6 +443,11 @@ def init_db():
     _ensure_column(Generation.__tablename__, "subscription_period_end", "TIMESTAMP")
     _ensure_column(Generation.__tablename__, "retention_offer_used_at", "TIMESTAMP")
     _ensure_column(Generation.__tablename__, "refunded_at", "TIMESTAMP")
+    _ensure_column(Generation.__tablename__, "view_count", "INTEGER NOT NULL DEFAULT 0")
+    _ensure_column(Generation.__tablename__, "first_viewed_at", "TIMESTAMP")
+    _ensure_column(Generation.__tablename__, "last_viewed_at", "TIMESTAMP")
+    _ensure_column(Generation.__tablename__, "total_view_seconds", "INTEGER NOT NULL DEFAULT 0")
+    _ensure_column(Generation.__tablename__, "max_scroll_pct", "INTEGER NOT NULL DEFAULT 0")
     _ensure_column(Domain.__tablename__, "registered_at", "TIMESTAMP")
     _ensure_column(Domain.__tablename__, "dns_configured_at", "TIMESTAMP")
     _ensure_column(Domain.__tablename__, "railway_connected_at", "TIMESTAMP")

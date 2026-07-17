@@ -4681,10 +4681,21 @@ def admin_prospect_detail(prospect_id):
         if lead:
             gen_links = ""
             if generation:
+                if generation.view_count:
+                    avg_seconds = round(generation.total_view_seconds / generation.view_count) if generation.view_count else 0
+                    view_stats_html = (
+                        f'<p class="muted" style="margin:6px 0 0;">'
+                        f'<b style="color:#1C1C1C;">{generation.view_count}</b> view(s) · '
+                        f'first {_fmt_dt(generation.first_viewed_at)} · last {_fmt_dt(generation.last_viewed_at)} · '
+                        f'~{avg_seconds}s avg time on page · deepest scroll {generation.max_scroll_pct}%</p>'
+                    )
+                else:
+                    view_stats_html = '<p class="muted" style="margin:6px 0 0;">Never actually viewed — generated but the link hasn\'t been opened (or was opened before this tracking existed and not since).</p>'
                 gen_links = (
                     f'<a href="/admin/generations/{generation.id}/html" target="_blank">View generated site</a> · '
                     f'<a href="/admin/generations/{generation.id}/form-data" target="_blank">Raw form data</a>'
                     f'<p class="muted" style="margin:8px 0 0;">Status: <b style="color:#1C1C1C;">{escape(generation.status)}</b> · created {_fmt_dt(generation.created_at)}</p>'
+                    f'{view_stats_html}'
                 )
             else:
                 gen_links = '<p class="muted">Lead exists but no Generation row yet — likely still generating or failed.</p>'
@@ -5217,6 +5228,18 @@ def admin_funnel():
         recent_clicked = db.query(Prospect).filter(
             Prospect.clicked_at.isnot(None)
         ).order_by(Prospect.clicked_at.desc()).limit(25).all()
+        recent_lead_ids = [cp.lead_id for cp in recent_clicked if cp.lead_id is not None]
+        gen_by_lead_id = {
+            g.lead_id: g for g in db.query(Generation).filter(Generation.lead_id.in_(recent_lead_ids)).all()
+        } if recent_lead_ids else {}
+
+        def _viewed_cell(cp):
+            gen = gen_by_lead_id.get(cp.lead_id)
+            if not gen or not gen.view_count:
+                return '<span style="color:#9A9893;">Never viewed</span>'
+            avg_s = round(gen.total_view_seconds / gen.view_count) if gen.view_count else 0
+            return f'{gen.view_count}x · ~{avg_s}s avg · scroll {gen.max_scroll_pct}%'
+
         recent_clicks_rows = "".join(
             f'<tr>'
             f'<td style="padding:6px 10px;"><a href="/admin/prospects/{cp.id}">{escape(cp.business_name or "—")}</a></td>'
@@ -5226,10 +5249,11 @@ def admin_funnel():
             f'<td style="padding:6px 10px;">{escape(cp.email_source or "—")}</td>'
             f'<td style="padding:6px 10px;">{_elapsed(cp.sent_at, cp.clicked_at) or "—"}</td>'
             f'<td style="padding:6px 10px;">{_fmt_dt(cp.clicked_at)}</td>'
+            f'<td style="padding:6px 10px;">{_viewed_cell(cp)}</td>'
             f'<td style="padding:6px 10px;">{"Paid" if cp.paid_at else ("Account created" if cp.account_created_at else "Not converted")}</td>'
             f'</tr>'
             for cp in recent_clicked
-        ) or '<tr><td colspan="8" style="padding:10px;color:#9A9893;">No clicks yet.</td></tr>'
+        ) or '<tr><td colspan="9" style="padding:10px;color:#9A9893;">No clicks yet.</td></tr>'
         recent_clicks_html = f"""
 <h2 style="font-size:15px;font-weight:700;margin:28px 0 10px;">Recent clicks ({len(recent_clicked)})</h2>
 <div class="adm-card" style="overflow-x:auto;">
@@ -5242,6 +5266,7 @@ def admin_funnel():
   <th style="text-align:left;padding:6px 10px;">Email source</th>
   <th style="text-align:left;padding:6px 10px;">Time to click</th>
   <th style="text-align:left;padding:6px 10px;">Clicked</th>
+  <th style="text-align:left;padding:6px 10px;">Viewed site?</th>
   <th style="text-align:left;padding:6px 10px;">Outcome</th>
 </tr></thead>
 <tbody>{recent_clicks_rows}</tbody>
@@ -6037,6 +6062,27 @@ def job_status(job_id):
     return jsonify({"status": "not_found"}), 404
 
 
+def _record_generation_view(job_id):
+    """Bump view_count/first_viewed_at/last_viewed_at for a real serve of
+    the generated HTML (job_html below). Wrapped so a tracking failure can
+    never break serving the actual site — that would be a much worse
+    regression than a missed view count."""
+    db = SessionLocal()
+    try:
+        gen = db.query(Generation).join(Lead).filter(Lead.public_id == job_id).first()
+        if gen:
+            now = datetime.utcnow()
+            gen.view_count = (gen.view_count or 0) + 1
+            if gen.first_viewed_at is None:
+                gen.first_viewed_at = now
+            gen.last_viewed_at = now
+            db.commit()
+    except Exception:
+        app.logger.exception("_record_generation_view failed for job_id=%s — view not counted, site serve unaffected", job_id)
+    finally:
+        db.close()
+
+
 @app.route("/api/generate/<job_id>/html")
 def job_html(job_id):
     show_toast = request.args.get("new") == "1"
@@ -6045,6 +6091,7 @@ def job_html(job_id):
     if job:
         if job["status"] != "done":
             return jsonify({"error": "not ready", "status": job["status"]}), 409
+        _record_generation_view(job_id)
         return _inject_watermark(job["html"], job_id, show_toast=show_toast), 200, {"Content-Type": "text/html; charset=utf-8"}
 
     db = SessionLocal()
@@ -6054,10 +6101,43 @@ def job_html(job_id):
             # For live sites, show the pending version in the editor preview so
             # the customer can see their accumulated change requests reflected.
             html = (gen.html_pending or gen.html_content) if gen.status == "live" else gen.html_content
+            _record_generation_view(job_id)
             return _inject_watermark(html, job_id, show_toast=show_toast), 200, {"Content-Type": "text/html; charset=utf-8"}
     finally:
         db.close()
     return jsonify({"error": "not found"}), 404
+
+
+@app.route("/api/generate/<job_id>/engagement", methods=["POST"])
+def job_engagement(job_id):
+    """Receives a navigator.sendBeacon() report from the tracking script
+    _inject_watermark() embeds in every served generation (see that
+    function) — fired on tab-hide/pagehide, reporting time spent and
+    deepest scroll reached SINCE THE LAST report (a delta, not
+    cumulative-since-load, specifically so repeated tab-switching in a
+    single visit can't inflate total_view_seconds). No auth — same-origin
+    browser beacon, nothing sensitive, worst case of abuse is noise in one
+    generation's own stats, not a security issue."""
+    data = request.get_json(silent=True) or {}
+    try:
+        seconds = max(0, min(int(data.get("seconds", 0)), 3600))
+    except (TypeError, ValueError):
+        seconds = 0
+    try:
+        scroll_pct = max(0, min(int(data.get("scroll_pct", 0)), 100))
+    except (TypeError, ValueError):
+        scroll_pct = 0
+
+    db = SessionLocal()
+    try:
+        gen = db.query(Generation).join(Lead).filter(Lead.public_id == job_id).first()
+        if gen:
+            gen.total_view_seconds = (gen.total_view_seconds or 0) + seconds
+            gen.max_scroll_pct = max(gen.max_scroll_pct or 0, scroll_pct)
+            db.commit()
+    finally:
+        db.close()
+    return "", 204
 
 
 @app.route("/api/generate/<job_id>/preserved")
@@ -8017,12 +8097,64 @@ def _inject_watermark(html: str, job_id: str, *, show_toast: bool = False) -> st
 }})();
 </script>"""
 
+    # View/engagement tracking (added 2026-07-18) — reports time-on-page and
+    # scroll depth via sendBeacon on tab-hide/pagehide, to
+    # /api/generate/<job_id>/engagement (job_engagement). Reports a DELTA
+    # since its own last report, not cumulative-since-load, so repeated
+    # tab-switching within one visit can't inflate total_view_seconds
+    # server-side (each beacon's "seconds" is added, not set). view_count
+    # itself is bumped separately, server-side only, in
+    # _record_generation_view (every real serve of this HTML) — this script
+    # only ever adds engagement depth on top of that count, never the count
+    # itself, so a beacon that never fires (JS disabled, sendBeacon
+    # unsupported) still leaves an accurate view_count, just without
+    # time/scroll detail. Applies to every generation the moment its link
+    # is next opened, including ones generated before this was added — this
+    # function already rewrites stored HTML at serve time, nothing baked
+    # into the DB row itself.
+    tracking_script = f"""<script>
+(function(){{
+  var JOB_ID = '{job_id}';
+  var lastBeaconTime = Date.now();
+  var maxScroll = 0;
+  function scrollPct(){{
+    var doc = document.documentElement;
+    var scrollable = doc.scrollHeight - doc.clientHeight;
+    if (scrollable <= 0) return 100;
+    var pct = Math.round(((window.scrollY || doc.scrollTop) / scrollable) * 100);
+    return Math.max(0, Math.min(100, pct));
+  }}
+  window.addEventListener('scroll', function(){{
+    var pct = scrollPct();
+    if (pct > maxScroll) maxScroll = pct;
+  }}, {{passive: true}});
+  function sendBeacon(){{
+    var now = Date.now();
+    var seconds = Math.round((now - lastBeaconTime) / 1000);
+    lastBeaconTime = now;
+    if (seconds <= 0 && maxScroll === 0) return;
+    var payload = JSON.stringify({{seconds: seconds, scroll_pct: maxScroll}});
+    try {{
+      if (navigator.sendBeacon) {{
+        navigator.sendBeacon('/api/generate/' + JOB_ID + '/engagement', new Blob([payload], {{type: 'application/json'}}));
+      }} else {{
+        fetch('/api/generate/' + JOB_ID + '/engagement', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: payload, keepalive: true}});
+      }}
+    }} catch (e) {{}}
+  }}
+  document.addEventListener('visibilitychange', function(){{
+    if (document.visibilityState === 'hidden') sendBeacon();
+  }});
+  window.addEventListener('pagehide', sendBeacon);
+}})();
+</script>"""
+
     robots_meta = '<meta name="robots" content="noindex, nofollow">'
 
     body_open = re.search(r"<body[^>]*>", html, re.IGNORECASE)
     if body_open:
         insert_at = body_open.end()
-        html = html[:insert_at] + watermark_bar + toast_html + html[insert_at:]
+        html = html[:insert_at] + watermark_bar + toast_html + tracking_script + html[insert_at:]
 
     head_open = re.search(r"<head[^>]*>", html, re.IGNORECASE)
     if head_open:
