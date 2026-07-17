@@ -23,7 +23,10 @@ from datetime import datetime
 from models import SessionLocal, Prospect, SmsDeliveryEvent, OutreachTouch
 from emails import send_outreach_email
 from outreach.sms import send_outreach_sms
-from outreach.templates import render_email, render_sms, PRE_CLICK_STAGES, POST_CLICK_STAGES, branding_ps_line, survey_ps_line
+from outreach.templates import (
+    render_email, render_sms, PRE_CLICK_STAGES, POST_CLICK_STAGES,
+    branding_ps_line, survey_ps_line, SURVEY_DISCOUNT_PERCENT,
+)
 from outreach.ramp import record_sends
 from outreach.link_identity import ensure_link_identity
 
@@ -102,6 +105,19 @@ def _fire_touch(db, p, stage, now, remaining_ramp, unsubscribe_link_fn, preview_
     # row (or an initial send that predates link_identity) shouldn't 404.
     ensure_link_identity(db, p)
 
+    # The survey/discount offer (added 2026-07-17, repositioned 2026-07-17)
+    # is a last-resort push for MRR, not a routine nudge — it only appears
+    # on the catch-all touch, the existing "final contact before this
+    # prospect goes cold" mechanism (14-21 days since the original send;
+    # funnel_substage -> "cold" right after). Deliberately NOT tied to
+    # Stage C/D's regular 3/2-day timing — that's the "your site's ready"
+    # nudge and stays untouched. Also requires a real generated site
+    # (clicked_at set) to exist — /survey/<token> 404s otherwise, and
+    # offering a discount on a site nobody's seen doesn't make sense; a
+    # catch-all reusing Stage A/B copy (never clicked) naturally has
+    # clicked_at=None, so this is inert for that case without extra checks.
+    is_last_contact = _is_catch_all(p, now) and p.clicked_at is not None
+
     if phone_only:
         # SMS-only track: only "sent" and "clicked_generated" are knowable
         # (no open tracking over SMS) — Stage A copy doubles as the single
@@ -109,6 +125,8 @@ def _fire_touch(db, p, stage, now, remaining_ramp, unsubscribe_link_fn, preview_
         sms_stage = "A" if stage in PRE_CLICK_STAGES else stage
         if SMS_REPLY_CAPTURE_READY and not p.sms_unsubscribed and remaining_ramp["sms"] > 0:
             body = render_sms(sms_stage, business_name=p.business_name, short_code=short_code_fn(p))
+            if is_last_contact:
+                body += f"\nLast chance: {SURVEY_DISCOUNT_PERCENT}% off setup if you tell us why: {survey_link_fn(p)}"
             sms_id = send_outreach_sms(p.phone, body)
             # send_outreach_sms returns None (doesn't raise) on failure — only
             # record a touch when a message id actually came back, same fix
@@ -126,11 +144,11 @@ def _fire_touch(db, p, stage, now, remaining_ramp, unsubscribe_link_fn, preview_
             # have no extraction_quality yet) — passing "" for A/B is inert
             # since those templates have no {branding_ps} placeholder.
             branding_ps = branding_ps_line(p.extraction_quality) if stage in POST_CLICK_STAGES else ""
-            # Same on/off pattern as branding_ps — survey_ps only ever
-            # renders non-empty for post-click stages (C/D), since only
-            # those templates carry the {survey_ps} placeholder and only a
-            # clicked prospect has a real /survey/<token> target.
-            survey_ps = survey_ps_line(survey_link_fn(p)) if stage in POST_CLICK_STAGES else ""
+            # survey_ps only renders non-empty on the last-contact (catch-all)
+            # touch — see is_last_contact's comment above. Stage A/B
+            # templates have no {survey_ps} placeholder at all, so passing ""
+            # for those is inert either way.
+            survey_ps = survey_ps_line(survey_link_fn(p)) if is_last_contact else ""
             msg = render_email(
                 stage,
                 business_name=p.business_name,
@@ -145,6 +163,8 @@ def _fire_touch(db, p, stage, now, remaining_ramp, unsubscribe_link_fn, preview_
                 email_used = 1
         if SMS_REPLY_CAPTURE_READY and not p.sms_unsubscribed and p.phone and remaining_ramp["sms"] > 0:
             body = render_sms(stage, business_name=p.business_name, short_code=short_code_fn(p))
+            if is_last_contact:
+                body += f"\nLast chance: {SURVEY_DISCOUNT_PERCENT}% off setup if you tell us why: {survey_link_fn(p)}"
             sms_id = send_outreach_sms(p.phone, body)
             if sms_id:
                 db.add(SmsDeliveryEvent(message_sid=sms_id, to_phone=p.phone, status="submitted"))

@@ -36,6 +36,7 @@ from emails import (send_verification_email, send_resend_email, send_password_re
                     send_domain_order_admin_email, send_domain_order_customer_email,
                     send_domain_setup_failed_email, send_domain_live_email)
 from outreach.reply_handling import handle_inbound_sms, handle_inbound_email, handle_forced_sms_stop
+from outreach.templates import SURVEY_DISCOUNT_PERCENT
 from outreach.ramp import (
     get_health_signal, get_remaining_ramp_today, EMAIL_SPAM_RATE_TRIGGER,
     EMAIL_BOUNCE_RATE_TRIGGER, MIN_EMAIL_SAMPLE_SIZE, CIRCUIT_BREAKER_RECOVERY_DAYS,
@@ -2468,23 +2469,27 @@ SURVEY_DISCOUNT_WINDOW_DAYS = 7
 
 
 def _issue_survey_discount_code(prospect):
-    """Generate a single-use, time-limited setup-fee-waiver code for this
-    prospect. Returns (code, expires_at). Deliberately NOT a Stripe
-    Coupon/PromotionCode — tried that first and found, against the real
-    live Stripe account, that Coupon.create's applies_to.products parameter
-    is silently dropped (the created Coupon comes back with no applies_to
-    field at all, confirmed by retrieving it straight back). A percent_off
-    coupon with no product restriction discounts every line item in the
-    Checkout Session, not just the £99 setup fee — it would have waived
-    the recurring subscription price too, a real money mistake on a live
-    account, not a theoretical one. Redemption is instead fully app-side:
-    the code and expiry are stored on Prospect.discount_code/discount_expiry
-    (existing, previously-unused schema columns) and checked in
-    create_checkout_session(), which — if the submitted code matches and
-    hasn't expired — omits the setup-fee line item entirely rather than
-    discounting it via Stripe. No live-API call, so this can't fail, and
-    the exact line item touched is never ambiguous."""
-    code = f"SETUPFREE{(prospect.token or str(prospect.id))[:8].upper()}"
+    """Generate a single-use, time-limited setup-fee-discount code for this
+    prospect. Returns (code, expires_at). SURVEY_DISCOUNT_PERCENT (50, as
+    of 2026-07-18 — was a full 100% waiver at launch, reduced since this
+    offer is a last-resort MRR push, not a routine incentive) is applied
+    in create_checkout_session() as a dynamic price_data line item, not a
+    Stripe Coupon/PromotionCode — tried that first and found, against the
+    real live Stripe account, that Coupon.create's applies_to.products
+    parameter is silently dropped (the created Coupon comes back with no
+    applies_to field at all, confirmed by retrieving it straight back). A
+    percent_off coupon with no product restriction discounts every line
+    item in the Checkout Session, not just the setup fee — it would have
+    discounted the recurring subscription too, a real money mistake on a
+    live account, not a theoretical one. Redemption is instead fully
+    app-side: the code and expiry are stored on
+    Prospect.discount_code/discount_expiry (existing, previously-unused
+    schema columns) and checked in create_checkout_session(), which — if
+    the submitted code matches and hasn't expired — swaps the setup-fee
+    line item for a discounted price_data line item rather than involving
+    Stripe's discount system at all. No live-API call here, so this can't
+    fail, and the exact amount charged is never ambiguous."""
+    code = f"SETUP{SURVEY_DISCOUNT_PERCENT}{(prospect.token or str(prospect.id))[:6].upper()}"
     expires_at = datetime.utcnow() + timedelta(days=SURVEY_DISCOUNT_WINDOW_DAYS)
     return code, expires_at
 
@@ -3255,8 +3260,8 @@ def _survey_form_page(prospect, error=None):
 <div class="acct-card">
   <h1 style="margin:0 0 6px;font-weight:800;font-size:24px;letter-spacing:-.02em;">Quick favour, {escape(prospect.business_name or "there")}?</h1>
   <p style="margin:0 0 24px;font-size:15px;color:#5C5A56;line-height:1.6;">
-    Answer a few quick questions about your website preview and we'll waive the full £99 setup fee —
-    a one-time code, valid for {SURVEY_DISCOUNT_WINDOW_DAYS} days, no obligation either way.
+    Answer a few quick questions about your website preview and we'll take {SURVEY_DISCOUNT_PERCENT}% off your
+    £99 setup fee — a one-time code, valid for {SURVEY_DISCOUNT_WINDOW_DAYS} days, no obligation either way.
   </p>
   {error_html}
   <form method="post">
@@ -3287,7 +3292,7 @@ def _survey_form_page(prospect, error=None):
 def _survey_confirmation_page(response):
     if response.discount_code_issued:
         code_html = f"""<div style="background:#F0F9FF;border:1px solid #BAE6FD;border-radius:10px;padding:18px 20px;margin:18px 0;">
-      <p style="margin:0 0 6px;font-size:13px;font-weight:700;color:#0369A1;text-transform:uppercase;letter-spacing:.04em;">Your setup fee is waived</p>
+      <p style="margin:0 0 6px;font-size:13px;font-weight:700;color:#0369A1;text-transform:uppercase;letter-spacing:.04em;">{SURVEY_DISCOUNT_PERCENT}% off your setup fee</p>
       <p style="margin:0 0 4px;font-size:22px;font-weight:800;letter-spacing:.02em;font-family:monospace;">{escape(response.discount_code_issued)}</p>
       <p style="margin:0;font-size:13.5px;color:#5C5A56;">Enter this code at checkout — valid until {response.discount_expires_at.strftime("%d %b %Y") if response.discount_expires_at else "soon"}.</p>
     </div>"""
@@ -7223,21 +7228,23 @@ def create_checkout_session():
                          "Please email us at groundwork-build@outlook.com and we'll help you pick a different name."
             }), 409
 
-        # Survey-issued setup-fee waiver (2026-07-17) — deliberately checked
-        # and applied entirely app-side rather than via a Stripe Coupon; see
-        # _issue_survey_discount_code's docstring for why (a percent_off
-        # Coupon's applies_to restriction was found to be silently dropped
-        # by the live API, which would have discounted the whole checkout,
-        # not just the setup fee). skip_setup_fee is the only effect a valid
-        # code has: the £99 line item is omitted below, nothing else changes.
+        # Survey-issued setup-fee discount (2026-07-17, reduced from a full
+        # waiver to SURVEY_DISCOUNT_PERCENT on 2026-07-18) — deliberately
+        # checked and applied entirely app-side rather than via a Stripe
+        # Coupon; see _issue_survey_discount_code's docstring for why (a
+        # percent_off Coupon's applies_to restriction was found to be
+        # silently dropped by the live API, which would have discounted the
+        # whole checkout, not just the setup fee). apply_setup_discount is
+        # the only effect a valid code has: the setup line item is swapped
+        # for a discounted price_data line item below, nothing else changes.
         submitted_code = (data.get("discount_code") or "").strip().upper()
-        skip_setup_fee = False
+        apply_setup_discount = False
         if submitted_code:
             prospect = db.query(Prospect).filter(Prospect.lead_id == gen.lead_id).first()
             if (prospect and prospect.discount_code
                     and prospect.discount_code.upper() == submitted_code
                     and prospect.discount_expiry and prospect.discount_expiry > datetime.utcnow()):
-                skip_setup_fee = True
+                apply_setup_discount = True
             else:
                 return jsonify({"error": "That discount code isn't valid or has expired."}), 422
     finally:
@@ -7248,17 +7255,32 @@ def create_checkout_session():
     # on top of that (see design_handoff_marketing_consistency notes).
     subscription_data = {"trial_period_days": 30} if plan == "monthly" else {}
 
-    line_items = [{"price": recurring_price_id, "quantity": 1}]
-    if not skip_setup_fee:
-        line_items.insert(0, {"price": STRIPE_SETUP_PRICE_ID, "quantity": 1})
+    if apply_setup_discount:
+        # A dynamic price_data line item, not the fixed STRIPE_SETUP_PRICE_ID —
+        # unit_amount/currency/product read live from the real setup Price so
+        # this never drifts if that price ever changes, and the discounted
+        # amount is computed here in code, not via any Stripe-side discount
+        # mechanism (see the docstring above for why that's deliberate).
+        setup_price = stripe.Price.retrieve(STRIPE_SETUP_PRICE_ID)
+        discounted_amount = round(setup_price.unit_amount * (100 - SURVEY_DISCOUNT_PERCENT) / 100)
+        setup_line_item = {
+            "price_data": {
+                "currency": setup_price.currency,
+                "product": setup_price.product,
+                "unit_amount": discounted_amount,
+            },
+            "quantity": 1,
+        }
+    else:
+        setup_line_item = {"price": STRIPE_SETUP_PRICE_ID, "quantity": 1}
 
     cs = stripe.checkout.Session.create(
         mode="subscription",
-        line_items=line_items,
+        line_items=[setup_line_item, {"price": recurring_price_id, "quantity": 1}],
         subscription_data=subscription_data,
         allow_promotion_codes=True,
         client_reference_id=job_id,
-        metadata={"discount_code_redeemed": submitted_code} if skip_setup_fee else {},
+        metadata={"discount_code_redeemed": submitted_code} if apply_setup_discount else {},
         success_url=f"{SITE_URL}/live.html?id={job_id}",
         cancel_url=f"{SITE_URL}/api/generate/{job_id}/html",
     )

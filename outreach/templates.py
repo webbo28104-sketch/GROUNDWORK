@@ -594,23 +594,31 @@ _BRANDING_PS_TEXT = {
 }
 
 
+# Single source of truth for the survey/discount offer's percentage — used
+# here, in outreach/followup.py's SMS last-contact line, and in app.py's
+# survey form/confirmation pages and checkout discount logic. Changed from
+# a full (100%) waiver to 50% on 2026-07-18, per instruction: this offer is
+# a last-resort push for MRR, not a routine incentive, so a partial discount
+# fits its actual role better than giving the setup fee away entirely.
+SURVEY_DISCOUNT_PERCENT = 50
+
 _SURVEY_PS_ROW = (
     '<tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:14px;'
-    'line-height:1.65;color:#5C5A56;padding:0 0 18px;">P.S. — got 2 minutes? '
-    '<a href="{link}" style="color:#2257CC;text-decoration:none;">Tell us why you have (or haven\'t) '
-    'gone live yet</a> and we\'ll waive the full £99 setup fee.</td></tr>'
-)
+    'line-height:1.65;color:#5C5A56;padding:0 0 18px;">P.S. — last chance: got 2 minutes? '
+    '<a href="{{link}}" style="color:#2257CC;text-decoration:none;">Tell us why you have (or haven\'t) '
+    'gone live yet</a> and we\'ll take {pct}% off your setup fee.</td></tr>'
+).format(pct=SURVEY_DISCOUNT_PERCENT)
 
 
 def survey_ps_line(survey_link):
     """Renders the optional survey CTA row for the {survey_ps} placeholder
     in stages C/D (added 2026-07-17, docs/outreach-pipeline-spec.md's
     post-generation survey) — same on/off pattern as branding_ps_line().
-    Only stages C/D carry {survey_ps} in their body (a real click, and
-    therefore a real survey token target, is a precondition — see
-    /survey/<token> in app.py), so this is only ever called for those two.
-    Returns "" if no link is given, same graceful-collapse behavior as
-    branding_ps_line for a missing asset."""
+    Repositioned 2026-07-18 to only ever be passed non-empty on the
+    last-contact (catch-all) touch — see outreach/followup.py's
+    is_last_contact — so this is now a last-resort MRR push, not a routine
+    nudge. Returns "" if no link is given, same graceful-collapse behavior
+    as branding_ps_line for a missing asset."""
     if not survey_link:
         return ""
     return _SURVEY_PS_ROW.format(link=survey_link)
