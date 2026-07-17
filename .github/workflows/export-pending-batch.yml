@@ -1,0 +1,45 @@
+name: Export pending discovery batch
+
+# Runs 30 minutes before the nightly discovery routine (03:30 UTC) fires,
+# so it always reads a fresh batch from its git checkout rather than
+# re-processing the same prospects forever. Added 2026-07-18 — see
+# docs/outreach-pipeline-spec.md Section 4a.
+#
+# Pushes straight to main using the auto-provided GITHUB_TOKEN (declared
+# contents:write below) — no separate credential needed, unlike the
+# discovery routine's own push, which goes to a dedicated branch instead
+# (CCR sessions appear to have read-only access to main by design).
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install minimal dependencies
+        run: pip install sqlalchemy psycopg2-binary dnspython
+
+      - name: Export fresh pending batch
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: python outreach/export_pending_batch.py --limit 20
+
+      - name: Commit and push
+        run: |
+          git config user.name "groundwork-discovery-bot"
+          git config user.email "actions@github.com"
+          git add outreach/discovery_batches/pending_batch.json
+          git diff --staged --quiet && echo "No changes" && exit 0
+          git commit -m "Nightly pending batch export ($(date -u +%Y-%m-%d))"
+          git push
