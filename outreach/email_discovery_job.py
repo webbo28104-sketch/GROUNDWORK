@@ -1,52 +1,50 @@
 """
-Email discovery job — Track A, unattended (Section 4).
+Email discovery job — Track A, unattended, Tier 1 only (Section 4).
 
 Runnable as a module or script from the project root:
     python outreach/email_discovery_job.py
     python -m outreach.email_discovery_job --limit 50 --dry-run
 
+REMOVED 2026-07-18: this job used to fall back to a Tier 2 (Anthropic API,
+web_search tool) pass for anything Tier 1 couldn't find — see
+outreach/email_discovery.py's module docstring for why that was deleted
+outright (cost, and it was the thing spending ~£15-20/night). This job is
+now Tier 1 only: plain-code scraping of a prospect's own website
+(outreach/email_scrape.py), zero API calls, zero cost, genuinely safe to
+run nightly forever.
+
 What it does:
   1. Init the DB.
   2. Load pending PendingEmailDiscovery rows (oldest first, optionally capped
      by --limit).
-  3. For each: call outreach.email_discovery.find_email() — a real Anthropic
-     API call (web_search tool), checking sources in Section 4's order (own
-     site -> Facebook -> UK trade directories -> general search). Never
-     guesses or pattern-matches an email; only extracts one genuinely found
-     in a source.
-  4. Write the result straight to the Prospect row and delete the
-     PendingEmailDiscovery row — the same fields, same funnel_stage
-     transitions (awaiting_approval / qualified_no_email / unreachable) that
-     outreach/apply_result.py's `email` command already applies for a
-     human/Cowork-submitted result. Reuses that exact finalization logic
-     (_try_finalize) rather than duplicating the scoring/funnel-stage rules
-     in a second place.
+  3. For each: run outreach.email_scrape.scrape_website_email() — homepage,
+     then a same-site contact/about page, checking for a mailto: link or
+     plain-text address. Never guesses or pattern-matches.
+  4. If found: write the result to the Prospect row (same funnel_stage
+     transitions apply_result.py's `email` command already applies,
+     reused via _try_finalize) and delete the PendingEmailDiscovery row.
+     If NOT found: leave the PendingEmailDiscovery row in place, untouched
+     — Tier 1 having nothing to say isn't the same as "no email exists
+     anywhere," and the row needs to stay in the pending queue for the
+     free-but-not-automatic Tier 2 replacement (a scheduled Claude Code
+     routine using WebSearch — see docs/outreach-pipeline-spec.md Section
+     4a) to pick up later. Deleting it here would silently drop every
+     prospect Tier 1 can't handle into permanent qualified_no_email/
+     unreachable with no further attempt ever made.
+  5. Print a summary: how many found, how many still pending for the next
+     (Claude-routine) pass.
 
-     If find_email() raises EmailDiscoveryAPIError (billing/credit, rate
-     limit, network, auth — the API call itself failed, no search happened),
-     the PendingEmailDiscovery row is left untouched for automatic retry
-     next run, NOT deleted, and the Prospect is NOT written to. This is a
-     hard-learned distinction (2026-07-15 incident: a "credit balance too
-     low" 400 got silently folded into "genuinely searched, found nothing,"
-     wrongly marking ~55 real prospects qualified_no_email/unreachable with
-     no search ever having run). After 3 consecutive API errors, the run
-     aborts entirely rather than grinding through the rest of the queue
-     doing nothing but logging identical failures — same root cause,
-     stopping fast instead of silently no-op'ing hundreds of rows.
-  5. Print a summary: how many found a real email, how many came up empty
-     and where they landed (qualified_no_email vs unreachable), how many
-     hit an API-level error (left pending, not touched).
+Still needs to run on a real recurring schedule (a Railway Cron service,
+same as outreach/domain_billing.py and outreach/pipeline.py) — there is no
+in-process scheduler in this codebase. The email-discovery-cron service
+that already runs this nightly at 02:00 UTC needed no schedule change,
+only this code change (it had its ANTHROPIC_API_KEY removed as a second,
+belt-and-braces safeguard — this job doesn't need that variable at all now).
 
-Needs to run on a real recurring schedule (a Railway Cron service pointed at
-this script, same as outreach/domain_billing.py and outreach/pipeline.py) —
-there is no in-process scheduler in this codebase.
-
-Environment: DATABASE_URL, ANTHROPIC_API_KEY. Nothing else — this script
-never touches Resend, Stripe, Esendex, Porkbun, Cloudflare, etc.
+Environment: DATABASE_URL. Nothing else — no API key needed anymore.
 """
 import os
 import sys
-import time
 import logging
 import argparse
 
@@ -67,17 +65,15 @@ from models import (  # noqa: E402
 )
 
 try:
-    from outreach.email_discovery import find_email, is_valid_email, looks_like_guess, EmailDiscoveryAPIError
+    from outreach.email_discovery import is_valid_email, looks_like_guess
     from outreach.email_scrape import scrape_website_email
     from outreach.apply_result import _try_finalize
     from outreach.email_verify import has_deliverable_domain
 except ImportError:
-    from email_discovery import find_email, is_valid_email, looks_like_guess, EmailDiscoveryAPIError
+    from email_discovery import is_valid_email, looks_like_guess
     from email_scrape import scrape_website_email
     from apply_result import _try_finalize
     from email_verify import has_deliverable_domain
-
-MAX_CONSECUTIVE_API_ERRORS = 3
 
 logging.basicConfig(
     level=logging.INFO,
@@ -87,10 +83,9 @@ logger = logging.getLogger("outreach.email_discovery_job")
 
 
 def _resolve_one(db, pending, dry_run):
-    """Discover (or fail to discover) an email for one pending prospect and
-    write the result straight to its Prospect row, same field/funnel-stage
-    semantics as apply_result.py's `email` command. Returns a status string
-    for the run summary."""
+    """Try Tier 1 for one pending prospect. Returns a status string for the
+    run summary. Only ever deletes the PendingEmailDiscovery row on a
+    genuine find — see module docstring for why a miss leaves it in place."""
     prospect = db.get(Prospect, pending.prospect_id)
     if not prospect:
         logger.warning("PendingEmailDiscovery %s has no matching Prospect (id=%s) — deleting stale row",
@@ -101,31 +96,15 @@ def _resolve_one(db, pending, dry_run):
         return "stale"
 
     if dry_run:
-        logger.info("[dry-run] would search for: %s (%s)", prospect.business_name, prospect.location)
+        logger.info("[dry-run] would check own-website scrape for: %s (%s)", prospect.business_name, prospect.website)
         return "dry_run"
 
-    # Tier 1: plain code, no AI call, no cost. Only prospects where this
-    # finds nothing reach Tier 2 below.
     email, source = scrape_website_email(prospect.website)
-    tier = "tier1" if email else None
-
-    if not email:
-        try:
-            email, source = find_email(prospect.business_name, prospect.location, prospect.website)
-            tier = "tier2" if email else None
-        except EmailDiscoveryAPIError as e:
-            # No search happened — do NOT touch the Prospect row and do NOT
-            # delete the pending row, so this stays queued for a genuine retry
-            # once whatever's wrong (credits, rate limit, etc.) is fixed.
-            logger.error("API-level failure for prospect %s (%s) — leaving pending for retry: %s",
-                         prospect.id, prospect.business_name, e)
-            return "discovery_errored"
 
     if email:
-        # Belt-and-braces: find_email() already validates/guess-checks
-        # internally, but apply_result.py's `email` command re-checks
-        # anything written to a Prospect row, so this job does the same
-        # rather than trusting a single layer.
+        # Belt-and-braces: same validation apply_result.py applies to a
+        # human/CLI-submitted result, run here too rather than trusting a
+        # single layer.
         if not is_valid_email(email):
             logger.warning("Discarding invalid email '%s' for prospect %s", email, prospect.id)
             email = None
@@ -133,54 +112,38 @@ def _resolve_one(db, pending, dry_run):
             logger.warning("Discarding suspected guessed email '%s' for prospect %s", email, prospect.id)
             email = None
         elif not has_deliverable_domain(email):
-            # Domain has no MX (and no A/AAAA fallback) — mail to this
-            # address would hard-bounce. Discard here rather than store a
-            # doomed address; the prospect falls through to phone-only
-            # (qualified_no_email) or unreachable, same as a genuine "not
-            # found" — because for sending purposes, it effectively wasn't.
             logger.warning("Discarding undeliverable domain in '%s' for prospect %s (no MX/A record)",
                             email, prospect.id)
             email = None
 
-    if email:
-        prospect.email = email
-        prospect.email_source = source
-        prospect.email_found = True
-        status = "found_tier1" if tier == "tier1" else "found_tier2"
-        logger.info("Prospect %s (%s) -> %s (source: %s, %s)",
-                    prospect.id, prospect.business_name, email, source, tier)
-    else:
-        prospect.email_found = False
-        status = "not_found"
-        logger.info("Prospect %s (%s) -> no genuine email found", prospect.id, prospect.business_name)
+    if not email:
+        logger.info("Prospect %s (%s) -> Tier 1 found nothing, left pending for the Claude-routine pass",
+                     prospect.id, prospect.business_name)
+        return "still_pending"
+
+    prospect.email = email
+    prospect.email_source = source
+    prospect.email_found = True
+    logger.info("Prospect %s (%s) -> %s (source: %s)", prospect.id, prospect.business_name, email, source)
 
     db.delete(pending)
     db.commit()
 
-    # status is already decided and committed above — a failure in
-    # finalize() (scoring/funnel-stage advance) must not downgrade a
-    # genuinely successful discovery to "errored" in the run summary. Seen
-    # in practice: a Windows console's cp1252 encoding chokes on the "→" in
-    # _try_finalize's print() after its own commit() already succeeded —
-    # harmless on Railway's Linux/UTF-8 container, but proof this status
-    # value needs to be locked in before finalize runs, not after.
     try:
         _try_finalize(db, prospect)
     except Exception:
         logger.exception("finalize() failed for prospect %s after email result was already saved — "
                           "email/email_found is correct in the DB, but scoring/funnel_stage may be stale",
                           prospect.id)
-    return status
+    return "found_tier1"
 
 
-def run_email_discovery(limit=None, dry_run=False, sleep_between=1.0):
-    """Run one full pass over the pending email-discovery queue."""
-    logger.info("Starting email discovery job (limit=%s, dry_run=%s)", limit, dry_run)
+def run_email_discovery(limit=None, dry_run=False, sleep_between=None):
+    """Run one full pass over the pending email-discovery queue, Tier 1 only.
+    sleep_between is accepted for CLI/call-site backwards compatibility but
+    unused — there's no API to rate-limit against anymore."""
+    logger.info("Starting email discovery job (Tier 1 only, limit=%s, dry_run=%s)", limit, dry_run)
     init_db()
-
-    if not os.environ.get("ANTHROPIC_API_KEY") and not dry_run:
-        logger.error("ANTHROPIC_API_KEY not set — every discovery call will fail. Aborting.")
-        return {"error": "ANTHROPIC_API_KEY not set"}
 
     db = SessionLocal()
     try:
@@ -190,15 +153,8 @@ def run_email_discovery(limit=None, dry_run=False, sleep_between=1.0):
         pending_rows = q.all()
         logger.info("Loaded %d pending email-discovery rows", len(pending_rows))
 
-        counts = {"found_tier1": 0, "found_tier2": 0, "not_found": 0, "stale": 0,
-                  "dry_run": 0, "discovery_errored": 0}
-        # Statuses that mean a real Tier 2 API call actually ran this
-        # iteration — Tier 1 hits and stale rows never touched the API, so
-        # pausing after them just wastes wall-clock time for nothing.
-        _API_CALL_STATUSES = {"found_tier2", "not_found", "discovery_errored", "error"}
-        consecutive_api_errors = 0
-        aborted_early = False
-        for i, pending in enumerate(pending_rows):
+        counts = {"found_tier1": 0, "still_pending": 0, "stale": 0, "dry_run": 0}
+        for pending in pending_rows:
             try:
                 status = _resolve_one(db, pending, dry_run)
                 counts[status] = counts.get(status, 0) + 1
@@ -206,52 +162,21 @@ def run_email_discovery(limit=None, dry_run=False, sleep_between=1.0):
                 logger.exception("Error resolving PendingEmailDiscovery %s (prospect %s)",
                                   pending.id, pending.prospect_id)
                 counts["error"] = counts.get("error", 0) + 1
-                status = "error"
-
-            if status == "discovery_errored":
-                consecutive_api_errors += 1
-                if consecutive_api_errors >= MAX_CONSECUTIVE_API_ERRORS:
-                    logger.error(
-                        "%d consecutive API-level failures — aborting the run rather than grinding "
-                        "through the remaining %d pending rows doing nothing but logging identical "
-                        "failures. Nothing further was touched; all remaining rows stay pending for "
-                        "the next run.", consecutive_api_errors, len(pending_rows) - i - 1,
-                    )
-                    aborted_early = True
-                    break
-            else:
-                consecutive_api_errors = 0
-
-            # Small pause between real API calls only — not rate-limit-critical
-            # at this volume, just avoids hammering the API back-to-back
-            # across a batch that could be in the hundreds. Tier 1 hits made
-            # zero API calls, so there's nothing to pace.
-            if not dry_run and status in _API_CALL_STATUSES and i < len(pending_rows) - 1:
-                time.sleep(sleep_between)
     finally:
         db.close()
 
     total = sum(counts.values())
-    tier2_attempts = counts.get("found_tier2", 0) + counts.get("not_found", 0)
-    tier1_of_resolved = counts.get("found_tier1", 0) / total if total else 0.0
 
     print("")
     print("=" * 56)
-    print("Email discovery job summary")
+    print("Email discovery job summary (Tier 1 only — zero API cost)")
     print("-" * 56)
     print(f"  Rows processed:                {total}")
-    print(f"  Found at Tier 1 (no AI call):  {counts.get('found_tier1', 0)}"
-          f"  ({tier1_of_resolved * 100:.0f}% of this run resolved with zero API cost)")
-    print(f"  Found at Tier 2 (AI search):   {counts.get('found_tier2', 0)}")
-    print(f"  No genuine email found:        {counts.get('not_found', 0)}")
-    print(f"  Tier 2 API calls attempted:    {tier2_attempts}")
-    print(f"  API-level errors (left pending, not touched): {counts.get('discovery_errored', 0)}")
+    print(f"  Found on own website:          {counts.get('found_tier1', 0)}")
+    print(f"  Still pending (left for the Claude-routine pass): {counts.get('still_pending', 0)}")
     print(f"  Stale rows (no prospect left): {counts.get('stale', 0)}")
     if counts.get("error"):
         print(f"  Errored (see log above):       {counts.get('error', 0)}")
-    if aborted_early:
-        print(f"  ABORTED EARLY after {MAX_CONSECUTIVE_API_ERRORS} consecutive API errors — remaining "
-              f"rows left untouched for next run.")
     print("=" * 56)
     print("")
 
@@ -259,15 +184,13 @@ def run_email_discovery(limit=None, dry_run=False, sleep_between=1.0):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Groundwork outreach email discovery job (Track A)")
+    parser = argparse.ArgumentParser(description="Groundwork outreach email discovery job (Track A, Tier 1 only)")
     parser.add_argument("--limit", type=int, default=None,
                         help="max pending rows to process this run (default: all)")
     parser.add_argument("--dry-run", action="store_true",
-                        help="log what would be searched without calling the Anthropic API or writing data")
-    parser.add_argument("--sleep", type=float, default=1.0,
-                        help="seconds to pause between API calls (default: 1.0)")
+                        help="log what would be checked without writing data")
     args = parser.parse_args()
-    run_email_discovery(limit=args.limit, dry_run=args.dry_run, sleep_between=args.sleep)
+    run_email_discovery(limit=args.limit, dry_run=args.dry_run)
 
 
 if __name__ == "__main__":
