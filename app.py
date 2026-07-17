@@ -5273,6 +5273,22 @@ def admin_funnel():
 </table>
 </div>"""
 
+        # Bounced addresses in scope for this table's date range — reused
+        # across every stage row below, same normalization as the
+        # deliverability page's source breakdown (Resend sometimes logs the
+        # quoted '"addr" <addr>' form rather than a bare address).
+        bounce_event_q = db.query(EmailEventLog).filter(
+            EmailEventLog.event_type.in_(["email.bounced", "bounced"])
+        )
+        if range_from:
+            bounce_event_q = bounce_event_q.filter(EmailEventLog.created_at >= range_from)
+        if range_to:
+            bounce_event_q = bounce_event_q.filter(EmailEventLog.created_at < range_to + timedelta(days=1))
+        bounced_emails_in_range = {
+            (email_utils.parseaddr(e.to_email)[1] or e.to_email or "").strip().lower()
+            for e in bounce_event_q.all() if e.to_email
+        }
+
         rows_html = ""
         any_sent_at_all = False
 
@@ -5287,12 +5303,17 @@ def admin_funnel():
             touches = q.all()
 
             prospect_ids = sorted({t.prospect_id for t in touches})
+            email_prospect_ids = {t.prospect_id for t in touches if t.channel == "email"}
             sent_n = len(prospect_ids)
             if sent_n:
                 any_sent_at_all = True
 
             if sent_n:
                 cohort = db.query(Prospect).filter(Prospect.id.in_(prospect_ids)).all()
+                bounced_n = sum(
+                    1 for p in cohort
+                    if p.id in email_prospect_ids and p.email and p.email.strip().lower() in bounced_emails_in_range
+                )
                 opened_n = sum(1 for p in cohort if p.opened_at is not None)
                 clicked_n = sum(1 for p in cohort if p.clicked_at is not None)
                 lead_ids = [p.lead_id for p in cohort if p.lead_id is not None]
@@ -5306,17 +5327,35 @@ def admin_funnel():
                 account_created_n = sum(1 for p in cohort if p.account_created_at is not None)
                 paid_n = sum(1 for p in cohort if p.paid_at is not None)
             else:
-                opened_n = clicked_n = generated_n = account_created_n = paid_n = 0
+                bounced_n = opened_n = clicked_n = generated_n = account_created_n = paid_n = 0
 
-            counts = [sent_n, opened_n, clicked_n, generated_n, account_created_n, paid_n]
+            # delivered_n, not sent_n, is the headline number and the
+            # denominator for every downstream rate — same principle as the
+            # KPI strip's "emails sent" fix: a bounced send never reached an
+            # inbox, so it can't be a fair base for "did they open/click"
+            # either. sent_n (the raw OutreachTouch attempt count) is still
+            # shown, in the sub-caption, not hidden — this table is meant to
+            # carry more detail than the single KPI tile, not less.
+            delivered_n = sent_n - bounced_n
+            counts = [delivered_n, opened_n, clicked_n, generated_n, account_created_n, paid_n]
             pcts = [None] + [
                 _funnel_pct(counts[i], counts[i - 1]) for i in range(1, len(counts))
             ]
 
+            sent_sub_html = ""
+            if bounced_n:
+                bounce_pct = _funnel_pct(bounced_n, sent_n)
+                sent_sub_html = (
+                    f'<div style="font-size:11px;color:#9A9893;margin-top:2px;">'
+                    f'{sent_n} attempted · <span style="color:#DC2626;">{bounced_n} bounced ({bounce_pct}%)</span></div>'
+                )
+
             cells = ""
             for i, (label, count) in enumerate(zip(_FUNNEL_STEPS, counts)):
                 pct_html = ""
-                if pcts[i] is not None:
+                if i == 0:
+                    pct_html = sent_sub_html
+                elif pcts[i] is not None:
                     pct_html = f'<div style="font-size:11px;color:#9A9893;margin-top:2px;">{pcts[i]}%</div>'
                 cells += (
                     f'<td style="text-align:center;">'
@@ -5365,9 +5404,12 @@ def admin_funnel():
 .statsbar .stat b{{color:#1C1C1C;font-weight:800;font-size:15px;margin-right:4px;}}
 </style>
 <h1 class="adm-title">Funnel</h1>
-<p class="adm-sub">Per-stage, per-channel outreach funnel. Each row is a cohort — "Opened" on the
+<p class="adm-sub">Per-stage, per-channel outreach funnel — how many of each email type (Initial, Follow-up A/B/C/D)
+went out in the selected range, and what happened after. Each row is a cohort — "Opened" on the
 Follow-up B row means prospects who received a B touch and have since opened <em>an</em> email, not
-necessarily that specific one (opened_at is a single per-prospect timestamp, not per-message).</p>
+necessarily that specific one (opened_at is a single per-prospect timestamp, not per-message). The
+"Sent" column shows delivered count as the headline number, with attempted/bounced beneath it — a
+bounced send never reached an inbox, so every rate to its right is based on delivered, not attempted.</p>
 
 {kpi_strip}
 
