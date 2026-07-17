@@ -328,6 +328,12 @@ class RampState(Base):
     week_started_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     circuit_breaker_tripped = Column(Boolean, default=False)
     circuit_breaker_tripped_at = Column(DateTime, nullable=True)
+    # Consecutive nightly checks with a clean signal while tripped — added
+    # 2026-07-17 alongside real circuit-breaker recovery (previously the
+    # breaker held at the floor forever once tripped; see outreach/ramp.py).
+    # Resets to 0 on any breach observed while tripped; clears the trip once
+    # it reaches CIRCUIT_BREAKER_RECOVERY_DAYS.
+    consecutive_clean_days = Column(Integer, default=0)
     last_checked_at = Column(DateTime, nullable=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

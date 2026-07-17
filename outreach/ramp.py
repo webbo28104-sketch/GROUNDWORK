@@ -12,12 +12,12 @@ REAL STATE:
     Twilio-specific fields.
   - Resend bounce/complaint webhooks: WIRED, and genuinely consumed here —
     app.py:resend_events_webhook (Svix-signature-verified) logs each event
-    to EmailEventLog, and get_health_signal("email") below now folds BOTH
-    email.complained and email.bounced into the same spam_rate numerator
-    (added 2026-07-14 — bounced was previously logged but never read by
-    anything, a real gap, not just an oversight in this docstring). A
-    bounce is treated as a deliverability signal the circuit-breaker
-    should react to the same way a complaint does. Requires the webhook
+    to EmailEventLog. get_health_signal("email") tracks bounce_rate and
+    complaint_rate as SEPARATE numerators (previously folded into one
+    "spam_rate" at the same 0.1% trigger — changed 2026-07-17 after that
+    conflation tripped the breaker off 3 dead-domain bounces in the first
+    10-email batch, a data-quality signal, not a reputation one; see
+    EMAIL_BOUNCE_RATE_TRIGGER's comment below). Requires the webhook
     actually registered in the Resend dashboard pointing at
     /api/webhooks/resend-events, and RESEND_WEBHOOK_SECRET set to match —
     infrastructure-side steps outside this codebase, same category as the
@@ -50,7 +50,27 @@ SMS_RAMP_TABLE = {1: 20, 2: 50}  # week 3+ increases 50-75% (use 50% — the con
 EMAIL_FLOOR = EMAIL_RAMP_TABLE[1]
 SMS_FLOOR = SMS_RAMP_TABLE[1]
 
-EMAIL_SPAM_RATE_TRIGGER = 0.001  # 0.1%
+EMAIL_SPAM_RATE_TRIGGER = 0.001  # 0.1% — genuine spam complaints only, per Section 15.
+# Bounces are tracked and trip the breaker separately from complaints (added
+# 2026-07-17). They used to be folded into the same "spam_rate" as
+# complaints, at the same 0.1% trigger — which meant 3 dead-domain bounces
+# out of the first 10-email batch (a data-quality problem: bad addresses
+# from AI-assisted discovery, not a reputation problem) tripped the breaker
+# on a sample of 10. A hard bounce is still a real deliverability signal
+# (ISPs do weight it), just a much noisier and less severe one than a spam
+# complaint at small volume, so it gets its own, higher threshold — in line
+# with typical ESP guidance (under 2% is healthy, 5%+ is a real problem).
+EMAIL_BOUNCE_RATE_TRIGGER = 0.05  # 5%
+# Neither rate is evaluated below this much real volume in the trailing
+# window — same principle as Section 5b's 30-outcome minimum for trusting a
+# per-factor rate over noise. Below this, get_health_signal returns None and
+# the ramp holds flat (its existing behavior for "not enough data").
+MIN_EMAIL_SAMPLE_SIZE = 30
+# How many consecutive daily checks with a clean signal (both rates under
+# trigger, real sample size) are required to clear a tripped breaker and
+# resume ramping from the floor — Section 15's "7 consecutive days" rule.
+CIRCUIT_BREAKER_RECOVERY_DAYS = 7
+
 SMS_DELIVERY_DROP_TRIGGER_PP = 10  # percentage points below prior-week baseline
 SMS_OPT_OUT_SPIKE_TRIGGER = 0.02  # 2% in a single day
 
@@ -86,10 +106,12 @@ def get_health_signal(channel, now=None):
     Returns a dict describing this channel's health, or None if there isn't
     yet enough real data in the trailing window to compute a rate from.
 
-    email: {"spam_rate": float} — (complaints + hard bounces, EmailEventLog)
-      / total sent (DailySendCount) over the trailing 7 days. Bounces are
-      folded into the same rate/trigger as complaints — both are real
-      deliverability harm signals, not tracked as two separate metrics.
+    email: {"bounce_rate": float, "complaint_rate": float, "sample_size": int}
+      — each independently, over the trailing 7 days (EmailEventLog /
+      DailySendCount). Returns None if fewer than MIN_EMAIL_SAMPLE_SIZE
+      sends happened in the window, not just "zero" — a 3-bounce sample of
+      10 sends is noise, not a signal (see MIN_EMAIL_SAMPLE_SIZE's
+      docstring above for the incident that prompted this).
     sms: {"delivery_rate": float, "delivery_rate_baseline": float,
       "opt_out_rate_today": float} — delivered/total distinct message_sids
       (SmsDeliveryEvent) for the trailing 7 days vs. the 7 days before
@@ -102,16 +124,23 @@ def get_health_signal(channel, now=None):
         if channel == "email":
             week_ago = now - timedelta(days=7)
             total_sent = _total_sent(db, "email", week_ago, now)
-            if total_sent == 0:
+            if total_sent < MIN_EMAIL_SAMPLE_SIZE:
                 return None
-            harmful_events = db.query(EmailEventLog).filter(
-                EmailEventLog.event_type.in_(
-                    ["email.complained", "complained", "email.bounced", "bounced"]
-                ),
+            bounced = db.query(EmailEventLog).filter(
+                EmailEventLog.event_type.in_(["email.bounced", "bounced"]),
                 EmailEventLog.created_at >= week_ago,
                 EmailEventLog.created_at <= now,
             ).count()
-            return {"spam_rate": harmful_events / total_sent}
+            complained = db.query(EmailEventLog).filter(
+                EmailEventLog.event_type.in_(["email.complained", "complained"]),
+                EmailEventLog.created_at >= week_ago,
+                EmailEventLog.created_at <= now,
+            ).count()
+            return {
+                "bounce_rate": bounced / total_sent,
+                "complaint_rate": complained / total_sent,
+                "sample_size": total_sent,
+            }
 
         # sms
         def _delivery_rate(start, end):
@@ -188,37 +217,63 @@ def advance_or_hold(channel, now=None):
             return state.daily_volume
 
         breached = False
+        breach_reason = None
         if channel == "email":
-            breached = signal.get("spam_rate", 0) >= EMAIL_SPAM_RATE_TRIGGER
+            if signal.get("complaint_rate", 0) >= EMAIL_SPAM_RATE_TRIGGER:
+                breached = True
+                breach_reason = f'complaint_rate {signal["complaint_rate"] * 100:.3f}% >= {EMAIL_SPAM_RATE_TRIGGER * 100:.3f}%'
+            elif signal.get("bounce_rate", 0) >= EMAIL_BOUNCE_RATE_TRIGGER:
+                breached = True
+                breach_reason = f'bounce_rate {signal["bounce_rate"] * 100:.1f}% >= {EMAIL_BOUNCE_RATE_TRIGGER * 100:.0f}%'
         else:
             drop = signal.get("delivery_rate_baseline", 0) - signal.get("delivery_rate", 0)
-            breached = (drop * 100 >= SMS_DELIVERY_DROP_TRIGGER_PP
-                        or signal.get("opt_out_rate_today", 0) >= SMS_OPT_OUT_SPIKE_TRIGGER)
+            if drop * 100 >= SMS_DELIVERY_DROP_TRIGGER_PP:
+                breached = True
+                breach_reason = f"delivery rate dropped {drop * 100:.1f}pp vs baseline"
+            elif signal.get("opt_out_rate_today", 0) >= SMS_OPT_OUT_SPIKE_TRIGGER:
+                breached = True
+                breach_reason = f'opt_out_rate_today {signal["opt_out_rate_today"] * 100:.1f}% >= {SMS_OPT_OUT_SPIKE_TRIGGER * 100:.0f}%'
+
+        if state.circuit_breaker_tripped:
+            # Already tripped — evaluate today's signal toward recovery
+            # rather than re-tripping (it's already at the floor). A clean
+            # day advances the consecutive-day counter; a breach resets it;
+            # unknown/insufficient data neither advances nor resets it
+            # (matches the existing "hold flat on missing data" principle —
+            # a quiet week shouldn't either fast-track or penalize recovery).
+            if breached:
+                state.consecutive_clean_days = 0
+                logger.error("ramp[%s]: still breached while tripped (%s) — consecutive clean days reset to 0",
+                             channel, breach_reason)
+            else:
+                state.consecutive_clean_days = (state.consecutive_clean_days or 0) + 1
+                logger.info("ramp[%s]: clean day while tripped — %d/%d consecutive",
+                            channel, state.consecutive_clean_days, CIRCUIT_BREAKER_RECOVERY_DAYS)
+                if state.consecutive_clean_days >= CIRCUIT_BREAKER_RECOVERY_DAYS:
+                    state.circuit_breaker_tripped = False
+                    state.circuit_breaker_tripped_at = None
+                    state.consecutive_clean_days = 0
+                    state.daily_volume = floor
+                    state.week_number = 1
+                    state.week_started_at = now
+                    logger.info("ramp[%s]: circuit breaker RECOVERED after %d consecutive clean days — "
+                                "resuming ramp from floor (%d/day)", channel, CIRCUIT_BREAKER_RECOVERY_DAYS, floor)
+            db.commit()
+            return state.daily_volume
 
         if breached:
             state.circuit_breaker_tripped = True
             state.circuit_breaker_tripped_at = now
+            state.consecutive_clean_days = 0
             state.daily_volume = floor
             state.week_number = 1
             state.week_started_at = now
-            logger.error("ramp[%s]: circuit breaker TRIPPED — reset to floor (%d/day)", channel, floor)
+            logger.error("ramp[%s]: circuit breaker TRIPPED (%s) — reset to floor (%d/day)",
+                         channel, breach_reason, floor)
             db.commit()
             return state.daily_volume
 
         week_elapsed = (now - state.week_started_at) >= timedelta(days=7)
-        if state.circuit_breaker_tripped:
-            # Recovery requires sustained clean signal — advance_or_hold
-            # doesn't track the "N consecutive clean days" count itself
-            # (no historical signal storage exists yet to compute that from);
-            # this is a known gap, flagged rather than faked.
-            logger.warning(
-                "ramp[%s]: circuit breaker previously tripped — recovery requires "
-                "consecutive-clean-day tracking that isn't built yet. Holding at floor.",
-                channel
-            )
-            db.commit()
-            return state.daily_volume
-
         if week_elapsed:
             state.week_number += 1
             state.daily_volume = _volume_for_week(table, state.week_number, floor)

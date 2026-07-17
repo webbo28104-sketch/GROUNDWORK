@@ -36,7 +36,10 @@ from emails import (send_verification_email, send_resend_email, send_password_re
                     send_domain_order_admin_email, send_domain_order_customer_email,
                     send_domain_setup_failed_email, send_domain_live_email)
 from outreach.reply_handling import handle_inbound_sms, handle_inbound_email, handle_forced_sms_stop
-from outreach.ramp import get_health_signal, get_remaining_ramp_today, EMAIL_SPAM_RATE_TRIGGER
+from outreach.ramp import (
+    get_health_signal, get_remaining_ramp_today, EMAIL_SPAM_RATE_TRIGGER,
+    EMAIL_BOUNCE_RATE_TRIGGER, MIN_EMAIL_SAMPLE_SIZE, CIRCUIT_BREAKER_RECOVERY_DAYS,
+)
 
 app = Flask(__name__, static_folder="frontend", static_url_path="")
 app.logger.setLevel(logging.INFO)
@@ -5172,7 +5175,14 @@ def admin_deliverability():
     now = datetime.utcnow()
     db = SessionLocal()
     try:
-        # ---- Email: 30-day daily spam/bounce rate from real webhook data ----
+        # ---- Email: 30-day daily complaint rate from real webhook data ----
+        # Complaints only, not bounces — this chart's dashed line is labeled
+        # "0.1% circuit-breaker trigger," which is only accurate for the
+        # complaint-rate metric now that bounce_rate has its own, separate
+        # 5% trigger (see outreach/ramp.py). Bounce trend lives in the
+        # "Bounce rate by discovery source" table below and the summary
+        # line above instead, rather than plotting two different-scale
+        # rates against one trigger line.
         window_start = (now - timedelta(days=30)).replace(hour=0, minute=0, second=0, microsecond=0)
         sent_rows = db.query(DailySendCount).filter(
             DailySendCount.channel == "email",
@@ -5181,7 +5191,7 @@ def admin_deliverability():
         sent_by_day = {r.send_date: r.count for r in sent_rows}
 
         event_rows = db.query(EmailEventLog).filter(
-            EmailEventLog.event_type.in_(["email.complained", "complained", "email.bounced", "bounced"]),
+            EmailEventLog.event_type.in_(["email.complained", "complained"]),
             EmailEventLog.created_at >= window_start,
         ).all()
         harmful_by_day = Counter(e.created_at.strftime("%Y-%m-%d") for e in event_rows)
@@ -5200,23 +5210,39 @@ def admin_deliverability():
 
         if email_signal is None:
             email_signal_html = (
-                '<p class="muted">No spam-rate signal yet — the trailing 7-day window has zero '
-                'logged sends in DailySendCount. The ramp holds flat rather than advancing on this.</p>'
+                f'<p class="muted">No signal yet — the trailing 7-day window has fewer than '
+                f'{MIN_EMAIL_SAMPLE_SIZE} sends logged in DailySendCount (a smaller sample is too '
+                f'noisy to trust — see MIN_EMAIL_SAMPLE_SIZE). The ramp holds flat rather than acting on this.</p>'
             )
         else:
-            rate = email_signal["spam_rate"]
-            over = rate >= EMAIL_SPAM_RATE_TRIGGER
-            color = "#DC2626" if over else "#059669"
+            b_rate = email_signal["bounce_rate"]
+            c_rate = email_signal["complaint_rate"]
+            b_over = b_rate >= EMAIL_BOUNCE_RATE_TRIGGER
+            c_over = c_rate >= EMAIL_SPAM_RATE_TRIGGER
             email_signal_html = (
-                f'<p style="font-size:15px;"><b style="color:{color};font-size:20px;">{rate * 100:.3f}%</b> '
-                f'trailing 7-day spam+bounce rate vs. the <b>0.1%</b> trigger'
-                f'{" — <b>at or over the trigger</b>" if over else " — under the trigger"}.</p>'
+                f'<p style="font-size:15px;">'
+                f'<b style="color:{"#DC2626" if b_over else "#059669"};font-size:20px;">{b_rate * 100:.2f}%</b> '
+                f'bounce rate vs. the <b>{EMAIL_BOUNCE_RATE_TRIGGER * 100:.0f}%</b> trigger'
+                f'{" — <b>at or over the trigger</b>" if b_over else ""}'
+                f' &nbsp;·&nbsp; '
+                f'<b style="color:{"#DC2626" if c_over else "#059669"};font-size:20px;">{c_rate * 100:.3f}%</b> '
+                f'complaint rate vs. the <b>{EMAIL_SPAM_RATE_TRIGGER * 100:.1f}%</b> trigger'
+                f'{" — <b>at or over the trigger</b>" if c_over else ""}'
+                f'<br><span class="muted" style="font-size:12.5px;">Based on {email_signal["sample_size"]} sends '
+                f'in the trailing 7 days. Tracked separately since 2026-07-17 — a bounce (often a bad/dead '
+                f'address, a data-quality issue) is a weaker, noisier signal than a spam complaint at this '
+                f'volume, so it gets a higher threshold.</span></p>'
             )
 
         if email_ramp:
-            status = "holding at floor (circuit breaker tripped)" if email_ramp.circuit_breaker_tripped else (
-                "advancing on schedule"
-            )
+            if email_ramp.circuit_breaker_tripped:
+                status = (
+                    f'holding at floor (circuit breaker tripped'
+                    f'{" " + email_ramp.circuit_breaker_tripped_at.strftime("%d %b") if email_ramp.circuit_breaker_tripped_at else ""}'
+                    f' — {email_ramp.consecutive_clean_days or 0}/{CIRCUIT_BREAKER_RECOVERY_DAYS} consecutive clean days toward recovery)'
+                )
+            else:
+                status = "advancing on schedule"
             email_ramp_html = (
                 f'<p class="muted">Today\'s allowed volume: <b style="color:#1C1C1C;">{email_ramp.daily_volume}</b>'
                 f' · week {email_ramp.week_number} · {status}'

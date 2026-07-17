@@ -39,6 +39,7 @@ from outreach.templates import render_email, render_sms
 from outreach.ramp import advance_or_hold, get_remaining_ramp_today, record_sends
 from outreach.followup import run_followups
 from outreach.link_identity import ensure_link_identity
+from outreach.email_verify import has_deliverable_domain
 
 logger = logging.getLogger("outreach.send_job")
 
@@ -112,6 +113,25 @@ def send_initial_touch(db, p, now, remaining_ramp=None):
     touched = False
     email_id = None
     unlimited = remaining_ramp is None
+
+    # Belt-and-braces re-check right before send, not just at discovery
+    # time — catches the ~600-row backlog that predates the MX check
+    # (added 2026-07-17 after the first batch's 3 dead-domain bounces), and
+    # any domain that genuinely died between discovery and send. Downgrades
+    # rather than retrying forever: an undeliverable email is treated the
+    # same as "no email found" from here on, so the prospect falls through
+    # to the phone-only SMS branch below instead of burning a
+    # guaranteed-bounce send every day it's eligible.
+    if not phone_only and p.email and not has_deliverable_domain(p.email):
+        logger.warning("Prospect %s: email '%s' has no MX/A record — downgrading to phone-only, skipping email send",
+                        p.id, p.email)
+        p.email_found = False
+        p.error_notes = (
+            f"{(p.error_notes + ' | ') if p.error_notes else ''}"
+            f"email '{p.email}' failed pre-send MX check (undeliverable domain), downgraded to phone-only"
+        )
+        db.commit()
+        phone_only = True
 
     if phone_only:
         if p.phone and not p.sms_unsubscribed and (unlimited or remaining_ramp["sms"] > 0):

@@ -70,10 +70,12 @@ try:
     from outreach.email_discovery import find_email, is_valid_email, looks_like_guess, EmailDiscoveryAPIError
     from outreach.email_scrape import scrape_website_email
     from outreach.apply_result import _try_finalize
+    from outreach.email_verify import has_deliverable_domain
 except ImportError:
     from email_discovery import find_email, is_valid_email, looks_like_guess, EmailDiscoveryAPIError
     from email_scrape import scrape_website_email
     from apply_result import _try_finalize
+    from email_verify import has_deliverable_domain
 
 MAX_CONSECUTIVE_API_ERRORS = 3
 
@@ -129,6 +131,15 @@ def _resolve_one(db, pending, dry_run):
             email = None
         elif looks_like_guess(email, prospect.business_name, prospect.website):
             logger.warning("Discarding suspected guessed email '%s' for prospect %s", email, prospect.id)
+            email = None
+        elif not has_deliverable_domain(email):
+            # Domain has no MX (and no A/AAAA fallback) — mail to this
+            # address would hard-bounce. Discard here rather than store a
+            # doomed address; the prospect falls through to phone-only
+            # (qualified_no_email) or unreachable, same as a genuine "not
+            # found" — because for sending purposes, it effectively wasn't.
+            logger.warning("Discarding undeliverable domain in '%s' for prospect %s (no MX/A record)",
+                            email, prospect.id)
             email = None
 
     if email:

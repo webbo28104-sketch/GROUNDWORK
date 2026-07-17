@@ -67,6 +67,7 @@ purely from whether Places' own `website` field is populated — no screenshot, 
 - **Critical for `no_website` prospects specifically**: since step 1 is unavailable for this segment by definition, discovery *must* actively check steps 2-3 rather than defaulting to a plain web search — this segment scores highest (Section 5) precisely because it's the strongest pitch, so a search method that systematically fails on it undermines the whole prioritization. If a no-website prospect's email discovery only attempted step 1 or a generic search, re-run it explicitly against directories before logging as `qualified_no_email`.
 - **Hard rule**: Never generate/guess a plausible email (e.g. info@businessname.co.uk pattern-matching). Only extract emails actually found in a source. If none found after checking all four source types: route to `qualified_no_email` if the prospect has a phone number (SMS-reachable), or `unreachable` if it has neither — surfaced as a filterable category in the Tinder review UI, not silently dropped or logged-only, either way.
 - **Not using a paid tool** (Hunter.io etc.) — these rely on a known domain, which no-website businesses don't have by definition. Free/agentic route only for now; revisit only if discovery rate proves too low.
+- **MX/A-record check before an email is accepted** (added 2026-07-17, `outreach/email_verify.py`) — a free DNS lookup, not a paid tool, so it doesn't conflict with the rule above. Discards any discovered address whose domain has no mail route at all (dead domain, typo) before it's ever written to a `Prospect` row, and is re-checked once more immediately before send (`outreach/send_job.py`) to catch anything that predates this check or died in between. Does not confirm a specific mailbox exists — no SMTP RCPT probing (unreliable, can look like abuse) — only that mail addressed to the domain has somewhere to go.
 
 ---
 
@@ -276,6 +277,17 @@ Automated logic to protect outreach effectiveness if the email sending domain's 
   - New prospects sourced during this period get SMS as the first touch instead of email
   - Email send volume is paused to allow recovery; ramp resets to the week-1 floor on resume
 - **Recovery:** spam rate must hold below 0.1% for 7 consecutive days before standing is restored. Resume email-first routing only once metrics are consistently clean.
+
+**Revised 2026-07-17 — bounce and complaint are separate signals, not one combined "spam rate", and both require a real sample before acting:**
+
+The first production batch (10 sent, 3 bounced — all dead/typo'd domains a DNS lookup would have caught) tripped the breaker on a sample of 10, using the original combined-rate design above. Two real problems, not one:
+
+1. **A hard bounce and a spam complaint are different severities of the same thing.** A complaint is a person marking real, delivered mail as spam — a direct reputation hit. A bounce is often just a bad address (typo, defunct domain, an AI-discovery miss) — a data-quality problem, not a "this domain sends spam" signal, though ISPs do still weight it somewhat. Folding both into one 0.1% trigger meant bounce noise could trip the breaker on data quality alone.
+2. **0.1% of a 10-send sample is 0 or 1 events — not a rate, a coin flip.** Section 5b already establishes 30+ outcomes as the bar for trusting a per-factor rate over noise; the circuit-breaker signal needs the same bar and didn't have one.
+
+**What actually shipped:** `complaint_rate` keeps the 0.1% trigger (true spam signal). `bounce_rate` gets its own, higher trigger (5% — in line with typical ESP guidance that under 2% is healthy, 5%+ is a real problem) and is tracked/trips independently. Neither is evaluated below 30 sends in the trailing 7-day window (`MIN_EMAIL_SAMPLE_SIZE`) — below that, the signal is `None` and the ramp holds flat, same as the existing "not enough data" behavior. **Pre-send mitigation, not just a better trigger:** `outreach/email_verify.py` now does a free DNS MX/A-record lookup before an address is ever accepted by discovery (`outreach/email_discovery_job.py`, `outreach/apply_result.py`) and again right before send (`outreach/send_job.py`) — catching the exact class of dead-domain bounce that caused the first incident before it ever costs a send, rather than only reacting to it after the fact. Not a full mailbox-existence check (no SMTP RCPT probing — unreliable and can itself look like abuse); it only confirms the domain has somewhere to route mail.
+
+**Recovery, previously a known gap ("holds a tripped breaker at the floor indefinitely," Section 15) — now built.** `RampState.consecutive_clean_days` tracks how many consecutive nightly checks, while tripped, saw both rates clean at real sample size; a breach resets it to 0; reaching 7 clears the trip and resumes ramping from the floor. Because both rates are trailing-7-day windows, a single bad day naturally takes about a week to age out before the clean-day count can even start climbing — recovery from a real trip realistically takes noticeably longer than 7 days end-to-end, which is expected trailing-window behavior, not a bug.
 
 ### SMS circuit-breaker
 
@@ -552,11 +564,11 @@ The biggest risk to this pipeline is emails landing in spam, not generation cost
 
 `outreach/ramp.py:get_health_signal(channel)` now computes real rates from the above:
 
-- **email:** complaint count (`EmailEventLog`, trailing 7 days) ÷ total sends (`DailySendCount`, trailing 7 days) → `spam_rate`.
+- **email:** `bounce_rate` and `complaint_rate` computed **separately** (`EmailEventLog` ÷ `DailySendCount`, trailing 7 days each) — revised 2026-07-17, see Section 10b's email circuit-breaker for why these were split and why a 30-send minimum sample now gates evaluation at all (previously any nonzero send count qualified).
 - **sms:** delivered ÷ total distinct `message_sid`s (`SmsDeliveryEvent`) for the trailing 7 days (`delivery_rate`) vs. the 7 days before that (`delivery_rate_baseline`, what the circuit-breaker trigger compares against per Section 10b), plus today's opt-outs (`Prospect.sms_unsubscribed_at`) ÷ today's sends (`opt_out_rate_today`).
-- Returns `None` ("unknown") whenever there isn't yet enough real data in the window (e.g. zero sends logged) — the ramp still **holds flat rather than advancing on missing/insufficient data**, same principle as before, now genuinely exercised by real volume rather than permanently true. Verified with synthetic event data during this build (no data → `None`; 1 complaint / 100 sends → `spam_rate: 0.01`; 30/50 delivered current vs. 45/50 baseline → correct rates).
+- Returns `None` ("unknown") whenever there isn't yet enough real data in the window — the ramp **holds flat rather than advancing on missing/insufficient data**. For email this is now "fewer than 30 sends in the trailing window," not just "zero."
 
-**Known gap even once real volume flows:** circuit-breaker *recovery* (Section 10b: "spam rate must hold below 0.1% for 7 consecutive days") needs a rolling history of daily signal values to evaluate — that history isn't stored anywhere yet (only raw events, not a computed-and-stored daily rate). `advance_or_hold()` currently just holds a tripped breaker at the floor indefinitely and logs that consecutive-day tracking is missing, rather than fabricating a recovery.
+**Recovery — was a known gap ("holds a tripped breaker at the floor indefinitely"), now built.** `RampState.consecutive_clean_days` (new column, `outreach/ramp.py`) counts consecutive nightly checks, while tripped, where both rates came back clean at real sample size; any breach resets it to 0; reaching 7 clears the trip and resumes the ramp from the floor. See Section 10b for the full account, including why trailing-window recovery realistically takes longer than 7 days end-to-end.
 
 ### Dynamic send ramp (email)
 

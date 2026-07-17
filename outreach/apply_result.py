@@ -62,9 +62,11 @@ from models import (
 try:
     from outreach.scorer import score_prospect
     from outreach.email_discovery import is_valid_email, looks_like_guess
+    from outreach.email_verify import has_deliverable_domain
 except ImportError:
     from scorer import score_prospect
     from email_discovery import is_valid_email, looks_like_guess
+    from email_verify import has_deliverable_domain
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("outreach.apply_result")
@@ -167,6 +169,14 @@ def cmd_email(prospect_id, email_raw, source="web_search", force=False):
                     f"ERROR: '{email}' looks like a pattern-match guess for '{p.business_name}' "
                     f"(no real website on record). Only submit emails you actually saw on a real "
                     f"page. Use --force to bypass this check if you're certain it was genuinely found.",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+
+            if not force and not has_deliverable_domain(email):
+                print(
+                    f"ERROR: '{email}' has no MX or A/AAAA record — mail to it would hard-bounce. "
+                    f"Use --force to submit anyway if you're certain this is right (e.g. a resolver hiccup).",
                     file=sys.stderr,
                 )
                 sys.exit(1)
