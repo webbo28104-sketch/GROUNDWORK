@@ -3,7 +3,8 @@ Groundwork outreach — initial + follow-up template copy.
 
 Placeholders substituted by the caller: {business_name}, {preview_link},
 {short_code}, {unsubscribe_link}, {branding_ps} (stages C/D only — see
-branding_ps_line() below).
+branding_ps_line() below), {survey_ps} (stages C/D only — see
+survey_ps_line() below).
 
 Content accuracy rule (docs/outreach-pipeline-spec.md Section 10c): templates
 for the "sent" and "opened" substages (pre-click) must never claim the site
@@ -400,6 +401,7 @@ FOLLOWUP_EMAIL = {
         Any questions, just reply to this email.
       </td></tr>
       {branding_ps}
+      {survey_ps}
       <tr><td style="padding:6px 0 26px;">
         <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;font-family:Arial,Helvetica,sans-serif;">
         <tbody><tr>
@@ -502,6 +504,7 @@ FOLLOWUP_EMAIL = {
         Any questions, just reply to this email.
       </td></tr>
       {branding_ps}
+      {survey_ps}
       <tr><td style="padding:6px 0 26px;">
         <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;font-family:Arial,Helvetica,sans-serif;">
         <tbody><tr>
@@ -589,6 +592,28 @@ _BRANDING_PS_TEXT = {
     "full": "we pulled your logo and photos straight from your current site, so it already looks like you.",
     "partial": "we used some of your existing branding when building this, so it already looks like you.",
 }
+
+
+_SURVEY_PS_ROW = (
+    '<tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:14px;'
+    'line-height:1.65;color:#5C5A56;padding:0 0 18px;">P.S. — got 2 minutes? '
+    '<a href="{link}" style="color:#2257CC;text-decoration:none;">Tell us why you have (or haven\'t) '
+    'gone live yet</a> and we\'ll waive the full £99 setup fee.</td></tr>'
+)
+
+
+def survey_ps_line(survey_link):
+    """Renders the optional survey CTA row for the {survey_ps} placeholder
+    in stages C/D (added 2026-07-17, docs/outreach-pipeline-spec.md's
+    post-generation survey) — same on/off pattern as branding_ps_line().
+    Only stages C/D carry {survey_ps} in their body (a real click, and
+    therefore a real survey token target, is a precondition — see
+    /survey/<token> in app.py), so this is only ever called for those two.
+    Returns "" if no link is given, same graceful-collapse behavior as
+    branding_ps_line for a missing asset."""
+    if not survey_link:
+        return ""
+    return _SURVEY_PS_ROW.format(link=survey_link)
 
 
 def branding_ps_line(extraction_quality):

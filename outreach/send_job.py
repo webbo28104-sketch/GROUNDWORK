@@ -58,6 +58,10 @@ def _unsubscribe_link(p):
     return f"{BASE_URL}/unsubscribe/{p.token}"
 
 
+def _survey_link(p):
+    return f"{BASE_URL}/survey/{p.token}"
+
+
 def _record_sms_submitted(db, message_id, to_phone):
     """
     Log the initial 'submitted' state for a sent SMS, keyed by Esendex's
@@ -255,7 +259,7 @@ def run_daily_send(now=None):
         )
         remaining["sms"] = 0
 
-    remaining = run_followups(remaining, _unsubscribe_link, _preview_link, _short_code, now)
+    remaining = run_followups(remaining, _unsubscribe_link, _preview_link, _short_code, _survey_link, now)
     n_initial = fill_initial_sends(remaining, now)
 
     summary = {

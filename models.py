@@ -246,6 +246,34 @@ class Prospect(Base):
     processed_at = Column(DateTime, nullable=True)
 
 
+class SurveyResponse(Base):
+    """One row per completed post-generation survey (added 2026-07-17) —
+    the "why did/didn't you go live" form offered to prospects who've
+    clicked their magic link (a site exists) but haven't paid. Captures
+    real, structured attributes the sourcing pipeline (Places API +
+    scraping) has no way to see on its own — decision-maker, existing
+    website spend, acquisition channel, timeline, and stated reason —
+    exactly the "objectifiable needle movers" Section 5b's adaptive
+    scoring loop needs more of. One response per prospect; the survey
+    route is idempotent (repeat visits show the already-submitted state,
+    same pattern as /claim/<token>)."""
+    __tablename__ = "survey_responses"
+
+    id = Column(Integer, primary_key=True)
+    prospect_id = Column(Integer, ForeignKey("prospects.id"), nullable=False, unique=True, index=True)
+    decision = Column(String(20))  # went_live / not_yet / not_going_live
+    primary_reason = Column(String(30))  # price / dont_see_need / using_someone_else / still_deciding / technical_issue / design_not_right / other
+    reason_detail = Column(Text, nullable=True)
+    decision_maker = Column(String(20), nullable=True)  # owner / employee / other
+    already_pays_for_website = Column(Boolean, nullable=True)
+    how_get_customers = Column(String(30), nullable=True)  # word_of_mouth / google_search / social_media / directories / repeat_customers / other
+    timeline = Column(String(20), nullable=True)  # this_week / this_month / not_sure / no_plans
+    what_would_change_mind = Column(Text, nullable=True)
+    discount_code_issued = Column(String(50), nullable=True)
+    discount_expires_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class SearchCell(Base):
     __tablename__ = "search_cells"
 

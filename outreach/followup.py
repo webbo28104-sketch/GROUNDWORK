@@ -23,7 +23,7 @@ from datetime import datetime
 from models import SessionLocal, Prospect, SmsDeliveryEvent, OutreachTouch
 from emails import send_outreach_email
 from outreach.sms import send_outreach_sms
-from outreach.templates import render_email, render_sms, PRE_CLICK_STAGES, POST_CLICK_STAGES, branding_ps_line
+from outreach.templates import render_email, render_sms, PRE_CLICK_STAGES, POST_CLICK_STAGES, branding_ps_line, survey_ps_line
 from outreach.ramp import record_sends
 from outreach.link_identity import ensure_link_identity
 
@@ -91,7 +91,7 @@ def _is_catch_all(p, now):
     return first_send_days is not None and CATCH_ALL_MIN_DAYS <= first_send_days <= CATCH_ALL_MAX_DAYS
 
 
-def _fire_touch(db, p, stage, now, remaining_ramp, unsubscribe_link_fn, preview_link_fn, short_code_fn):
+def _fire_touch(db, p, stage, now, remaining_ramp, unsubscribe_link_fn, preview_link_fn, short_code_fn, survey_link_fn):
     """Send the due stage on whichever channels apply and still have ramp
     budget, then update state. Returns (email_used, sms_used) — 0/1 each."""
     email_used = 0
@@ -126,12 +126,18 @@ def _fire_touch(db, p, stage, now, remaining_ramp, unsubscribe_link_fn, preview_
             # have no extraction_quality yet) — passing "" for A/B is inert
             # since those templates have no {branding_ps} placeholder.
             branding_ps = branding_ps_line(p.extraction_quality) if stage in POST_CLICK_STAGES else ""
+            # Same on/off pattern as branding_ps — survey_ps only ever
+            # renders non-empty for post-click stages (C/D), since only
+            # those templates carry the {survey_ps} placeholder and only a
+            # clicked prospect has a real /survey/<token> target.
+            survey_ps = survey_ps_line(survey_link_fn(p)) if stage in POST_CLICK_STAGES else ""
             msg = render_email(
                 stage,
                 business_name=p.business_name,
                 preview_link=preview_link_fn(p),
                 unsubscribe_link=unsubscribe_link_fn(p),
                 branding_ps=branding_ps,
+                survey_ps=survey_ps,
             )
             email_id = send_outreach_email(p.email, msg["subject"], msg["body"], unsubscribe_link_fn(p))
             if email_id:
@@ -154,7 +160,7 @@ def _fire_touch(db, p, stage, now, remaining_ramp, unsubscribe_link_fn, preview_
     return email_used, sms_used
 
 
-def run_followups(remaining_ramp, unsubscribe_link_fn, preview_link_fn, short_code_fn, now=None):
+def run_followups(remaining_ramp, unsubscribe_link_fn, preview_link_fn, short_code_fn, survey_link_fn, now=None):
     """
     Queue due follow-up touches, first-priority against remaining_ramp — a
     dict {"email": N, "sms": M}, how many sends of each channel are still
@@ -162,9 +168,9 @@ def run_followups(remaining_ramp, unsubscribe_link_fn, preview_link_fn, short_co
     Mutated and returned in place so the caller can pass the same dict on to
     the initial-send job.
 
-    unsubscribe_link_fn/preview_link_fn/short_code_fn: callables taking a
-    Prospect and returning the per-prospect URL/code strings, since those
-    depend on routing/token logic that lives outside this module.
+    unsubscribe_link_fn/preview_link_fn/short_code_fn/survey_link_fn: callables
+    taking a Prospect and returning the per-prospect URL/code strings, since
+    those depend on routing/token logic that lives outside this module.
 
     A prospect due for a touch where BOTH applicable channels are out of
     ramp budget is left untouched (still due) — it'll be picked up on a
@@ -211,7 +217,7 @@ def run_followups(remaining_ramp, unsubscribe_link_fn, preview_link_fn, short_co
                 continue
 
             email_used, sms_used = _fire_touch(
-                db, p, stage, now, remaining_ramp, unsubscribe_link_fn, preview_link_fn, short_code_fn
+                db, p, stage, now, remaining_ramp, unsubscribe_link_fn, preview_link_fn, short_code_fn, survey_link_fn
             )
             if not (email_used or sms_used):
                 continue

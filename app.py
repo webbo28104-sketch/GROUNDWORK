@@ -30,7 +30,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 from build_prompt import build_prompt
 from outreach.site_extract import extract_site_assets
-from models import SessionLocal, Lead, Generation, Account, GenerationImage, Domain, Prospect, SearchCell, PendingEmailDiscovery, EmailEventLog, OutreachTouch, DailySendCount, RampState, SmsDeliveryEvent, init_db
+from models import SessionLocal, Lead, Generation, Account, GenerationImage, Domain, Prospect, SearchCell, PendingEmailDiscovery, EmailEventLog, OutreachTouch, DailySendCount, RampState, SmsDeliveryEvent, SurveyResponse, init_db
 from emails import (send_verification_email, send_resend_email, send_password_reset_email,
                     send_support_message_email, send_enquiry_email,
                     send_domain_order_admin_email, send_domain_order_customer_email,
@@ -2464,6 +2464,31 @@ def _get_or_create_retention_coupon():
         )
 
 
+SURVEY_DISCOUNT_WINDOW_DAYS = 7
+
+
+def _issue_survey_discount_code(prospect):
+    """Generate a single-use, time-limited setup-fee-waiver code for this
+    prospect. Returns (code, expires_at). Deliberately NOT a Stripe
+    Coupon/PromotionCode — tried that first and found, against the real
+    live Stripe account, that Coupon.create's applies_to.products parameter
+    is silently dropped (the created Coupon comes back with no applies_to
+    field at all, confirmed by retrieving it straight back). A percent_off
+    coupon with no product restriction discounts every line item in the
+    Checkout Session, not just the £99 setup fee — it would have waived
+    the recurring subscription price too, a real money mistake on a live
+    account, not a theoretical one. Redemption is instead fully app-side:
+    the code and expiry are stored on Prospect.discount_code/discount_expiry
+    (existing, previously-unused schema columns) and checked in
+    create_checkout_session(), which — if the submitted code matches and
+    hasn't expired — omits the setup-fee line item entirely rather than
+    discounting it via Stripe. No live-API call, so this can't fail, and
+    the exact line item touched is never ambiguous."""
+    code = f"SETUPFREE{(prospect.token or str(prospect.id))[:8].upper()}"
+    expires_at = datetime.utcnow() + timedelta(days=SURVEY_DISCOUNT_WINDOW_DAYS)
+    return code, expires_at
+
+
 def _resolve_subscription_id(gen, db):
     """
     Returns gen.stripe_subscription_id, backfilling it first if missing —
@@ -3182,6 +3207,171 @@ def unsubscribe(token):
     if request.method == "POST":
         return "", 200
     return _unsubscribe_landing_page()
+
+
+_SURVEY_STYLE = """<style>
+.gwsvy-field{margin:0 0 22px;}
+.gwsvy-label{display:block;font-weight:700;font-size:14.5px;margin-bottom:10px;}
+.gwsvy-opts{display:flex;flex-direction:column;gap:8px;}
+.gwsvy-opt{display:flex;align-items:center;gap:10px;padding:11px 14px;border:1px solid #E2E0DA;border-radius:9px;cursor:pointer;font-size:14.5px;}
+.gwsvy-opt:hover{border-color:#B8B5AE;}
+.gwsvy-opt input{margin:0;}
+textarea.gwsvy-text{width:100%;padding:12px 14px;border:1px solid #D9D7D0;border-radius:9px;font-size:14.5px;font-family:Inter,sans-serif;min-height:70px;resize:vertical;box-sizing:border-box;}
+.gwsvy-optional{color:#9A9893;font-weight:500;font-size:12.5px;}
+</style>"""
+
+_SURVEY_PRIMARY_REASONS = [
+    ("price", "The price"),
+    ("dont_see_need", "Didn't feel like I needed a new website"),
+    ("using_someone_else", "Already using/planning to use someone else"),
+    ("still_deciding", "Still deciding, haven't ruled it out"),
+    ("technical_issue", "Ran into a problem trying to go live"),
+    ("design_not_right", "The site itself wasn't right for my business"),
+    ("other", "Other"),
+]
+_SURVEY_DECISION_MAKERS = [("owner", "Yes, it's my decision"), ("employee", "No, someone else decides"), ("other", "Other")]
+_SURVEY_CUSTOMER_SOURCES = [
+    ("word_of_mouth", "Word of mouth / referrals"), ("google_search", "Google search"),
+    ("social_media", "Social media"), ("directories", "Trade directories (Checkatrade, Yell, etc.)"),
+    ("repeat_customers", "Repeat customers"), ("other", "Other"),
+]
+_SURVEY_TIMELINES = [
+    ("this_week", "This week"), ("this_month", "This month"),
+    ("not_sure", "Not sure yet"), ("no_plans", "No plans to go live"),
+]
+
+
+def _survey_radio_group(name, options, legend):
+    opts_html = "".join(
+        f'<label class="gwsvy-opt"><input type="radio" name="{name}" value="{val}" required>{escape(label)}</label>'
+        for val, label in options
+    )
+    return f'<div class="gwsvy-field"><span class="gwsvy-label">{escape(legend)}</span><div class="gwsvy-opts">{opts_html}</div></div>'
+
+
+def _survey_form_page(prospect, error=None):
+    error_html = f'<p style="color:#DC2626;font-weight:600;margin:0 0 16px;">{escape(error)}</p>' if error else ""
+    inner = f"""{_SURVEY_STYLE}
+<div class="acct-card">
+  <h1 style="margin:0 0 6px;font-weight:800;font-size:24px;letter-spacing:-.02em;">Quick favour, {escape(prospect.business_name or "there")}?</h1>
+  <p style="margin:0 0 24px;font-size:15px;color:#5C5A56;line-height:1.6;">
+    Answer a few quick questions about your website preview and we'll waive the full £99 setup fee —
+    a one-time code, valid for {SURVEY_DISCOUNT_WINDOW_DAYS} days, no obligation either way.
+  </p>
+  {error_html}
+  <form method="post">
+    {_survey_radio_group("decision", [
+        ("went_live", "I've already gone live"),
+        ("not_yet", "Not yet, but considering it"),
+        ("not_going_live", "I don't plan to go live"),
+    ], "Where are you at with your Groundwork site?")}
+    {_survey_radio_group("primary_reason", _SURVEY_PRIMARY_REASONS, "What's the main factor in that?")}
+    <div class="gwsvy-field">
+      <span class="gwsvy-label">Anything else you'd add? <span class="gwsvy-optional">(optional)</span></span>
+      <textarea class="gwsvy-text" name="reason_detail" maxlength="1000"></textarea>
+    </div>
+    {_survey_radio_group("decision_maker", _SURVEY_DECISION_MAKERS, "Is going live your call to make?")}
+    {_survey_radio_group("already_pays_for_website", [("yes", "Yes"), ("no", "No")], "Do you currently pay for a website or hosting elsewhere?")}
+    {_survey_radio_group("how_get_customers", _SURVEY_CUSTOMER_SOURCES, "How do most of your customers find you today?")}
+    {_survey_radio_group("timeline", _SURVEY_TIMELINES, "If you were to go live, what's the timeline?")}
+    <div class="gwsvy-field">
+      <span class="gwsvy-label">What would make going live an easy yes? <span class="gwsvy-optional">(optional)</span></span>
+      <textarea class="gwsvy-text" name="what_would_change_mind" maxlength="1000"></textarea>
+    </div>
+    <button type="submit" class="acct-btn" style="width:100%;">Submit and get my code</button>
+  </form>
+</div>"""
+    return render_template_string(_account_page(inner, "Quick survey"))
+
+
+def _survey_confirmation_page(response):
+    if response.discount_code_issued:
+        code_html = f"""<div style="background:#F0F9FF;border:1px solid #BAE6FD;border-radius:10px;padding:18px 20px;margin:18px 0;">
+      <p style="margin:0 0 6px;font-size:13px;font-weight:700;color:#0369A1;text-transform:uppercase;letter-spacing:.04em;">Your setup fee is waived</p>
+      <p style="margin:0 0 4px;font-size:22px;font-weight:800;letter-spacing:.02em;font-family:monospace;">{escape(response.discount_code_issued)}</p>
+      <p style="margin:0;font-size:13.5px;color:#5C5A56;">Enter this code at checkout — valid until {response.discount_expires_at.strftime("%d %b %Y") if response.discount_expires_at else "soon"}.</p>
+    </div>"""
+    else:
+        code_html = (
+            '<p style="color:#B45309;">Thanks — got your answers. We hit a snag generating your code automatically; '
+            'reply to any of our emails and we\'ll sort it out by hand.</p>'
+        )
+    inner = f"""<div class="acct-card" style="text-align:center;">
+      <h1 style="margin:0 0 10px;font-weight:800;font-size:24px;letter-spacing:-.02em;">Thanks — that's genuinely useful</h1>
+      <p style="margin:0;font-size:15px;color:#5C5A56;line-height:1.6;">We read every response.</p>
+      {code_html}
+    </div>"""
+    return render_template_string(_account_page(inner, "Thanks"))
+
+
+@app.route("/survey/<token>", methods=["GET", "POST"])
+def prospect_survey(token):
+    """The 'why did/didn't you go live' survey (added 2026-07-17) —
+    offered to prospects who've clicked their magic link (a real
+    generated site exists) but haven't paid. Captures structured
+    attributes the sourcing pipeline can't see on its own — decision-maker,
+    existing website spend, acquisition channel, timeline, stated reason —
+    real candidates for new scoring factors under Section 5b, which today
+    only has Places-API-derived signals to work with. Not gating anything
+    (the generated site is already visible via /claim/<token> regardless)
+    — this is a separate, optional, incentivized ask, linked from Stage
+    C/D follow-up copy (outreach/templates.py) since those are exactly the
+    'clicked, no payment yet' / 'account created, no payment yet'
+    audiences this is aimed at.
+
+    Idempotent like /claim/<token>: a second visit after submitting shows
+    the original confirmation (with the original code, not a new one —
+    SurveyResponse.prospect_id is unique) rather than a fresh form."""
+    db = SessionLocal()
+    try:
+        prospect = db.query(Prospect).filter(Prospect.token == token).first()
+        if not prospect or not prospect.clicked_at:
+            # No real generated site to have an opinion about — same "don't
+            # reveal whether a token is valid" posture as /unsubscribe.
+            abort(404)
+
+        existing = db.query(SurveyResponse).filter(SurveyResponse.prospect_id == prospect.id).first()
+        if existing:
+            return _survey_confirmation_page(existing)
+
+        if request.method == "GET":
+            return _survey_form_page(prospect)
+
+        decision = request.form.get("decision", "")
+        primary_reason = request.form.get("primary_reason", "")
+        if decision not in ("went_live", "not_yet", "not_going_live") or not primary_reason:
+            return _survey_form_page(prospect, error="Please answer the first two questions to continue.")
+
+        already_pays_raw = request.form.get("already_pays_for_website")
+        response = SurveyResponse(
+            prospect_id=prospect.id,
+            decision=decision,
+            primary_reason=primary_reason,
+            reason_detail=(request.form.get("reason_detail") or "").strip()[:1000] or None,
+            decision_maker=request.form.get("decision_maker") or None,
+            already_pays_for_website=(already_pays_raw == "yes") if already_pays_raw in ("yes", "no") else None,
+            how_get_customers=request.form.get("how_get_customers") or None,
+            timeline=request.form.get("timeline") or None,
+            what_would_change_mind=(request.form.get("what_would_change_mind") or "").strip()[:1000] or None,
+        )
+        db.add(response)
+        db.flush()  # need response.id-adjacent prospect fields available before commit below
+
+        try:
+            code, expires_at = _issue_survey_discount_code(prospect)
+            response.discount_code_issued = code
+            response.discount_expires_at = expires_at
+            prospect.discount_code = code
+            prospect.discount_expiry = expires_at
+        except Exception:
+            app.logger.exception("prospect_survey: failed to issue Stripe promo code for prospect %s — "
+                                  "response saved regardless, code needs manual follow-up", prospect.id)
+
+        db.commit()
+        db.refresh(response)
+        return _survey_confirmation_page(response)
+    finally:
+        db.close()
 
 
 @app.route("/api/account/session")
@@ -4463,6 +4653,25 @@ def admin_prospect_detail(prospect_id):
             lead = db.query(Lead).filter(Lead.id == p.lead_id).first()
             generation = db.query(Generation).filter(Generation.lead_id == p.lead_id).first()
 
+        survey = db.query(SurveyResponse).filter(SurveyResponse.prospect_id == p.id).first()
+        survey_html = '<p class="muted">No survey response yet.</p>'
+        if survey:
+            survey_fields = [
+                ("Decision", survey.decision), ("Primary reason", survey.primary_reason),
+                ("Details", survey.reason_detail), ("Decision maker?", survey.decision_maker),
+                ("Already pays for a website", survey.already_pays_for_website),
+                ("How they get customers", survey.how_get_customers),
+                ("Timeline", survey.timeline), ("What would change their mind", survey.what_would_change_mind),
+                ("Discount code issued", survey.discount_code_issued),
+                ("Submitted", _fmt_dt(survey.created_at)),
+            ]
+            survey_rows = "".join(
+                f'<tr><td style="padding:6px 10px;color:#9A9893;">{escape(k)}</td>'
+                f'<td style="padding:6px 10px;">{escape(str(v))}</td></tr>'
+                for k, v in survey_fields if v not in (None, "")
+            )
+            survey_html = f'<table style="width:100%;border-collapse:collapse;font-size:13.5px;">{survey_rows}</table>'
+
         generation_html = '<p class="muted">No claim yet — magic link not clicked.</p>'
         if lead:
             gen_links = ""
@@ -4548,9 +4757,14 @@ def admin_prospect_detail(prospect_id):
   <p style="margin:0;font-size:13.5px;color:#9A9893;">Short link: <a href="{escape(short_link)}" target="_blank">{escape(short_link)}</a></p>
 </div>
 
-<div class="adm-card" style="padding:16px 20px;">
+<div class="adm-card" style="padding:16px 20px;margin-bottom:20px;">
   <p style="font-weight:700;margin:0 0 10px;">Generated site</p>
   {generation_html}
+</div>
+
+<div class="adm-card" style="padding:16px 20px;">
+  <p style="font-weight:700;margin:0 0 10px;">Survey response</p>
+  {survey_html}
 </div>
 """
         return render_template_string(_admin_page(escape(p.business_name or "Prospect"), content, active="funnel"))
@@ -4622,9 +4836,24 @@ def _compute_kpis(db, range_from: datetime = None, range_to: datetime = None) ->
     # vs clicked_at, both real fields with history predating today's fixes.
     # Cohort = prospects sent to within the period; numerator = how many of
     # those have since clicked (clicked_at may fall after period_end — a
-    # click is still credited to the send that produced it).
+    # click is still credited to the send that produced it). Same bounce
+    # exclusion as emails_sent above — a bounced address never reached an
+    # inbox, so it can't be a fair denominator for "did they click" either
+    # (was inflating the denominator and understating the real rate: e.g.
+    # 1/20 shown when only 16 of those 20 sends actually landed, so the
+    # honest rate is 1/16).
+    bounced_emails_in_period = {
+        (email_utils.parseaddr(e.to_email)[1] or e.to_email or "").strip().lower()
+        for e in db.query(EmailEventLog).filter(
+            EmailEventLog.event_type.in_(["email.bounced", "bounced"]),
+            EmailEventLog.created_at >= period_start,
+            EmailEventLog.created_at <= period_end,
+        ).all() if e.to_email
+    }
     sent_q = db.query(Prospect).filter(Prospect.sent_at.isnot(None))
     sent_q = sent_q.filter(Prospect.sent_at >= period_start, Prospect.sent_at <= period_end)
+    if bounced_emails_in_period:
+        sent_q = sent_q.filter(~func.lower(Prospect.email).in_(bounced_emails_in_period))
     sent_n = sent_q.count()
     clicked_n = sent_q.filter(Prospect.clicked_at.isnot(None)).count()
 
@@ -4885,6 +5114,54 @@ and how that cohort's account-creation and paid rates compare. Set once per pros
 """
 
 
+_SURVEY_REASON_LABELS = dict([
+    ("price", "The price"), ("dont_see_need", "Didn't feel like they needed it"),
+    ("using_someone_else", "Using/planning to use someone else"), ("still_deciding", "Still deciding"),
+    ("technical_issue", "Ran into a problem going live"), ("design_not_right", "Site wasn't right for them"),
+    ("other", "Other"),
+])
+_SURVEY_DECISION_LABELS = dict([("went_live", "Already live"), ("not_yet", "Not yet, considering"), ("not_going_live", "Not planning to")])
+
+
+def _render_survey_breakdown(db):
+    """Why prospects do/don't go live, straight from the post-generation
+    survey (added 2026-07-17, /survey/<token>) — real, structured answers
+    instead of having to infer intent from silence. Purely observational;
+    counts are shown as-is (no minimum-sample gate) since even a handful of
+    real responses is more signal than the zero that existed before this."""
+    responses = db.query(SurveyResponse).all()
+    if not responses:
+        return """
+<h2 style="font-size:15px;font-weight:700;margin:28px 0 10px;">Why prospects do/don't go live</h2>
+<div class="adm-card" style="padding:20px;"><p class="muted" style="margin:0;">No survey responses yet — link goes out
+in Stage C/D follow-ups (docs/outreach-pipeline-spec.md Section 11), sent to clicked-but-unpaid prospects.</p></div>
+"""
+    decision_counts = Counter(r.decision for r in responses)
+    reason_counts = Counter(r.primary_reason for r in responses)
+
+    decision_rows = "".join(
+        f'<tr><td>{escape(_SURVEY_DECISION_LABELS.get(k, k or "—"))}</td>'
+        f'<td style="text-align:center;">{decision_counts[k]}</td></tr>'
+        for k in sorted(decision_counts, key=lambda k: -decision_counts[k])
+    )
+    reason_rows = "".join(
+        f'<tr><td>{escape(_SURVEY_REASON_LABELS.get(k, k or "—"))}</td>'
+        f'<td style="text-align:center;">{reason_counts[k]}</td></tr>'
+        for k in sorted(reason_counts, key=lambda k: -reason_counts[k])
+    )
+    return f"""
+<h2 style="font-size:15px;font-weight:700;margin:28px 0 10px;">Why prospects do/don't go live ({len(responses)} response(s))</h2>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+  <div class="adm-card" style="overflow-x:auto;">
+  <table><thead><tr><th>Status</th><th style="text-align:center;">Count</th></tr></thead><tbody>{decision_rows}</tbody></table>
+  </div>
+  <div class="adm-card" style="overflow-x:auto;">
+  <table><thead><tr><th>Main reason</th><th style="text-align:center;">Count</th></tr></thead><tbody>{reason_rows}</tbody></table>
+  </div>
+</div>
+"""
+
+
 @app.route("/admin/funnel")
 @admin_required
 def admin_funnel():
@@ -4926,6 +5203,7 @@ def admin_funnel():
     try:
         kpi_strip = _render_kpi_strip(_compute_kpis(db))
         extraction_quality_breakdown = _render_extraction_quality_breakdown(db)
+        survey_breakdown = _render_survey_breakdown(db)
 
         # Recent clicks — every prospect who has clicked their magic link,
         # most recent first, with enough context to see WHY at a glance
@@ -5096,6 +5374,8 @@ necessarily that specific one (opened_at is a single per-prospect timestamp, not
 <div class="statsbar" style="justify-content:flex-start;text-align:left;">{summary_html}</div>
 
 {recent_clicks_html}
+
+{survey_breakdown}
 
 {extraction_quality_breakdown}
 """
@@ -6942,6 +7222,24 @@ def create_checkout_session():
                 "error": f"The address {slug}.{_SUBDOMAIN_BASE} is already taken by another company. "
                          "Please email us at groundwork-build@outlook.com and we'll help you pick a different name."
             }), 409
+
+        # Survey-issued setup-fee waiver (2026-07-17) — deliberately checked
+        # and applied entirely app-side rather than via a Stripe Coupon; see
+        # _issue_survey_discount_code's docstring for why (a percent_off
+        # Coupon's applies_to restriction was found to be silently dropped
+        # by the live API, which would have discounted the whole checkout,
+        # not just the setup fee). skip_setup_fee is the only effect a valid
+        # code has: the £99 line item is omitted below, nothing else changes.
+        submitted_code = (data.get("discount_code") or "").strip().upper()
+        skip_setup_fee = False
+        if submitted_code:
+            prospect = db.query(Prospect).filter(Prospect.lead_id == gen.lead_id).first()
+            if (prospect and prospect.discount_code
+                    and prospect.discount_code.upper() == submitted_code
+                    and prospect.discount_expiry and prospect.discount_expiry > datetime.utcnow()):
+                skip_setup_fee = True
+            else:
+                return jsonify({"error": "That discount code isn't valid or has expired."}), 422
     finally:
         db.close()
 
@@ -6950,15 +7248,17 @@ def create_checkout_session():
     # on top of that (see design_handoff_marketing_consistency notes).
     subscription_data = {"trial_period_days": 30} if plan == "monthly" else {}
 
+    line_items = [{"price": recurring_price_id, "quantity": 1}]
+    if not skip_setup_fee:
+        line_items.insert(0, {"price": STRIPE_SETUP_PRICE_ID, "quantity": 1})
+
     cs = stripe.checkout.Session.create(
         mode="subscription",
-        line_items=[
-            {"price": STRIPE_SETUP_PRICE_ID, "quantity": 1},
-            {"price": recurring_price_id, "quantity": 1},
-        ],
+        line_items=line_items,
         subscription_data=subscription_data,
         allow_promotion_codes=True,
         client_reference_id=job_id,
+        metadata={"discount_code_redeemed": submitted_code} if skip_setup_fee else {},
         success_url=f"{SITE_URL}/live.html?id={job_id}",
         cancel_url=f"{SITE_URL}/api/generate/{job_id}/html",
     )
@@ -7054,6 +7354,19 @@ def stripe_webhook():
                             gen.stripe_setup_invoice_id = invoice_id
                         if subscription_id:
                             gen.stripe_subscription_id = subscription_id
+
+                        # Consume the survey-issued discount code, if this
+                        # checkout used one (create_checkout_session stamped
+                        # it into metadata) — cleared only on confirmed
+                        # payment, not at session-creation time, so an
+                        # abandoned checkout doesn't burn the one-time code.
+                        redeemed_code = metadata.get("discount_code_redeemed")
+                        if redeemed_code:
+                            prospect = db.query(Prospect).filter(Prospect.lead_id == gen.lead_id).first()
+                            if prospect and prospect.discount_code and prospect.discount_code.upper() == redeemed_code:
+                                prospect.discount_code = None
+                                prospect.discount_expiry = None
+
                         # Assign subdomain (the checkout route already validated this;
                         # the double-check here guards the rare simultaneous-payment race).
                         if not gen.subdomain:

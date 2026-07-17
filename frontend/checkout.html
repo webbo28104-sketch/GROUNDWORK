@@ -83,6 +83,11 @@ body{margin:0;background:#F5F3EE;font-family:Inter,sans-serif;color:#1C1C1C;}
       </div>
     </div>
 
+    <div style="margin-bottom:16px;">
+      <input id="discount-code-input" type="text" placeholder="Discount code (optional)" autocapitalize="characters" style="width:100%;padding:12px 14px;border:1px solid #D9D7D0;border-radius:9px;font-size:14.5px;font-family:inherit;box-sizing:border-box;text-transform:uppercase;">
+      <p id="discount-code-note" style="display:none;margin:8px 0 0;font-size:13px;color:#059669;font-weight:600;"></p>
+    </div>
+
     <button id="pay-btn" onclick="startCheckout()" style="width:100%;background:#3B82F6;color:#fff;font-family:inherit;font-weight:700;font-size:17px;border:none;border-radius:10px;padding:17px 24px;cursor:pointer;box-shadow:0 8px 24px -8px rgba(59,130,246,.55);transition:opacity .15s;">
       Pay £99 and go live →
     </button>
@@ -184,10 +189,11 @@ async function startCheckout() {
   btn.textContent = 'Redirecting to payment…';
 
   try {
+    const discountCode = (document.getElementById('discount-code-input').value || '').trim();
     const r = await fetch('/api/checkout/session', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({job_id: jobId, plan: currentPlan})
+      body: JSON.stringify({job_id: jobId, plan: currentPlan, discount_code: discountCode || undefined})
     });
     const data = await r.json();
     if (data.url) {
