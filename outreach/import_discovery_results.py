@@ -1,23 +1,28 @@
 """
-Import the nightly discovery routine's results from a JSON file the
-routine commits to the repo, applying each one through the exact same
-validated path outreach/apply_result.py's `email` command already uses
-(format check, guess-detection, MX/deliverability check, scoring,
-funnel-stage finalize) — no duplicated logic, no new trust boundary.
+Import the nightly discovery routine's results, applying each one through
+the exact same validated path outreach/apply_result.py's `email` command
+already uses (format check, guess-detection, MX/deliverability check,
+scoring, funnel-stage finalize) — no duplicated logic, no new trust
+boundary. Also applies any rediscovered `website` per entry, mirroring
+the now-unreachable /api/admin/outreach/g/update-website endpoint's logic.
 
-Added 2026-07-18 alongside outreach/export_pending_batch.py, replacing a
-direct WebFetch call to the g/apply-email endpoint after that path proved
-unreachable from the discovery routine's execution environment (see that
-module's docstring, and docs/outreach-pipeline-spec.md Section 4a's later
-addendum). This script runs somewhere with guaranteed DB access (a Railway
-Cron service, or run manually) — it never touches groundworkbuild.com over
-HTTP at all, so it's unaffected by whatever blocked the routine's own
-WebFetch calls.
+REDESIGNED 2026-07-19: the discovery routine's CCR sandbox turned out to
+have an egress policy that blocks groundworkbuild.com entirely (confirmed
+via the sandbox's own proxy status endpoint — a 403 at the CONNECT-tunnel
+stage, distinct from and in addition to the earlier-diagnosed git-push
+permission wall), so it can't call the g/ API directly, and it can't git
+push results either (a platform-level restriction on CCR write access,
+confirmed across many nights/configurations — see CLAUDE.md's Outreach
+pipeline section). The routine now writes its results JSON to a Google
+Drive file (via its Google_Drive MCP connection) as its last step instead
+— something outside groundworkbuild.com and outside git entirely. This
+script runs somewhere with guaranteed DB access (a Railway Cron service,
+or run manually), reading that JSON either from a local file or as a
+string pulled from Drive (see import_results_from_text()).
 
-Expected input: outreach/discovery_batches/discovery_results.json, a JSON
-array of objects:
-    {"prospect_id": 485, "email": "info@example.co.uk", "source": "own_website"}
-    {"prospect_id": 487, "email": null}   # explicit "nothing found" finalize
+Expected input, a JSON array of objects:
+    {"prospect_id": 485, "email": "info@example.co.uk", "source": "own_website", "website": null}
+    {"prospect_id": 487, "email": null, "website": "https://example.co.uk"}
 
 Runnable standalone:
     python outreach/import_discovery_results.py
@@ -83,21 +88,34 @@ def _finalize(db, prospect):
 
 
 def import_results(path=DEFAULT_INPUT_PATH, dry_run=False):
-    init_db()
     if not os.path.exists(path):
         logger.error("No results file at %s — nothing to import", path)
         return {"error": "file_not_found"}
-
     with open(path) as f:
         results = json.load(f)
+    return import_results_from_data(results, dry_run=dry_run)
 
-    counts = {"applied": 0, "rejected": 0, "finalized_null": 0, "stale": 0}
+
+def import_results_from_text(text, dry_run=False):
+    """Same as import_results() but takes the JSON as a string directly —
+    for callers pulling results from somewhere other than a repo file (e.g.
+    a Google Drive doc the discovery routine wrote to, since 2026-07-19 the
+    routine can no longer reach groundworkbuild.com's API or push to git
+    from within its sandbox — see CLAUDE.md's Outreach pipeline section)."""
+    results = json.loads(text)
+    return import_results_from_data(results, dry_run=dry_run)
+
+
+def import_results_from_data(results, dry_run=False):
+    init_db()
+    counts = {"applied": 0, "rejected": 0, "finalized_null": 0, "stale": 0, "website_rediscovered": 0}
     db = SessionLocal()
     try:
         for entry in results:
             prospect_id = entry.get("prospect_id")
             email_raw = (entry.get("email") or "").strip()
             source = entry.get("source", "web_search")
+            website_raw = (entry.get("website") or "").strip()
 
             p = db.get(Prospect, prospect_id)
             if not p:
@@ -106,8 +124,18 @@ def import_results(path=DEFAULT_INPUT_PATH, dry_run=False):
                 continue
 
             if dry_run:
-                logger.info("[dry-run] prospect %s (%s) -> %s", prospect_id, p.business_name, email_raw or "null")
+                logger.info("[dry-run] prospect %s (%s) -> %s%s", prospect_id, p.business_name, email_raw or "null",
+                            f" (website: {website_raw})" if website_raw else "")
                 continue
+
+            # Website re-discovery — mirrors the now-unreachable
+            # /api/admin/outreach/g/update-website endpoint's exact logic
+            # (app.py:outreach_get_update_website): only touches
+            # website/website_status, nothing else.
+            if website_raw and website_raw.lower().startswith(("http://", "https://")):
+                p.website = website_raw
+                p.website_status = "has_website"
+                counts["website_rediscovered"] += 1
 
             if email_raw:
                 if not is_valid_email(email_raw):
@@ -143,8 +171,9 @@ def import_results(path=DEFAULT_INPUT_PATH, dry_run=False):
             db.add(DiscoveryRunLog(
                 processed_n=len(results),
                 found_n=counts["applied"],
+                website_rediscovered_n=counts["website_rediscovered"],
                 finalized_null_n=counts["finalized_null"],
-                notes=f"Imported from {os.path.basename(path)} (file-relay path, not direct API)",
+                notes="Imported from Drive/file relay (routine can't reach groundworkbuild.com's API directly)",
             ))
             db.commit()
     finally:
