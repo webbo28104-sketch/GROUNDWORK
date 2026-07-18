@@ -319,6 +319,20 @@ class DiscoveryRunLog(Base):
     notes = Column(Text, nullable=True)
 
 
+class DiscoveryImportState(Base):
+    """Single-row table tracking the last Google Drive file the automated
+    morning pickup (outreach/pickup_drive_results.py) imported — lets that
+    job be idempotent (safe to re-run without double-applying the same
+    night's results) without needing any state on the Drive side, since
+    the routine can only create new files, not track "already picked up"
+    itself. Added 2026-07-19 alongside the Drive-based output redesign."""
+    __tablename__ = "discovery_import_state"
+
+    id = Column(Integer, primary_key=True)
+    last_drive_file_id = Column(String(100), nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class SearchCell(Base):
     __tablename__ = "search_cells"
 

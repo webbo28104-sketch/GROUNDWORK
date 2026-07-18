@@ -1,0 +1,35 @@
+name: Pick up nightly discovery results from Drive
+
+# Fully unattended morning pickup — added 2026-07-19 so the discovery
+# routine's results land in the DB every day even if nobody opens a
+# conversation to ask for them. Runs at 06:00 UTC: after the discovery
+# routine (03:30 UTC, usually done within an hour, occasionally longer)
+# and comfortably before send-job-cron (08:00 UTC), so today's newly
+# found emails are eligible for today's send batch.
+#
+# Safe to run even if the routine hasn't produced a new file that night —
+# outreach/pickup_drive_results.py just logs "nothing new" and exits 0.
+on:
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  pickup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install minimal dependencies
+        run: pip install sqlalchemy psycopg2-binary dnspython requests
+
+      - name: Pick up and import latest Drive results
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          GOOGLE_DRIVE_API_KEY: ${{ secrets.GOOGLE_DRIVE_API_KEY }}
+          GOOGLE_DRIVE_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_FOLDER_ID }}
+        run: python outreach/pickup_drive_results.py

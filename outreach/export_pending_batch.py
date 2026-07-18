@@ -18,10 +18,10 @@ Runnable standalone:
     python outreach/export_pending_batch.py --limit 30
 
 Writes outreach/discovery_batches/pending_batch.json. Does NOT commit/push
-itself — call this from wherever has git push credentials (a manual run,
-or a future Railway Cron service once one is set up with a deploy key;
-none exists yet, so for now this is invoked ad hoc before each routine
-run and the caller commits the result).
+itself — .github/workflows/export-pending-batch.yml runs this and commits
+the result nightly at 03:00 UTC, using the auto-provided GITHUB_TOKEN
+(GitHub Actions has normal, unrestricted network/git access, unlike the
+discovery routine's own CCR sandbox).
 """
 import os
 import sys
