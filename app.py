@@ -6435,8 +6435,16 @@ def job_html_preserved(job_id):
 
 @app.route("/api/generate/<job_id>/info")
 def job_info(job_id):
-    """Return metadata used by checkout.html and live.html — subdomain preview,
-    validity, and whether it's already taken by another live generation."""
+    """Return metadata used by checkout.html and live.html — validity/taken
+    checks for the auto-derived address, and the assigned address itself
+    once one exists (i.e. post-payment, once gen.subdomain is set).
+
+    Deliberately does NOT return the pre-payment candidate address itself
+    (neither the bare slug nor a preview URL) — only the invalid/taken
+    booleans. The address is computed and validated before checkout so a
+    customer can't pay for one that's broken or already used, but the
+    literal string is only revealed once payment actually goes through,
+    per the 2026-07-19 change to stop showing it beforehand."""
     db = SessionLocal()
     try:
         gen = db.query(Generation).join(Lead).filter(Lead.public_id == job_id).first()
@@ -6453,18 +6461,11 @@ def job_info(job_id):
         assigned_url = (
             f"https://{gen.subdomain}.{_SUBDOMAIN_BASE}" if gen.subdomain else None
         )
-        preview_url = (
-            f"https://{preview_slug}.{_SUBDOMAIN_BASE}"
-            if preview_slug and not invalid
-            else None
-        )
         return jsonify({
             "status": gen.status,
             "business_name": business_name,
             "subdomain": gen.subdomain,
             "subdomain_url": assigned_url,
-            "subdomain_preview": preview_slug,
-            "subdomain_preview_url": preview_url,
             "subdomain_invalid_chars": invalid,
             "subdomain_taken": taken,
             "receipt_pdf_url": _fetch_invoice_pdf(gen.stripe_setup_invoice_id),
@@ -7560,9 +7561,13 @@ def create_checkout_session():
             }), 422
 
         if _subdomain_is_taken(slug, db, exclude_gen_id=gen.id):
+            # Deliberately doesn't include the candidate slug in the message —
+            # see job_info()'s docstring for why the address itself isn't
+            # revealed before payment.
+            app.logger.warning(f"Checkout blocked — subdomain taken: {business_name!r} → {slug!r}")
             return jsonify({
-                "error": f"The address {slug}.{_SUBDOMAIN_BASE} is already taken by another company. "
-                         "Please email us at groundwork-build@outlook.com and we'll help you pick a different name."
+                "error": "There's a naming conflict with another company using a very similar name. "
+                         "Please email us at groundwork-build@outlook.com and we'll help you sort it out before you pay."
             }), 409
 
         # Survey-issued setup-fee discount (2026-07-17, reduced from a full

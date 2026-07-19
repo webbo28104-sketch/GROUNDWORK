@@ -38,10 +38,12 @@ body{margin:0;background:#F5F3EE;font-family:Inter,sans-serif;color:#1C1C1C;}
     <h1 style="margin:0 0 4px;font-weight:800;font-size:clamp(26px,3.5vw,34px);letter-spacing:-.03em;">Go live</h1>
     <p style="margin:0 0 24px;font-size:16px;color:#5C5A56;">Publish your Groundwork site to your own web address.</p>
 
-    <!-- Subdomain preview — loaded via JS -->
-    <div id="subdomain-section" style="display:none;background:#EEF4FF;border:1px solid #C7D9F8;border-radius:10px;padding:14px 16px;margin-bottom:20px;">
+    <!-- Address reassurance (no specific address shown pre-payment — see
+         job_info()'s docstring in app.py). Also doubles as a custom-domain
+         mention right at the point of conversion. -->
+    <div id="subdomain-section" style="background:#EEF4FF;border:1px solid #C7D9F8;border-radius:10px;padding:14px 16px;margin-bottom:20px;">
       <div style="font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#2257CC;margin-bottom:6px;">Your web address</div>
-      <div id="subdomain-url" style="font-size:15px;font-weight:600;color:#1C1C1C;word-break:break-all;"></div>
+      <div style="font-size:14.5px;color:#1C1C1C;line-height:1.5;">You'll see your exact groundworkbuild.com address the moment payment goes through. Want your own domain instead, like yourbusiness.co.uk? You can buy or connect one any time afterwards from your account.</div>
     </div>
     <div id="subdomain-error" style="display:none;background:#FEF2F2;border:1px solid #FCA5A5;border-radius:10px;padding:14px 16px;margin-bottom:20px;font-size:14px;color:#B91C1C;line-height:1.5;"></div>
 
@@ -158,16 +160,14 @@ async function loadSubdomainPreview() {
       subdomainBlocked = true;
     } else if (d.subdomain_taken) {
       showSubdomainError(
-        'The address <strong>' + (d.subdomain_preview || '') + '.groundworkbuild.com</strong> is already taken by another company. ' +
-        'Please email us at groundwork-build@outlook.com and we\'ll help you choose a different name.'
+        'There\'s a naming conflict with another company using a very similar name. ' +
+        'Please email us at groundwork-build@outlook.com and we\'ll help you sort it out before you pay.'
       );
       subdomainBlocked = true;
-    } else if (d.subdomain_preview_url) {
-      document.getElementById('subdomain-url').textContent = d.subdomain_preview_url.replace('https://', '');
-      document.getElementById('subdomain-section').style.display = 'block';
     }
 
     if (subdomainBlocked) {
+      document.getElementById('subdomain-section').style.display = 'none';
       const btn = document.getElementById('pay-btn');
       btn.disabled = true;
       btn.style.opacity = '0.45';
