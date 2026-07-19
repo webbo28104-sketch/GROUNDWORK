@@ -34,7 +34,8 @@ from models import SessionLocal, Lead, Generation, Account, GenerationImage, Dom
 from emails import (send_verification_email, send_resend_email, send_password_reset_email,
                     send_support_message_email, send_enquiry_email,
                     send_domain_order_admin_email, send_domain_order_customer_email,
-                    send_domain_setup_failed_email, send_domain_live_email)
+                    send_domain_setup_failed_email, send_domain_live_email,
+                    send_admin_magic_link_clicked_email, send_admin_payment_received_email)
 from outreach.reply_handling import handle_inbound_sms, handle_inbound_email, handle_forced_sms_stop
 from outreach.templates import SURVEY_DISCOUNT_PERCENT
 from outreach.ramp import (
@@ -3034,6 +3035,16 @@ def _claim_generate_and_redirect(db, prospect):
     """
     if prospect.clicked_at is None:
         prospect.clicked_at = datetime.utcnow()
+        # Admin notification (2026-07-19) — backgrounded so a slow Resend
+        # call never adds latency to this redirect. Fires exactly once per
+        # prospect, guarded by the same clicked_at-is-None check that gates
+        # the timestamp write itself, so a repeat/idempotent visit never
+        # sends a second notification.
+        threading.Thread(
+            target=send_admin_magic_link_clicked_email,
+            args=(prospect.business_name, prospect.id, bool(prospect.email)),
+            daemon=True,
+        ).start()
 
     if prospect.lead_id:
         lead = db.get(Lead, prospect.lead_id)
@@ -7945,6 +7956,16 @@ def stripe_webhook():
                             app.logger.info(
                                 f"Stripe webhook: prospect {prospect.id} marked paid_at (job_id={job_id})"
                             )
+
+                        # Admin notification (2026-07-19) — backgrounded, same
+                        # reasoning as the domain-order email above: this
+                        # request path has to stay fast enough for Stripe's
+                        # own timeout, so a slow Resend call can't block it.
+                        threading.Thread(
+                            target=send_admin_payment_received_email,
+                            args=(gen.business_name, gen.email, job_id, was_canceled),
+                            daemon=True,
+                        ).start()
 
                         db.commit()
                 finally:

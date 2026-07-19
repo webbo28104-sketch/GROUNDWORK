@@ -218,6 +218,61 @@ def send_domain_order_admin_email(domain: str, price_gbp: float, customer_email:
     _send(support_inbox, f"Domain order: {domain}", html)
 
 
+def send_admin_magic_link_clicked_email(business_name: str, prospect_id: int, has_email: bool) -> None:
+    """Notify the admin inbox the first time a prospect clicks their
+    outreach magic link (added 2026-07-19). Fired once per prospect, from
+    inside the `prospect.clicked_at is None` guard in
+    _claim_generate_and_redirect, so a repeat/idempotent visit never sends
+    a second notification for the same prospect."""
+    support_inbox = _env_email_or_warn("SUPPORT_INBOX_EMAIL")
+    biz = escape(business_name or "Unknown business")
+    html = f"""<div style="font-family:Arial,Helvetica,sans-serif;background:#F5F3EE;padding:32px 20px;">
+  <div style="max-width:480px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;">
+    <div style="background:#1C1C1C;padding:20px 28px;">
+      <span style="color:{ACCENT};font-weight:800;font-size:18px;letter-spacing:-.03em;">Groundwork</span>
+    </div>
+    <div style="padding:28px;">
+      <h2 style="margin:0 0 8px;font-size:19px;color:#1C1C1C;">Magic link clicked</h2>
+      <p style="margin:0 0 20px;font-size:14px;color:#5C5A56;">A prospect just opened their outreach preview link — generation is kicking off now.</p>
+      <table style="width:100%;border-collapse:collapse;">
+        <tr><td style="padding:8px 0;font-size:14px;color:#5C5A56;width:110px;">Business</td><td style="padding:8px 0;font-size:14px;font-weight:700;color:#1C1C1C;">{biz}</td></tr>
+        <tr><td style="padding:8px 0;font-size:14px;color:#5C5A56;">Channel</td><td style="padding:8px 0;font-size:14px;color:#1C1C1C;">{"Email track" if has_email else "Phone-only (SMS) track"}</td></tr>
+      </table>
+      <p style="margin:20px 0 0;"><a href="https://groundworkbuild.com/admin/prospects/{prospect_id}" style="color:{ACCENT};font-size:14px;font-weight:600;text-decoration:none;">View prospect →</a></p>
+    </div>
+  </div>
+</div>"""
+    _send(support_inbox, f"Magic link clicked — {business_name or 'Unknown business'}", html)
+
+
+def send_admin_payment_received_email(business_name: str, customer_email: str, job_id: str, was_reactivation: bool) -> None:
+    """Notify the admin inbox whenever a checkout.session.completed webhook
+    confirms real payment (added 2026-07-19) — covers both a first-time
+    go-live and a reactivation of a previously-cancelled site, distinguished
+    in the copy since they're different events worth knowing apart."""
+    support_inbox = _env_email_or_warn("SUPPORT_INBOX_EMAIL")
+    biz = escape(business_name or "Unknown business")
+    e = escape(customer_email or "")
+    heading = "Site reactivated" if was_reactivation else "New paying customer"
+    html = f"""<div style="font-family:Arial,Helvetica,sans-serif;background:#F5F3EE;padding:32px 20px;">
+  <div style="max-width:480px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;">
+    <div style="background:#1C1C1C;padding:20px 28px;">
+      <span style="color:{ACCENT};font-weight:800;font-size:18px;letter-spacing:-.03em;">Groundwork</span>
+    </div>
+    <div style="padding:28px;">
+      <div style="display:inline-block;background:#D1FAE5;color:#065F46;font-size:12px;font-weight:700;padding:3px 10px;border-radius:20px;margin-bottom:12px;">{"Reactivation" if was_reactivation else "New signup"}</div>
+      <h2 style="margin:0 0 8px;font-size:19px;color:#1C1C1C;">{heading}</h2>
+      <table style="width:100%;border-collapse:collapse;">
+        <tr><td style="padding:8px 0;font-size:14px;color:#5C5A56;width:110px;">Business</td><td style="padding:8px 0;font-size:14px;font-weight:700;color:#1C1C1C;">{biz}</td></tr>
+        <tr><td style="padding:8px 0;font-size:14px;color:#5C5A56;">Customer email</td><td style="padding:8px 0;font-size:14px;color:#1C1C1C;">{e}</td></tr>
+      </table>
+      <p style="margin:20px 0 0;"><a href="https://groundworkbuild.com/admin/generations" style="color:{ACCENT};font-size:14px;font-weight:600;text-decoration:none;">View sites →</a></p>
+    </div>
+  </div>
+</div>"""
+    _send(support_inbox, f"{heading} — {business_name or 'Unknown business'}", html)
+
+
 def send_domain_order_customer_email(to_email: str, domain: str, business_name: str) -> None:
     """Confirm to the customer that their domain order has been received."""
     biz = business_name or "your website"
