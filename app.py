@@ -6423,9 +6423,16 @@ def job_html_preserved(job_id):
         gen = db.query(Generation).join(Lead).filter(Lead.public_id == job_id).first()
         if not gen or gen.status != "canceled":
             return jsonify({"error": "not found"}), 404
-        banner = """<div style="position:fixed;top:0;left:0;right:0;z-index:99999;background:#1C2630;color:#fff;font-family:sans-serif;font-size:13px;display:flex;align-items:center;justify-content:space-between;padding:10px 20px;box-shadow:0 2px 8px rgba(0,0,0,0.3);">
+        # Deep-links straight to this site's checkout (same page/id format
+        # the dashboard's own "Reactivate" card uses) rather than
+        # /account/login — that used to drop job_id entirely and force an
+        # extra unnecessary login hop through the generic dashboard before
+        # the customer could get back to actually paying. No login is
+        # needed to reach checkout.html at all (job_id is already the
+        # capability token for this whole flow, same as /preview.html).
+        banner = f"""<div style="position:fixed;top:0;left:0;right:0;z-index:99999;background:#1C2630;color:#fff;font-family:sans-serif;font-size:13px;display:flex;align-items:center;justify-content:space-between;padding:10px 20px;box-shadow:0 2px 8px rgba(0,0,0,0.3);">
   <span>This site's subscription is currently paused — your content is untouched.</span>
-  <a href="/account/login" style="background:#3B82F6;color:#fff;padding:6px 16px;border-radius:4px;text-decoration:none;font-weight:600;">Reactivate →</a>
+  <a href="/checkout.html?id={job_id}" style="background:#3B82F6;color:#fff;padding:6px 16px;border-radius:4px;text-decoration:none;font-weight:600;">Reactivate →</a>
 </div>
 <div style="height:44px;"></div>"""
         return banner + gen.html_content, 200, {"Content-Type": "text/html; charset=utf-8"}
@@ -7546,6 +7553,15 @@ def create_checkout_session():
         if gen.status == "live":
             return jsonify({"error": "already live"}), 409
 
+        # Reactivating a previously-live, later-cancelled site is NOT the
+        # same purchase as going live for the first time — added
+        # 2026-07-19 after this endpoint charged a fresh £99 setup fee +
+        # 30-day trial on every reactivation, identical to a new signup,
+        # despite job_html_preserved's own banner already telling the
+        # customer "reinstating just resumes the same subscription." No
+        # setup fee, no trial — see subscription_data/line_items below.
+        is_reactivation = gen.status == "canceled"
+
         business_name = (gen.lead.form_data or {}).get("business_name", "")
         slug = _make_subdomain(business_name)
 
@@ -7579,9 +7595,13 @@ def create_checkout_session():
         # whole checkout, not just the setup fee). apply_setup_discount is
         # the only effect a valid code has: the setup line item is swapped
         # for a discounted price_data line item below, nothing else changes.
+        # Discount codes only ever discount the setup fee (see below) — moot
+        # on a reactivation, since there isn't one. Skip validation entirely
+        # rather than erroring, so a stale/irrelevant code in the field
+        # can't block a reactivating customer from paying.
         submitted_code = (data.get("discount_code") or "").strip().upper()
         apply_setup_discount = False
-        if submitted_code:
+        if submitted_code and not is_reactivation:
             prospect = db.query(Prospect).filter(Prospect.lead_id == gen.lead_id).first()
             if (prospect and prospect.discount_code
                     and prospect.discount_code.upper() == submitted_code
@@ -7592,39 +7612,49 @@ def create_checkout_session():
     finally:
         db.close()
 
-    # First-month-free trial is a monthly-only promo — annual customers
-    # already get the discounted rate, so trial_period_days isn't stacked
-    # on top of that (see design_handoff_marketing_consistency notes).
-    subscription_data = {"trial_period_days": 30} if plan == "monthly" else {}
-
-    if apply_setup_discount:
-        # A dynamic price_data line item, not the fixed STRIPE_SETUP_PRICE_ID —
-        # unit_amount/currency/product read live from the real setup Price so
-        # this never drifts if that price ever changes, and the discounted
-        # amount is computed here in code, not via any Stripe-side discount
-        # mechanism (see the docstring above for why that's deliberate).
-        setup_price = stripe.Price.retrieve(STRIPE_SETUP_PRICE_ID)
-        discounted_amount = round(setup_price.unit_amount * (100 - SURVEY_DISCOUNT_PERCENT) / 100)
-        setup_line_item = {
-            "price_data": {
-                "currency": setup_price.currency,
-                "product": setup_price.product,
-                "unit_amount": discounted_amount,
-            },
-            "quantity": 1,
-        }
+    if is_reactivation:
+        # No setup fee, no trial — this is a resubscribe, not a first-time
+        # purchase. Charged the plan's recurring price immediately.
+        line_items = [{"price": recurring_price_id, "quantity": 1}]
+        subscription_data = {}
     else:
-        setup_line_item = {"price": STRIPE_SETUP_PRICE_ID, "quantity": 1}
+        # First-month-free trial is a monthly-only promo — annual customers
+        # already get the discounted rate, so trial_period_days isn't stacked
+        # on top of that (see design_handoff_marketing_consistency notes).
+        subscription_data = {"trial_period_days": 30} if plan == "monthly" else {}
+
+        if apply_setup_discount:
+            # A dynamic price_data line item, not the fixed STRIPE_SETUP_PRICE_ID —
+            # unit_amount/currency/product read live from the real setup Price so
+            # this never drifts if that price ever changes, and the discounted
+            # amount is computed here in code, not via any Stripe-side discount
+            # mechanism (see the docstring above for why that's deliberate).
+            setup_price = stripe.Price.retrieve(STRIPE_SETUP_PRICE_ID)
+            discounted_amount = round(setup_price.unit_amount * (100 - SURVEY_DISCOUNT_PERCENT) / 100)
+            setup_line_item = {
+                "price_data": {
+                    "currency": setup_price.currency,
+                    "product": setup_price.product,
+                    "unit_amount": discounted_amount,
+                },
+                "quantity": 1,
+            }
+        else:
+            setup_line_item = {"price": STRIPE_SETUP_PRICE_ID, "quantity": 1}
+        line_items = [setup_line_item, {"price": recurring_price_id, "quantity": 1}]
 
     cs = stripe.checkout.Session.create(
         mode="subscription",
-        line_items=[setup_line_item, {"price": recurring_price_id, "quantity": 1}],
+        line_items=line_items,
         subscription_data=subscription_data,
         allow_promotion_codes=True,
         client_reference_id=job_id,
         metadata={"discount_code_redeemed": submitted_code} if apply_setup_discount else {},
         success_url=f"{SITE_URL}/live.html?id={job_id}",
-        cancel_url=f"{SITE_URL}/api/generate/{job_id}/html",
+        cancel_url=(
+            f"{SITE_URL}/api/generate/{job_id}/preserved" if is_reactivation
+            else f"{SITE_URL}/api/generate/{job_id}/html"
+        ),
     )
     return jsonify({"url": cs.url})
 
