@@ -264,13 +264,28 @@ def run_daily_send(now=None):
         )
         remaining["sms"] = 0
 
-    remaining = run_followups(remaining, _unsubscribe_link, _preview_link, _short_code, _survey_link, now)
+    # Follow-ups no longer draw against remaining_ramp at all (2026-07-19,
+    # executive decision) — they get their own effectively-unlimited
+    # budget, so a heavy follow-up day never eats into how many NEW
+    # prospects get a first touch. SMS_SENDS_PAUSED above still applies to
+    # follow-up SMS too (mirrored into this separate budget), since that's
+    # a genuine kill switch, not a volume cap. Individual follow-up sends
+    # are still logged via record_sends() inside run_followups (so bounce/
+    # complaint-rate monitoring still sees them) and still gated per-send
+    # on has_bounced_before/has_delivery_confirmed — this change is purely
+    # about not competing with initial sends for the day's volume cap.
+    followup_budget = {
+        "email": float("inf"),
+        "sms": 0 if os.environ.get("SMS_SENDS_PAUSED", "").lower() == "true" else float("inf"),
+    }
+    _, n_followups = run_followups(followup_budget, _unsubscribe_link, _preview_link, _short_code, _survey_link, now)
     n_initial = fill_initial_sends(remaining, now)
 
     summary = {
         "email_volume": email_volume,
         "sms_volume": sms_volume,
         "remaining_after": dict(remaining),
+        "followups_sent": n_followups,
         "initial_sends": n_initial,
     }
     print(summary)

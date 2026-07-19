@@ -2,10 +2,17 @@
 Groundwork outreach — follow-up sequence (docs/outreach-pipeline-spec.md Section 11).
 
 Runs nightly, after the day's ramp allowance for email and SMS is known
-(Section 15, outreach/ramp.py). Follow-ups are first-priority consumers of
-that allowance — call run_followups() with the day's full remaining ramp for
-*each* channel before queuing any new initial sends, and pass what it
-returns on to the initial-send job (outreach/send_job.py).
+(Section 15, outreach/ramp.py). REVISED 2026-07-19 (executive decision):
+follow-ups no longer draw against the day's ramp allowance at all —
+outreach/send_job.py calls run_followups() with an effectively-unlimited
+budget of its own, separate from the real remaining_ramp passed to the
+initial-send job, so a heavy follow-up day never reduces how many new
+prospects get a first touch. Each individual send still goes through
+outreach/ramp.py's record_sends() as before (so bounce/complaint-rate
+monitoring still sees every send, follow-up or initial — this change is
+about volume-limiting, not about hiding follow-ups from deliverability
+tracking) and is still gated per-send on has_bounced_before/
+has_delivery_confirmed (outreach/email_verify.py).
 
 Email and SMS are tracked as two INDEPENDENT ramps (Section 15 has separate
 tables and separate circuit-breakers per channel) — remaining_ramp is a dict
@@ -258,4 +265,4 @@ def run_followups(remaining_ramp, unsubscribe_link_fn, preview_link_fn, short_co
     finally:
         db.close()
 
-    return remaining_ramp
+    return remaining_ramp, fired
