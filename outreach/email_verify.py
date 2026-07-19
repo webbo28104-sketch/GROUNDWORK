@@ -80,6 +80,32 @@ def _lookup(domain):
     return False
 
 
+def has_delivery_confirmed(db, email):
+    """True if this exact address has a real EmailEventLog 'delivered' row
+    — i.e. the initial send actually reached the mailbox, not just that we
+    successfully handed it to Resend's API. Added 2026-07-19: a prospect
+    entering the 'sent' funnel_substage only means send_outreach_email
+    returned an id; it says nothing about whether the message was ever
+    actually delivered. Gating follow-ups on this (outreach/followup.py)
+    stops a follow-up firing (and consuming ramp) for an address whose
+    delivery status is still unknown or came back undelivered by some
+    means other than a hard bounce.
+
+    Safe to require rather than merely prefer: checked in production,
+    every sent email reliably receives either a 'delivered' or 'bounced'
+    event from Resend's webhook, and follow-ups don't fire until
+    MIN_DAYS_BY_SUBSTAGE (>=2 days) after the initial send — comfortably
+    past any webhook latency, so this doesn't strand a genuinely-delivered
+    prospect in limbo waiting on a confirmation that already arrived."""
+    from models import EmailEventLog  # deferred: avoids a circular import at module load
+    if not email:
+        return False
+    return db.query(EmailEventLog).filter(
+        func.lower(EmailEventLog.to_email) == email.strip().lower(),
+        EmailEventLog.event_type.in_(["email.delivered", "delivered"]),
+    ).first() is not None
+
+
 def has_bounced_before(db, email):
     """True if this exact address has a real EmailEventLog bounce row,
     independent of whatever Prospect.email_unsubscribed/funnel_substage
