@@ -8357,8 +8357,16 @@ def resend_events_webhook():
         ))
 
         if event_type == "email.opened" and to_email:
+            # Case-insensitive on purpose (2026-07-19) — Prospect.email is
+            # stored as-scraped by several write paths (own-site mailto/text
+            # scrape, WebSearch discovery, manual apply), none of which
+            # lowercase it, so a plain == match here silently misses any
+            # bounce/open event for a prospect whose stored email has any
+            # uppercase character. Same failure shape as the display-name
+            # quoting bug fixed above (parseaddr) — matching against
+            # whatever Resend happens to echo back, not what we stored.
             prospect = db.query(Prospect).filter(
-                Prospect.email == to_email.strip().lower()
+                func.lower(Prospect.email) == to_email.strip().lower()
             ).first()
             if prospect:
                 if prospect.funnel_substage == "sent":
@@ -8377,8 +8385,16 @@ def resend_events_webhook():
                 app.logger.info(f"resend_events_webhook: open event for {to_email} — no matching prospect")
 
         elif event_type == "email.bounced" and to_email:
+            # Case-insensitive on purpose (2026-07-19) — Prospect.email is
+            # stored as-scraped by several write paths (own-site mailto/text
+            # scrape, WebSearch discovery, manual apply), none of which
+            # lowercase it, so a plain == match here silently misses any
+            # bounce/open event for a prospect whose stored email has any
+            # uppercase character. Same failure shape as the display-name
+            # quoting bug fixed above (parseaddr) — matching against
+            # whatever Resend happens to echo back, not what we stored.
             prospect = db.query(Prospect).filter(
-                Prospect.email == to_email.strip().lower()
+                func.lower(Prospect.email) == to_email.strip().lower()
             ).first()
             if prospect:
                 prospect.email_unsubscribed = True

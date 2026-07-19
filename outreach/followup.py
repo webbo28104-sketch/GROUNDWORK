@@ -29,6 +29,7 @@ from outreach.templates import (
 )
 from outreach.ramp import record_sends
 from outreach.link_identity import ensure_link_identity
+from outreach.email_verify import has_bounced_before
 
 logger = logging.getLogger("outreach.followup")
 
@@ -138,7 +139,7 @@ def _fire_touch(db, p, stage, now, remaining_ramp, unsubscribe_link_fn, preview_
                 db.add(OutreachTouch(prospect_id=p.id, stage=sms_stage, channel="sms", sent_at=now))
                 sms_used = 1
     else:
-        if EMAIL_REPLY_CAPTURE_READY and not p.email_unsubscribed and remaining_ramp["email"] > 0:
+        if EMAIL_REPLY_CAPTURE_READY and not p.email_unsubscribed and remaining_ramp["email"] > 0 and not has_bounced_before(db, p.email):
             # branding_ps only ever renders non-empty for post-click stages
             # (extraction runs at claim-click time, so pre-click prospects
             # have no extraction_quality yet) — passing "" for A/B is inert

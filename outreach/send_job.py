@@ -39,7 +39,7 @@ from outreach.templates import render_email, render_sms
 from outreach.ramp import advance_or_hold, get_remaining_ramp_today, record_sends
 from outreach.followup import run_followups
 from outreach.link_identity import ensure_link_identity
-from outreach.email_verify import has_deliverable_domain
+from outreach.email_verify import has_deliverable_domain, has_bounced_before
 
 logger = logging.getLogger("outreach.send_job")
 
@@ -158,7 +158,12 @@ def send_initial_touch(db, p, now, remaining_ramp=None):
                 record_sends("sms", 1, now, db=db)
                 touched = True
     else:
-        if not p.email_unsubscribed and (unlimited or remaining_ramp["email"] > 0):
+        # has_bounced_before is a defense-in-depth check against
+        # EmailEventLog directly (2026-07-19) — catches the same address
+        # bouncing under a different Prospect row (a re-sourced duplicate,
+        # or two listings sharing a generic mailbox), which
+        # email_unsubscribed alone (per-prospect) can't see.
+        if not p.email_unsubscribed and (unlimited or remaining_ramp["email"] > 0) and not has_bounced_before(db, p.email):
             msg = render_email(
                 "initial", business_name=p.business_name,
                 preview_link=_preview_link(p), unsubscribe_link=_unsubscribe_link(p),

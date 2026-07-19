@@ -19,6 +19,7 @@ import re
 import logging
 
 import dns.resolver
+from sqlalchemy import func
 
 logger = logging.getLogger("outreach.email_verify")
 
@@ -77,3 +78,27 @@ def _lookup(domain):
         except Exception:
             continue
     return False
+
+
+def has_bounced_before(db, email):
+    """True if this exact address has a real EmailEventLog bounce row,
+    independent of whatever Prospect.email_unsubscribed/funnel_substage
+    currently say. Added 2026-07-19 as defense-in-depth, checked right
+    before every email send (not just once at bounce-time) — the normal
+    path is app.py's Resend webhook setting email_unsubscribed=True the
+    moment a bounce comes in, but that depends on a webhook actually
+    firing and matching correctly; this is a second, independent check
+    against the same source of truth so a missed/failed webhook doesn't
+    silently leave a dead address looking sendable indefinitely. Shared by
+    outreach/send_job.py (initial sends) and outreach/followup.py (follow-
+    ups) rather than each hand-rolling its own query.
+
+    Case-insensitive on purpose — see app.py's resend_events_webhook for
+    why (Prospect.email is stored as-scraped, not normalized)."""
+    from models import EmailEventLog  # deferred: avoids a circular import at module load
+    if not email:
+        return False
+    return db.query(EmailEventLog).filter(
+        func.lower(EmailEventLog.to_email) == email.strip().lower(),
+        EmailEventLog.event_type.in_(["email.bounced", "bounced"]),
+    ).first() is not None
