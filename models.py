@@ -90,6 +90,14 @@ class Generation(Base):
     # action), so this is a visibility flag for admins to act on, not an
     # automatic status change.
     refunded_at = Column(DateTime, nullable=True)
+    # Mirrors Domain.is_internal (added 2026-07-19) — flags Groundwork's own
+    # personal/test purchases (paid for real via Stripe while testing a
+    # flow, not a real customer) so they don't inflate domain-conversion or
+    # churn metrics on the admin dashboard. Not the same thing as
+    # Lead.is_test, which only covers /admin/generate-test's bypass path —
+    # these rows went through the real checkout flow, they just aren't a
+    # real customer.
+    is_internal = Column(Boolean, nullable=False, default=False)
 
     # View/engagement tracking (added 2026-07-18) — closes the "clicked the
     # magic link, then what?" gap. Bumped on every real serve of the
@@ -488,6 +496,7 @@ def init_db():
     _ensure_column(Generation.__tablename__, "last_viewed_at", "TIMESTAMP")
     _ensure_column(Generation.__tablename__, "total_view_seconds", "INTEGER NOT NULL DEFAULT 0")
     _ensure_column(Generation.__tablename__, "max_scroll_pct", "INTEGER NOT NULL DEFAULT 0")
+    _ensure_column(Generation.__tablename__, "is_internal", "BOOLEAN NOT NULL DEFAULT FALSE")
     _ensure_column(Domain.__tablename__, "registered_at", "TIMESTAMP")
     _ensure_column(Domain.__tablename__, "dns_configured_at", "TIMESTAMP")
     _ensure_column(Domain.__tablename__, "railway_connected_at", "TIMESTAMP")

@@ -3763,7 +3763,12 @@ def admin_domains():
     db = SessionLocal()
     try:
         kpi_strip = _render_kpi_strip(_compute_kpis(db))
-        doms = db.query(Domain).order_by(Domain.created_at.desc()).all()
+        # is_internal excludes Groundwork's own personal/test domain
+        # purchases (paid for real via Stripe while testing a flow, not a
+        # real customer) — added 2026-07-19 after every single domain row
+        # turned out to belong to one of a handful of personal test emails,
+        # not an actual customer.
+        doms = db.query(Domain).filter(Domain.is_internal == False).order_by(Domain.created_at.desc()).all()
         status_colors = {
             "active": ("#DCFCE7", "#166534"),
             "pending": ("#FEF3C7", "#92400E"),
@@ -5094,7 +5099,7 @@ def _compute_kpis(db, range_from: datetime = None, range_to: datetime = None) ->
     # (found one live: sussexleadcraftltd.com was flagged is_internal=True
     # yet still counting toward "actual paid customers" here before this
     # fix).
-    period_gens_q = db.query(Generation).filter(Generation.status == "live")
+    period_gens_q = db.query(Generation).filter(Generation.status == "live", Generation.is_internal == False)
     period_gens_q = period_gens_q.filter(Generation.created_at >= period_start, Generation.created_at <= period_end)
     period_gens = period_gens_q.all()
     domain_conv_denom = len(period_gens)
@@ -5115,13 +5120,20 @@ def _compute_kpis(db, range_from: datetime = None, range_to: datetime = None) ->
     #     strict definition — active at the START of the period, churned
     #     DURING it. This is what actually makes week-by-week/month-by-month
     #     comparison meaningful, rather than reusing the approximation.
+    # is_internal excludes Groundwork's own personal/test purchases from
+    # churn the same way domain_conv_rate above excludes them — added
+    # 2026-07-19 after a personal test of the reactivation flow (paid,
+    # then cancelled) was inflating churn_numer despite there being zero
+    # real paying customers who've ever cancelled.
     if filtering:
         active_at_start = db.query(Generation).filter(
             Generation.status == "live",
+            Generation.is_internal == False,
             Generation.created_at < period_start,
             (Generation.canceled_at.is_(None)) | (Generation.canceled_at >= period_start),
         ).count()
         churned_in_period = db.query(Generation).filter(
+            Generation.is_internal == False,
             Generation.canceled_at.isnot(None),
             Generation.canceled_at >= period_start, Generation.canceled_at <= period_end,
         ).count()
@@ -5129,14 +5141,17 @@ def _compute_kpis(db, range_from: datetime = None, range_to: datetime = None) ->
         churn_numer = churned_in_period
         has_full_month_baseline = active_at_start > 0
     else:
-        active_now = db.query(Generation).filter(Generation.status == "live").count()
+        active_now = db.query(Generation).filter(
+            Generation.status == "live", Generation.is_internal == False
+        ).count()
         churned_month = db.query(Generation).filter(
+            Generation.is_internal == False,
             Generation.canceled_at.isnot(None), Generation.canceled_at >= period_start
         ).count()
         churn_denom = active_now + churned_month
         churn_numer = churned_month
         has_full_month_baseline = db.query(Generation).filter(
-            Generation.status == "live", Generation.created_at < period_start
+            Generation.status == "live", Generation.is_internal == False, Generation.created_at < period_start
         ).count() > 0
 
     period_label = (
