@@ -5768,8 +5768,9 @@ def admin_deliverability():
                 Esendex credentials {"are" if esendex_configured else "are <b>not</b>"} set in the environment,
                 but <code>SmsDeliveryEvent</code> has zero rows. The poll job that would create them
                 (<code>python -m outreach.sms_status_poll</code>, meant to run hourly per its own docstring)
-                is <b>not scheduled anywhere</b> — Railway's only cron job is <code>domain-billing-cron</code>,
-                and <code>Procfile</code> only runs the web process. Until that poll job runs on a schedule,
+                is <b>not scheduled anywhere</b> — confirmed 2026-07-19 against Railway directly: sourcing-cron,
+                email-discovery-cron, send-job-cron, domain-billing-cron, and pending-edits-apply-cron all exist
+                and run on schedule, but none of them call this poll job. Until it's on a schedule of its own,
                 this section will stay empty no matter how many SMS sends go out.
               </p>
               <p class="muted" style="margin:0;">get_health_signal("sms") currently returns
