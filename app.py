@@ -1959,6 +1959,7 @@ def _admin_page(title: str, content: str, active: str = "") -> str:
         ("Domains &amp; margins", "/admin/domains", "domains"),
         ("Outreach", "/admin/outreach",  "outreach"),
         ("Discovery", "/admin/discovery", "discovery"),
+        ("Follow-ups", "/admin/followups", "followups"),
         ("Funnel", "/admin/funnel", "funnel"),
         ("Deliverability", "/admin/deliverability", "deliverability"),
         ("Replies", "/admin/replies", "replies"),
@@ -4622,6 +4623,116 @@ before send-job-cron. {pending_n} prospect(s) currently waiting in the discovery
 </div>
 """
         return render_template_string(_admin_page("Discovery", content, active="discovery"))
+    finally:
+        db.close()
+
+
+@app.route("/admin/followups")
+@admin_required
+def admin_followups():
+    """Shows the actual queue of upcoming/overdue follow-up touches — added
+    2026-07-19 because there was previously no way to see this outside of
+    reading outreach/followup.py directly. Deliberately imports its
+    constants and re-derives due/not-due the same way _due_stage() does,
+    rather than hand-rolling separate logic that could silently drift from
+    what run_followups() actually does."""
+    from outreach.followup import (
+        STAGE_BY_SUBSTAGE, MIN_DAYS_BY_SUBSTAGE, CATCH_ALL_MIN_DAYS, CATCH_ALL_MAX_DAYS,
+        MAX_TOUCHES, EMAIL_REPLY_CAPTURE_READY, SMS_REPLY_CAPTURE_READY,
+    )
+    db = SessionLocal()
+    try:
+        now = datetime.utcnow()
+        active = db.query(Prospect).filter(
+            Prospect.funnel_substage.in_(list(STAGE_BY_SUBSTAGE.keys())),
+            Prospect.paid_at.is_(None),
+            Prospect.touch_count < MAX_TOUCHES,
+        ).all()
+
+        rows = []
+        for p in active:
+            if p.email_unsubscribed and p.sms_unsubscribed:
+                continue
+            substage_days = (now - p.last_touch_at).days if p.last_touch_at else None
+            min_days = MIN_DAYS_BY_SUBSTAGE[p.funnel_substage]
+            stage_letter = STAGE_BY_SUBSTAGE[p.funnel_substage]
+            first_send_days = (now - p.sent_at).days if p.sent_at else None
+            catch_all_due = first_send_days is not None and CATCH_ALL_MIN_DAYS <= first_send_days <= CATCH_ALL_MAX_DAYS
+
+            due_now = (substage_days is not None and substage_days >= min_days) or catch_all_due
+
+            if due_now:
+                due_label, due_sort = "Due now", -1
+            elif p.last_touch_at:
+                days_until = min_days - substage_days
+                due_label, due_sort = (now + timedelta(days=days_until)).strftime("%d %b"), days_until
+            else:
+                due_label, due_sort = "—", 9999
+
+            channel = "SMS only" if not p.email_found else ("Email + SMS" if p.phone else "Email only")
+
+            rows.append({
+                "id": p.id, "name": p.business_name or "—", "substage": p.funnel_substage,
+                "stage_letter": stage_letter, "last_touch": p.last_touch_at,
+                "due_label": due_label, "due_sort": due_sort,
+                "touch_count": p.touch_count or 0, "channel": channel, "catch_all": catch_all_due,
+            })
+
+        rows.sort(key=lambda r: r["due_sort"])
+        due_now_n = sum(1 for r in rows if r["due_sort"] == -1)
+
+        gate_off = not EMAIL_REPLY_CAPTURE_READY and not SMS_REPLY_CAPTURE_READY
+        gate_html = ""
+        if gate_off:
+            gate_html = """
+<div class="adm-card" style="padding:20px 24px;margin-bottom:20px;background:#FEF2F2;border-color:#FCA5A5;">
+  <p style="font-weight:700;margin:0 0 6px;color:#B91C1C;">Nothing below is actually being sent.</p>
+  <p class="muted" style="margin:0;">Neither <code>EMAIL_REPLY_CAPTURE_READY</code> nor <code>SMS_REPLY_CAPTURE_READY</code>
+  is set to <code>true</code> on send-job-cron — run_followups() hard-blocks and sends zero touches every night
+  until at least one is (Section 11a: reply-triggered kill-switch handling must be live and verified on a channel
+  first). This queue shows what <b>would</b> fire once that's on, not what's actually gone out.</p>
+</div>"""
+        elif not EMAIL_REPLY_CAPTURE_READY or not SMS_REPLY_CAPTURE_READY:
+            missing = "email" if not EMAIL_REPLY_CAPTURE_READY else "SMS"
+            gate_html = f"""
+<div class="adm-card" style="padding:16px 24px;margin-bottom:20px;background:#FFFBEB;border-color:#FDE68A;">
+  <p class="muted" style="margin:0;"><b>{missing.title()} follow-ups are withheld</b> — <code>{missing.upper()}_REPLY_CAPTURE_READY</code>
+  isn't set to <code>true</code>. The other channel fires normally.</p>
+</div>"""
+
+        rows_html = "".join(f"""
+<tr>
+  <td style="padding:8px 10px;"><a href="/admin/prospects/{r['id']}" style="color:#2257CC;font-weight:600;text-decoration:none;">{r['name']}</a></td>
+  <td style="padding:8px 10px;">Stage {r['stage_letter']}{' (catch-all)' if r['catch_all'] else ''}</td>
+  <td style="padding:8px 10px;">{r['channel']}</td>
+  <td style="padding:8px 10px;">{r['touch_count']}/{MAX_TOUCHES - 1}</td>
+  <td style="padding:8px 10px;">{_fmt_dt(r['last_touch']) or '—'}</td>
+  <td style="padding:8px 10px;font-weight:700;{'color:#B91C1C;' if r['due_sort'] == -1 else ''}">{r['due_label']}</td>
+</tr>""" for r in rows)
+
+        content = f"""
+<h1 class="adm-title">Follow-ups</h1>
+<p class="adm-sub">The live queue behind <code>run_followups()</code> — {len(rows)} prospect(s) still eligible for a follow-up touch,
+{due_now_n} due right now. Runs nightly inside send-job-cron (08:00 UTC), first-priority against that day's ramp allowance,
+before any new initial sends.</p>
+
+{gate_html}
+
+<div class="adm-card" style="overflow-x:auto;">
+<table style="width:100%;border-collapse:collapse;font-size:13.5px;">
+<thead><tr style="color:#9A9893;font-size:11px;text-transform:uppercase;border-bottom:1px solid #E6E3DC;">
+  <th style="text-align:left;padding:6px 10px;">Business</th>
+  <th style="text-align:left;padding:6px 10px;">Next stage</th>
+  <th style="text-align:left;padding:6px 10px;">Channel</th>
+  <th style="text-align:left;padding:6px 10px;">Touches used</th>
+  <th style="text-align:left;padding:6px 10px;">Last touch</th>
+  <th style="text-align:left;padding:6px 10px;">Due</th>
+</tr></thead>
+<tbody>{rows_html or '<tr><td colspan="6" style="padding:16px 10px;color:#9A9893;">No prospects currently eligible for a follow-up.</td></tr>'}</tbody>
+</table>
+</div>
+"""
+        return render_template_string(_admin_page("Follow-ups", content, active="followups"))
     finally:
         db.close()
 
