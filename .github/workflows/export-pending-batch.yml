@@ -1,17 +1,19 @@
-name: Export pending discovery batch
+name: Export pending discovery batch (manual fallback)
 
-# Runs 30 minutes before the nightly discovery routine (03:30 UTC) fires,
-# so it always reads a fresh batch from its git checkout rather than
-# re-processing the same prospects forever. Added 2026-07-18 — see
-# docs/outreach-pipeline-spec.md Section 4a.
+# REMOVED the scheduled trigger 2026-07-19: GitHub deprioritizes scheduled
+# Actions on low-traffic repos, and this one was observed running 2.5-3
+# hours late two nights running (2026-07-18, 2026-07-19) — late enough
+# that the discovery routine (fires at 03:30 UTC sharp) read a stale
+# pending_batch.json instead of that night's fresh export, silently
+# processing 0 prospects. The scheduled export now runs on Railway Cron
+# instead (outreach/export_and_push_pending_batch.py, pushes via the
+# GitHub Contents API rather than a local git push) — same dedicated,
+# reliably-on-time infrastructure every other job in this pipeline uses.
+# This workflow is kept only as a manual `workflow_dispatch` fallback.
 #
 # Pushes straight to main using the auto-provided GITHUB_TOKEN (declared
-# contents:write below) — no separate credential needed, unlike the
-# discovery routine's own push, which goes to a dedicated branch instead
-# (CCR sessions appear to have read-only access to main by design).
+# contents:write below) — no separate credential needed.
 on:
-  schedule:
-    - cron: "0 3 * * *"
   workflow_dispatch: {}
 
 permissions:

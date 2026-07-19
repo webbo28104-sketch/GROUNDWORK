@@ -1,17 +1,17 @@
-name: Pick up nightly discovery results from Drive
+name: Pick up nightly discovery results from Drive (manual fallback)
 
-# Fully unattended morning pickup — added 2026-07-19 so the discovery
-# routine's results land in the DB every day even if nobody opens a
-# conversation to ask for them. Runs at 06:00 UTC: after the discovery
-# routine (03:30 UTC, usually done within an hour, occasionally longer)
-# and comfortably before send-job-cron (08:00 UTC), so today's newly
-# found emails are eligible for today's send batch.
+# REMOVED the scheduled trigger 2026-07-19: same GitHub Actions scheduling
+# unreliability documented in export-pending-batch.yml (this one actually
+# ran ~2h15m late its first night, 08:15 instead of 06:00 UTC). The
+# scheduled pickup now runs on Railway Cron instead
+# (outreach/pickup_drive_results.py, same script, just triggered
+# reliably) — same dedicated infrastructure every other job in this
+# pipeline uses. This workflow is kept only as a manual `workflow_dispatch`
+# fallback.
 #
 # Safe to run even if the routine hasn't produced a new file that night —
 # outreach/pickup_drive_results.py just logs "nothing new" and exits 0.
 on:
-  schedule:
-    - cron: "0 6 * * *"
   workflow_dispatch: {}
 
 jobs:
