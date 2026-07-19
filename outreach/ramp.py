@@ -44,7 +44,10 @@ from models import SessionLocal, RampState, DailySendCount, SmsDeliveryEvent, Em
 logger = logging.getLogger("outreach.ramp")
 
 # Section 15 tables — daily volume by week number for each channel.
-EMAIL_RAMP_TABLE = {1: 10, 2: 25, 3: 50}  # week 4+ doubles the prior week
+# Week 1 (the floor) raised 10 -> 20 for email on 2026-07-19, by request —
+# week 2/3 left as-is rather than rescaled to match, so this is a genuinely
+# higher starting point, not just a shifted curve.
+EMAIL_RAMP_TABLE = {1: 20, 2: 25, 3: 50}  # week 4+ doubles the prior week
 SMS_RAMP_TABLE = {1: 20, 2: 50}  # week 3+ increases 50-75% (use 50% — the conservative end)
 
 EMAIL_FLOOR = EMAIL_RAMP_TABLE[1]
