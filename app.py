@@ -5866,6 +5866,19 @@ def admin_deliverability():
         }
         bounced_by_source = Counter(email_to_source[em] for em in bounced_emails if em in email_to_source)
 
+        # A source needs a real sample before its rate means anything —
+        # same 30-outcome convention used elsewhere (Section 5b), relaxed
+        # to 15 here since this is a per-source breakdown, not a single
+        # pooled rate, and would otherwise almost never accumulate enough
+        # volume in any one source to ever flag anything.
+        _SOURCE_ACTIONABLE_MIN_N = 15
+        actionable_bad_sources = [
+            src for src in sent_by_source
+            if sent_by_source[src] >= _SOURCE_ACTIONABLE_MIN_N
+            and (bounced_by_source.get(src, 0) / sent_by_source[src]) >= EMAIL_BOUNCE_RATE_TRIGGER
+        ]
+
+        _actionable_badge = ' <span style="color:#B91C1C;font-weight:700;">⚠ actionable</span>'
         source_rows_html = "".join(
             f'<tr><td style="padding:6px 10px;">{escape(src)}</td>'
             f'<td style="padding:6px 10px;text-align:right;">{sent_by_source[src]}</td>'
@@ -5873,13 +5886,29 @@ def admin_deliverability():
             f'<td style="padding:6px 10px;text-align:right;color:'
             f'{"#DC2626" if (bounced_by_source.get(src, 0) / sent_by_source[src] * 100 if sent_by_source[src] else 0) >= 20 else ("#D97706" if bounced_by_source.get(src, 0) else "#059669")}'
             f';font-weight:700;">'
-            f'{(bounced_by_source.get(src, 0) / sent_by_source[src] * 100 if sent_by_source[src] else 0):.0f}%</td></tr>'
+            f'{(bounced_by_source.get(src, 0) / sent_by_source[src] * 100 if sent_by_source[src] else 0):.0f}%'
+            f'{_actionable_badge if src in actionable_bad_sources else ""}'
+            f'</td></tr>'
             for src in sorted(sent_by_source.keys(), key=lambda s: -sent_by_source[s])
         )
+        actionable_callout = ""
+        if actionable_bad_sources:
+            names = ", ".join(f"<code>{escape(s)}</code>" for s in actionable_bad_sources)
+            actionable_callout = f"""
+          <div style="background:#FEF2F2;border:1px solid #FCA5A5;border-radius:8px;padding:12px 14px;margin-bottom:12px;">
+            <p style="margin:0;font-size:13.5px;color:#B91C1C;"><b>Past the point of "watch and see":</b> {names}
+            {"has" if len(actionable_bad_sources) == 1 else "have"} a real sample size (15+) at or above the
+            {EMAIL_BOUNCE_RATE_TRIGGER * 100:.0f}% bounce trigger. This is your system finding bad emails, not a
+            deliverability/reputation problem — but every bounce still counts against the trailing bounce rate that
+            holds the ramp at the floor. Worth downweighting or adding a stricter check for this source specifically,
+            rather than raising the ramp's tolerance overall.</p>
+          </div>"""
         source_breakdown_html = f"""
         <div class="adm-card" style="padding:16px 20px;margin-top:10px;">
-          <p style="font-weight:700;margin:0 0 6px;">Bounce rate by discovery source (all-time, monitoring only)</p>
-          <p class="muted" style="margin:0 0 10px;">Not fed into scoring/selection yet — watch this as volume grows.</p>
+          <p style="font-weight:700;margin:0 0 6px;">Bounce rate by discovery source (all-time)</p>
+          <p class="muted" style="margin:0 0 10px;">Not fed into scoring/selection yet — still monitoring-only, but sources marked
+          below have crossed a real sample size, so the rate shown is a genuine signal, not noise.</p>
+          {actionable_callout}
           <table style="width:100%;border-collapse:collapse;font-size:13.5px;">
             <thead><tr style="border-bottom:1px solid #E6E3DC;">
               <th style="text-align:left;padding:6px 10px;color:#9A9893;font-size:11px;text-transform:uppercase;">Source</th>
