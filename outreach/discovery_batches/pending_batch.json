@@ -1,1 +1,872 @@
-[]
+[
+  {
+    "prospect_id": 851,
+    "business_name": "Pulse Plumbing & Heating ltd",
+    "trade": "Plumber",
+    "location": "72 Ormeley Rd, London SW12 9QG",
+    "website": "https://www.pulseplumbers.co.uk/?utm_source=google&utm_medium=maps",
+    "website_status": "has_website",
+    "phone": "020 8088 1195",
+    "queued_at": "2026-07-19T01:04:26.464828"
+  },
+  {
+    "prospect_id": 853,
+    "business_name": "IQ Plumbing Services Ltd",
+    "trade": "Plumber",
+    "location": "255A Queen's Rd, London SE15 2NG",
+    "website": "https://iqplumbing.co.uk/",
+    "website_status": "has_website",
+    "phone": "07494 342754",
+    "queued_at": "2026-07-19T01:04:30.316736"
+  },
+  {
+    "prospect_id": 854,
+    "business_name": "National Plumbing Ltd",
+    "trade": "Plumber",
+    "location": "67 Wingate Square, London SW4 0AF",
+    "website": "https://www.nationalplumbingservices.co.uk/?utm_source=google&utm_medium=local&utm_campaign=1&utm_content=primary",
+    "website_status": "has_website",
+    "phone": "020 3488 1053",
+    "queued_at": "2026-07-19T01:04:30.387760"
+  },
+  {
+    "prospect_id": 857,
+    "business_name": "Near Me Plumbers",
+    "trade": "Plumber",
+    "location": "38 Glaisher St, London SE8 3ET",
+    "website": "https://www.nearmeplumbers.co.uk/",
+    "website_status": "has_website",
+    "phone": "07521 305976",
+    "queued_at": "2026-07-19T01:04:31.161367"
+  },
+  {
+    "prospect_id": 858,
+    "business_name": "Billy the plumber",
+    "trade": "Plumber",
+    "location": "Arc House, 62 Riley Rd, London SE1 3FU",
+    "website": "http://www.billytheplumber.com/",
+    "website_status": "has_website",
+    "phone": "07957 980479",
+    "queued_at": "2026-07-19T01:04:31.359994"
+  },
+  {
+    "prospect_id": 860,
+    "business_name": "Plumbing 4 London",
+    "trade": "Plumber",
+    "location": "17, Frederica Court, 35 Trinity Rise, Norwood, London SW2 2BF",
+    "website": "https://plumbing-london.co.uk/",
+    "website_status": "has_website",
+    "phone": "07403 057874",
+    "queued_at": "2026-07-19T01:04:37.688134"
+  },
+  {
+    "prospect_id": 864,
+    "business_name": "Ninja Plumbers",
+    "trade": "Plumber",
+    "location": "48 Fulham High St, London SW6 3LQ",
+    "website": "https://www.ninjaplumbers.co.uk/",
+    "website_status": "has_website",
+    "phone": "020 3576 5825",
+    "queued_at": "2026-07-19T01:04:39.523422"
+  },
+  {
+    "prospect_id": 869,
+    "business_name": "EB Electrical Services Limited",
+    "trade": "Electrician",
+    "location": "Flat 2, 105 Meyrick Rd, London SW11 2EG",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07376 635189",
+    "queued_at": "2026-07-19T01:04:45.571832"
+  },
+  {
+    "prospect_id": 872,
+    "business_name": "TNS Electrical Solutions",
+    "trade": "Electrician",
+    "location": "445 Sulivan Ct, Peterborough Rd, London SW6 3BX",
+    "website": "https://www.tnssolutions.co.uk/",
+    "website_status": "has_website",
+    "phone": "020 3715 2919",
+    "queued_at": "2026-07-19T01:04:46.045188"
+  },
+  {
+    "prospect_id": 878,
+    "business_name": "P S C Electrical London Ltd",
+    "trade": "Electrician",
+    "location": "5 Brading Rd, Croydon CR0 3BR",
+    "website": "https://pscelectrical.com/",
+    "website_status": "has_website",
+    "phone": "020 3857 4796",
+    "queued_at": "2026-07-19T01:04:53.424258"
+  },
+  {
+    "prospect_id": 885,
+    "business_name": "Ecotek Plumbing and Heating Ltd",
+    "trade": "Heating Engineer",
+    "location": "11 Harefield Mews, London SE4 1LP",
+    "website": "https://ecotekplumbingandheating.co.uk/",
+    "website_status": "has_website",
+    "phone": "020 3302 0727",
+    "queued_at": "2026-07-19T01:04:57.335105"
+  },
+  {
+    "prospect_id": 890,
+    "business_name": "Pacifix Solutions Plumbing and Heating",
+    "trade": "Heating Engineer",
+    "location": "Flat 29, Brydale House, Rotherhithe New Rd, London SE16 2PT",
+    "website": "https://pacifixsolutions.com/",
+    "website_status": "has_website",
+    "phone": "07391 475087",
+    "queued_at": "2026-07-19T01:05:02.107145"
+  },
+  {
+    "prospect_id": 894,
+    "business_name": "Tailored Plumbing & Heating (UK) Ltd",
+    "trade": "Heating Engineer",
+    "location": "Office 105 1st Floor, 3 Stanton Way, London SE26 5FU",
+    "website": "https://www.tailoredplumbing.uk/",
+    "website_status": "has_website",
+    "phone": "020 8676 7878",
+    "queued_at": "2026-07-19T01:05:06.133279"
+  },
+  {
+    "prospect_id": 895,
+    "business_name": "Boost Plumbing & Heating Ltd - Gas Engineer, Boiler Installations and Repairs",
+    "trade": "Heating Engineer",
+    "location": "Forbes Court, London SE19 1PJ",
+    "website": "http://boostheating.com/",
+    "website_status": "has_website",
+    "phone": "07428 058115",
+    "queued_at": "2026-07-19T01:05:06.362564"
+  },
+  {
+    "prospect_id": 896,
+    "business_name": "Scotts Roofing Ltd",
+    "trade": "Roofer",
+    "location": "15, High Path, London SW19 2JS",
+    "website": "http://www.scottsroofingltd.com/",
+    "website_status": "has_website",
+    "phone": "020 8144 9985",
+    "queued_at": "2026-07-19T01:05:06.710511"
+  },
+  {
+    "prospect_id": 897,
+    "business_name": "LF Roofing Services Ltd - New roofs and repairs - Clapham, Balham, Streatham, Tooting, Brixton, Dulwich, Crystal Palace",
+    "trade": "Roofer",
+    "location": "24 Ashlake Rd, London SW16 2BB",
+    "website": "http://www.lfroofingservices.co.uk/",
+    "website_status": "has_website",
+    "phone": "07815 695928",
+    "queued_at": "2026-07-19T01:05:07.156584"
+  },
+  {
+    "prospect_id": 901,
+    "business_name": "N.H.R.B.S. Roofing Services",
+    "trade": "Roofer",
+    "location": "69A Ponsonby Pl, Pimlico, London SW1P 4PP",
+    "website": "http://www.nunheadroofing.co.uk/",
+    "website_status": "has_website",
+    "phone": "020 7828 2181",
+    "queued_at": "2026-07-19T01:05:19.133727"
+  },
+  {
+    "prospect_id": 903,
+    "business_name": "Roof Works (South) LTD - Roofer Wimbledon",
+    "trade": "Roofer",
+    "location": "30 Durham Rd, Greater, Raynes Park, London SW20 0TW",
+    "website": "http://roofworks-south.co.uk/",
+    "website_status": "has_website",
+    "phone": "07871 506011",
+    "queued_at": "2026-07-19T01:05:19.615923"
+  },
+  {
+    "prospect_id": 906,
+    "business_name": "The Original Roofing Company",
+    "trade": "Roofer",
+    "location": "Zodiac House, 14 Hartley Old Rd, Purley CR8 4HG",
+    "website": "https://theoriginalroofingcompany.co.uk/",
+    "website_status": "has_website",
+    "phone": "07984 419787",
+    "queued_at": "2026-07-19T01:05:25.567606"
+  },
+  {
+    "prospect_id": 908,
+    "business_name": "Perspective Roofing",
+    "trade": "Roofer",
+    "location": "71 Spa Hill, London SE19 3TW",
+    "website": "http://www.perspectiveroofing.co.uk/",
+    "website_status": "has_website",
+    "phone": "020 8087 0277",
+    "queued_at": "2026-07-19T01:05:30.295945"
+  },
+  {
+    "prospect_id": 909,
+    "business_name": "G S Roofing",
+    "trade": "Roofer",
+    "location": "35 Dryden Rd, London SW19 8SQ",
+    "website": null,
+    "website_status": "no_website",
+    "phone": null,
+    "queued_at": "2026-07-19T01:05:30.342742"
+  },
+  {
+    "prospect_id": 910,
+    "business_name": "AD Roofing South East Ltd",
+    "trade": "Roofer",
+    "location": "105 Scylla Rd, London SE15 3RZ",
+    "website": "http://www.adroofinguk.co.uk/",
+    "website_status": "has_website",
+    "phone": "07927 297587",
+    "queued_at": "2026-07-19T01:05:30.755623"
+  },
+  {
+    "prospect_id": 912,
+    "business_name": "London & Surrey Landscaping",
+    "trade": "Landscaper",
+    "location": "89 Bickersteth Rd, London SW17 9SH",
+    "website": "http://landslandscaping.co.uk/",
+    "website_status": "has_website",
+    "phone": "07535 815741",
+    "queued_at": "2026-07-19T01:05:33.929256"
+  },
+  {
+    "prospect_id": 913,
+    "business_name": "LA Gardener | london",
+    "trade": "Landscaper",
+    "location": "12 Roche Rd, Norbury, London SW16 5PR",
+    "website": "https://lagardener.carrd.co/",
+    "website_status": "has_website",
+    "phone": "07438 112305",
+    "queued_at": "2026-07-19T01:05:34.376517"
+  },
+  {
+    "prospect_id": 915,
+    "business_name": "Elite Landscaping",
+    "trade": "Landscaper",
+    "location": "57 Fairview Rd, Norbury, London SW16 5PX",
+    "website": "https://elitegardenlandscape.co.uk/",
+    "website_status": "has_website",
+    "phone": "020 7046 0812",
+    "queued_at": "2026-07-19T01:05:34.804328"
+  },
+  {
+    "prospect_id": 917,
+    "business_name": "The Southwest London Gardener Ltd",
+    "trade": "Landscaper",
+    "location": "The Southwest, Gardener Limited, The Gatehouse, 1 Armoury Way, London SW18 1TH",
+    "website": "https://thesouthwestlondongardener.co.uk/wandsworth-gardeners",
+    "website_status": "has_website",
+    "phone": "07966 554841",
+    "queued_at": "2026-07-19T01:05:35.034631"
+  },
+  {
+    "prospect_id": 920,
+    "business_name": "PNM Gardening & Landscapes",
+    "trade": "Landscaper",
+    "location": "Flat 8, Alderley House, Albion Ave, London SW8 2AN",
+    "website": "https://pnmgardening.com/",
+    "website_status": "has_website",
+    "phone": "07340 833142",
+    "queued_at": "2026-07-19T01:05:36.062927"
+  },
+  {
+    "prospect_id": 926,
+    "business_name": "TLG Garden and Landscape Services",
+    "trade": "Landscaper",
+    "location": "5 Tyrrell Rd, London SE22 9NA",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07948 504197",
+    "queued_at": "2026-07-19T01:05:46.459503"
+  },
+  {
+    "prospect_id": 933,
+    "business_name": "Ace Maintenance",
+    "trade": "Gardener",
+    "location": "249 Staveley Gardens, Chiswick, London W4 2TF",
+    "website": "http://www.acemaintenance.co.uk/",
+    "website_status": "has_website",
+    "phone": "020 3488 1912",
+    "queued_at": "2026-07-19T01:05:53.088987"
+  },
+  {
+    "prospect_id": 936,
+    "business_name": "Scott the Painter",
+    "trade": "Painter/Decorator",
+    "location": "14 Linom Rd, London SW4 7PD",
+    "website": "https://scottthepainter.co.uk/",
+    "website_status": "has_website",
+    "phone": "07856 262564",
+    "queued_at": "2026-07-19T01:05:53.544740"
+  },
+  {
+    "prospect_id": 945,
+    "business_name": "Decorating London",
+    "trade": "Painter/Decorator",
+    "location": "151 Strathdon Dr, London SW17 0PS",
+    "website": "http://www.decorating-london.org/",
+    "website_status": "has_website",
+    "phone": "07989 191799",
+    "queued_at": "2026-07-19T01:06:04.851079"
+  },
+  {
+    "prospect_id": 949,
+    "business_name": "Novitas Decorators",
+    "trade": "Painter/Decorator",
+    "location": "116 Bexley Rd, London SE9 2PG",
+    "website": "https://www.novitasdecorators.co.uk/?utm_source=gmb&utm_medium=organic&utm_campaign=locations",
+    "website_status": "has_website",
+    "phone": "07825 881762",
+    "queued_at": "2026-07-19T01:06:08.131029"
+  },
+  {
+    "prospect_id": 952,
+    "business_name": "CLS Locksmiths",
+    "trade": "Locksmith",
+    "location": "35C Stockfield Rd, London SW16 2LU",
+    "website": "http://www.clslocksmiths.co.uk/",
+    "website_status": "has_website",
+    "phone": "020 3951 9683",
+    "queued_at": "2026-07-19T01:06:13.171946"
+  },
+  {
+    "prospect_id": 956,
+    "business_name": "UK Auto Locksmith Ltd",
+    "trade": "Locksmith",
+    "location": "Flat 48, 6 Salamanca Pl, London SE1 7HB",
+    "website": "https://www.ukcarlocksmith.co.uk/",
+    "website_status": "has_website",
+    "phone": "020 3880 9904",
+    "queued_at": "2026-07-19T01:06:14.142390"
+  },
+  {
+    "prospect_id": 958,
+    "business_name": "SW Locksmiths - East Sheen",
+    "trade": "Locksmith",
+    "location": "300 Upper Richmond Rd W, London SW14 7JG",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "020 8191 3624",
+    "queued_at": "2026-07-19T01:06:22.251096"
+  },
+  {
+    "prospect_id": 961,
+    "business_name": "Emergency locks ltd",
+    "trade": "Locksmith",
+    "location": "228 Old Kent Rd, London SE1 5UB",
+    "website": "https://www.emergencylocks-24hour.co.uk/",
+    "website_status": "has_website",
+    "phone": "07758 100999",
+    "queued_at": "2026-07-19T01:06:24.845487"
+  },
+  {
+    "prospect_id": 962,
+    "business_name": "247 SW London Locksmiths",
+    "trade": "Locksmith",
+    "location": "4 Camborne Rd, London SW18 4BJ",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07446 382599",
+    "queued_at": "2026-07-19T01:06:24.856869"
+  },
+  {
+    "prospect_id": 965,
+    "business_name": "VIP CLEANING LONDON",
+    "trade": "Domestic Cleaner",
+    "location": "52 Wilson Ave, Mitcham CR4 3JL",
+    "website": "https://www.vip-cleaning-london.com/",
+    "website_status": "has_website",
+    "phone": "020 7193 8444",
+    "queued_at": "2026-07-19T01:06:31.427785"
+  },
+  {
+    "prospect_id": 970,
+    "business_name": "Your Local London Cleaning and Gardening",
+    "trade": "Domestic Cleaner",
+    "location": "56, Oyster Wharf, London SW11 3RR",
+    "website": "https://www.yourlocallondoncleaning.com/",
+    "website_status": "has_website",
+    "phone": null,
+    "queued_at": "2026-07-19T01:06:35.507986"
+  },
+  {
+    "prospect_id": 971,
+    "business_name": "Wimbledon Cleaning Services",
+    "trade": "Domestic Cleaner",
+    "location": "flat 2, 11 Springfield Rd, London SW19 7AL",
+    "website": "https://wimbledon-cleaning-services.co.uk/?utm_source=google&utm_medium=organic&utm_campaign=gbp-listing",
+    "website_status": "has_website",
+    "phone": "020 8715 4464",
+    "queued_at": "2026-07-19T01:06:35.605427"
+  },
+  {
+    "prospect_id": 972,
+    "business_name": "Age's Cleaning Services",
+    "trade": "Domestic Cleaner",
+    "location": "97 De Frene Rd, London SE26 4AF",
+    "website": "https://agescleaning.co.uk/",
+    "website_status": "has_website",
+    "phone": "07533 533359",
+    "queued_at": "2026-07-19T01:06:38.362175"
+  },
+  {
+    "prospect_id": 973,
+    "business_name": "Premium Clean LTD",
+    "trade": "Domestic Cleaner",
+    "location": "10 Filmer Rd, London SW6 7BW",
+    "website": "https://premiumclean.co.uk/",
+    "website_status": "has_website",
+    "phone": "07774 518219",
+    "queued_at": "2026-07-19T01:06:38.918252"
+  },
+  {
+    "prospect_id": 975,
+    "business_name": "VIP Cleaner MA Ltd",
+    "trade": "Domestic Cleaner",
+    "location": "Flat1, 34 Angles Rd, London SW16 2UR",
+    "website": "https://www.vipcleanerma.com/",
+    "website_status": "has_website",
+    "phone": "07862 473091",
+    "queued_at": "2026-07-19T01:06:43.568020"
+  },
+  {
+    "prospect_id": 976,
+    "business_name": "Asap Cleaning Company Ltd",
+    "trade": "Domestic Cleaner",
+    "location": "Flat 5-8, Thurleigh Rd, London SW12 8UA",
+    "website": "https://www.asapcleaningcompany.co.uk/",
+    "website_status": "has_website",
+    "phone": "07903 080719",
+    "queued_at": "2026-07-19T01:06:43.897356"
+  },
+  {
+    "prospect_id": 977,
+    "business_name": "Beaver Pest Control",
+    "trade": "Pest Control",
+    "location": "Unit C21, Trident Business center, 89 Bickersteth Rd, London SW17 9SH",
+    "website": "https://pestcontrolservices.co.uk/",
+    "website_status": "has_website",
+    "phone": "020 8355 3443",
+    "queued_at": "2026-07-19T01:06:44.029229"
+  },
+  {
+    "prospect_id": 980,
+    "business_name": "MA PEST CONTROL",
+    "trade": "Pest Control",
+    "location": "20 Ladbroke Cres, London W11 1PS",
+    "website": "https://mapestcontrol.co.uk/",
+    "website_status": "has_website",
+    "phone": "07727 759720",
+    "queued_at": "2026-07-19T01:06:48.147932"
+  },
+  {
+    "prospect_id": 981,
+    "business_name": "SuperGuard Rotherhithe",
+    "trade": "Pest Control",
+    "location": "10 Somerford Way, London SE16 6QW",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07448 491927",
+    "queued_at": "2026-07-19T01:06:48.160978"
+  },
+  {
+    "prospect_id": 982,
+    "business_name": "Elite Force Pest Control Limited",
+    "trade": "Pest Control",
+    "location": "279 Danebury Ave, London SW15 4DL",
+    "website": "https://eliteforcepestcontrol.com/",
+    "website_status": "has_website",
+    "phone": "07830 023887",
+    "queued_at": "2026-07-19T01:06:48.984776"
+  },
+  {
+    "prospect_id": 985,
+    "business_name": "Mercury Pest Control",
+    "trade": "Pest Control",
+    "location": "Nantes Cl, London SW18 1JL",
+    "website": "https://www.mercurypestcontrol.co.uk/",
+    "website_status": "has_website",
+    "phone": "020 8166 5110",
+    "queued_at": "2026-07-19T01:06:49.970632"
+  },
+  {
+    "prospect_id": 987,
+    "business_name": "PesSave Services",
+    "trade": "Pest Control",
+    "location": "112A Elm Park Gardens, London SW10 9PF",
+    "website": "http://www.pestcontrolchelsea.co.uk/",
+    "website_status": "has_website",
+    "phone": "07440 112498",
+    "queued_at": "2026-07-19T01:06:58.284861"
+  },
+  {
+    "prospect_id": 989,
+    "business_name": "Project Multi Pest Control",
+    "trade": "Pest Control",
+    "location": "64 Shooters Hill Rd, London SE3 7BG",
+    "website": "https://pmpest.co.uk/kent/",
+    "website_status": "has_website",
+    "phone": "0800 193 3351",
+    "queued_at": "2026-07-19T01:07:06.386503"
+  },
+  {
+    "prospect_id": 993,
+    "business_name": "GraftinGardeners Ltd",
+    "trade": "Tree Surgeon",
+    "location": "45 Swanwick Cl, London SW15 4ES",
+    "website": "https://www.graftingardeners.co.uk/",
+    "website_status": "has_website",
+    "phone": "020 8123 7653",
+    "queued_at": "2026-07-19T01:07:12.128842"
+  },
+  {
+    "prospect_id": 994,
+    "business_name": "Cut Above Tree Management Ltd",
+    "trade": "Tree Surgeon",
+    "location": "55 Avondale Rise, London SE15 4AJ",
+    "website": "http://www.cutabovetreemanagement.co.uk/",
+    "website_status": "has_website",
+    "phone": "07971 055438",
+    "queued_at": "2026-07-19T01:07:13.871190"
+  },
+  {
+    "prospect_id": 996,
+    "business_name": "Broccoli Tree Care",
+    "trade": "Tree Surgeon",
+    "location": "105 Barriedale, London SE14 6RP",
+    "website": "http://www.broccolitreecare.com/",
+    "website_status": "has_website",
+    "phone": null,
+    "queued_at": "2026-07-19T01:07:14.591770"
+  },
+  {
+    "prospect_id": 997,
+    "business_name": "South West London Tree Surgeons",
+    "trade": "Tree Surgeon",
+    "location": "3 Hersham Cl, London SW15 4JQ",
+    "website": "https://www.southwestlondontreesurgeons.co.uk/",
+    "website_status": "has_website",
+    "phone": "020 8123 9693",
+    "queued_at": "2026-07-19T01:07:14.706818"
+  },
+  {
+    "prospect_id": 998,
+    "business_name": "Ayres Tree Fellers",
+    "trade": "Tree Surgeon",
+    "location": "The Wood Yard Rear of, 58 New Cl, London SW19 2SY",
+    "website": "http://ayrestreefellers.co.uk/",
+    "website_status": "has_website",
+    "phone": "020 8646 2238",
+    "queued_at": "2026-07-19T01:07:14.765932"
+  },
+  {
+    "prospect_id": 1000,
+    "business_name": "Sakura Tree Services",
+    "trade": "Tree Surgeon",
+    "location": "Lawrie Park Gardens, London SE26 6XJ",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07958 553219",
+    "queued_at": "2026-07-19T01:07:22.833228"
+  },
+  {
+    "prospect_id": 1001,
+    "business_name": "South London Tree Service",
+    "trade": "Tree Surgeon",
+    "location": "Lloyd House, 19 Calverley Cl, Beckenham BR3 1UP",
+    "website": "https://treesurgeonssouthlondon.co.uk/",
+    "website_status": "has_website",
+    "phone": "020 8658 7405",
+    "queued_at": "2026-07-19T01:07:28.417769"
+  },
+  {
+    "prospect_id": 1003,
+    "business_name": "Premier Tree Work",
+    "trade": "Tree Surgeon",
+    "location": "1 Edgefield Close, Beckenham BR3 1DJ",
+    "website": "https://premiertreework.co.uk/",
+    "website_status": "has_website",
+    "phone": "07812 103374",
+    "queued_at": "2026-07-19T01:07:28.677347"
+  },
+  {
+    "prospect_id": 1004,
+    "business_name": "Tom Boswell Tree Services Ltd",
+    "trade": "Tree Surgeon",
+    "location": "6 Claygate Rd, London W13 9XG",
+    "website": "https://tomboswelltrees.com/?utm_source=gmb&utm_medium=organic&utm_campaign=gmb_profile_click",
+    "website_status": "has_website",
+    "phone": "020 7183 5611",
+    "queued_at": "2026-07-19T01:07:28.791816"
+  },
+  {
+    "prospect_id": 1005,
+    "business_name": "Symes Paving Specialists",
+    "trade": "Driveway/Paving",
+    "location": "Mason's Pl, Mitcham CR4 3JZ",
+    "website": "https://www.symespaving.co.uk/",
+    "website_status": "has_website",
+    "phone": "07464 246241",
+    "queued_at": "2026-07-19T01:07:28.854604"
+  },
+  {
+    "prospect_id": 1009,
+    "business_name": "Resin Bound London Ltd",
+    "trade": "Driveway/Paving",
+    "location": "76 Edgecoombe, South Croydon CR2 8AB",
+    "website": "https://resinboundlondon.co.uk/?utm_source=Google%20my%20Business&utm_medium=Organic&utm_campaign=Sale&utm_content=Call%20to%20action",
+    "website_status": "has_website",
+    "phone": "07904 117175",
+    "queued_at": "2026-07-19T01:07:30.287311"
+  },
+  {
+    "prospect_id": 1010,
+    "business_name": "Terrapave Driveways & Patios | Driveway Installation in South East London | Surrey Patio Experts",
+    "trade": "Driveway/Paving",
+    "location": "90 Addington Rd, West Wickham BR4 9BQ",
+    "website": "https://terrapave.co.uk/",
+    "website_status": "has_website",
+    "phone": "0800 696 5413",
+    "queued_at": "2026-07-19T01:07:30.948513"
+  },
+  {
+    "prospect_id": 1012,
+    "business_name": "Garden World Construction",
+    "trade": "Driveway/Paving",
+    "location": "77a Stowe Rd, London W12 8BE",
+    "website": "https://www.gardenworldconstructionltd.com/",
+    "website_status": "has_website",
+    "phone": "07970 633762",
+    "queued_at": "2026-07-19T01:07:31.674058"
+  },
+  {
+    "prospect_id": 1015,
+    "business_name": "Diamond-Pave Ltd",
+    "trade": "Driveway/Paving",
+    "location": "43-45 Electric Ave, London SW9 8JP",
+    "website": "https://www.diamond-pave.co.uk/",
+    "website_status": "has_website",
+    "phone": "0800 635 4182",
+    "queued_at": "2026-07-19T01:07:31.994105"
+  },
+  {
+    "prospect_id": 1016,
+    "business_name": "Alcourt Landscapes",
+    "trade": "Driveway/Paving",
+    "location": "Pine Ridge, Carshalton SM5 4QH",
+    "website": "https://alcourtlandscapes.co.uk/",
+    "website_status": "has_website",
+    "phone": "020 8395 1711",
+    "queued_at": "2026-07-19T01:07:32.049767"
+  },
+  {
+    "prospect_id": 1017,
+    "business_name": "Kane Construction Services Ltd",
+    "trade": "Driveway/Paving",
+    "location": "124 Beddington Ln, Croydon CR0 4YZ",
+    "website": "http://www.kaneconstruction.co.uk/",
+    "website_status": "has_website",
+    "phone": "020 8669 7234",
+    "queued_at": "2026-07-19T01:07:32.112284"
+  },
+  {
+    "prospect_id": 1018,
+    "business_name": "London Driveways",
+    "trade": "Driveway/Paving",
+    "location": "Sydenham Industrial Estate, Kangley Bridge Rd, London SE26 5BA",
+    "website": "https://london-driveways.uk/",
+    "website_status": "has_website",
+    "phone": "020 8058 5691",
+    "queued_at": "2026-07-19T01:07:32.154559"
+  },
+  {
+    "prospect_id": 1019,
+    "business_name": "AD Groundworks",
+    "trade": "Driveway/Paving",
+    "location": "220 High St, Sutton SM1 1NU",
+    "website": "https://www.addrivesandpatios.co.uk/",
+    "website_status": "has_website",
+    "phone": "020 8485 8839",
+    "queued_at": "2026-07-19T01:07:32.638735"
+  },
+  {
+    "prospect_id": 1020,
+    "business_name": "Crown Paving",
+    "trade": "Driveway/Paving",
+    "location": "On the House, 21 Church Rd, London SE19 2TE",
+    "website": "https://www.crownpaving.co.uk/",
+    "website_status": "has_website",
+    "phone": "0800 696 5707",
+    "queued_at": "2026-07-19T01:07:34.925163"
+  },
+  {
+    "prospect_id": 1022,
+    "business_name": "SouthWest Fencing",
+    "trade": "Fencing",
+    "location": "53a Lennard Rd, London SE20 7PQ",
+    "website": "https://southwest-fencing.com/",
+    "website_status": "has_website",
+    "phone": "07727 607947",
+    "queued_at": "2026-07-19T01:07:41.008764"
+  },
+  {
+    "prospect_id": 1024,
+    "business_name": "G&G Fencing & Landscaping Supplies",
+    "trade": "Fencing",
+    "location": "Ardoch Rd, London SE6 1SZ",
+    "website": "https://www.fencingandlandscapesupplies.co.uk/",
+    "website_status": "has_website",
+    "phone": "020 8698 4064",
+    "queued_at": "2026-07-19T01:07:41.650389"
+  },
+  {
+    "prospect_id": 1026,
+    "business_name": "Surrey Fencing & Landscapes",
+    "trade": "Fencing",
+    "location": "15 Madeira Rd, Mitcham CR4 4HD",
+    "website": "https://www.surreyfencingandlandscapes.co.uk/",
+    "website_status": "has_website",
+    "phone": "020 8646 3395",
+    "queued_at": "2026-07-19T01:07:42.049975"
+  },
+  {
+    "prospect_id": 1028,
+    "business_name": "Lenny Fencing",
+    "trade": "Fencing",
+    "location": "London Rd, Elephant and Castle, London SE9 4DB",
+    "website": "http://lennyfencing.co.uk/",
+    "website_status": "has_website",
+    "phone": "07760 206849",
+    "queued_at": "2026-07-19T01:07:43.307022"
+  },
+  {
+    "prospect_id": 1029,
+    "business_name": "TBL Fencing.",
+    "trade": "Fencing",
+    "location": "Flaxley Rd, Morden SM4 6LJ",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07554 422214",
+    "queued_at": "2026-07-19T01:07:43.318062"
+  },
+  {
+    "prospect_id": 1030,
+    "business_name": "A.N.T Security Fencing",
+    "trade": "Fencing",
+    "location": "187 Carshalton Rd, Carshalton SM5 3PZ",
+    "website": "https://antfencing.com/?utm_campaign=gmb",
+    "website_status": "has_website",
+    "phone": "07706 156044",
+    "queued_at": "2026-07-19T01:07:43.444162"
+  },
+  {
+    "prospect_id": 1033,
+    "business_name": "Can-Do Handyman",
+    "trade": "Handyman",
+    "location": "Christchurch House, Christchurch Rd, Brixton Hill, London SW2 3UD",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07437 893829",
+    "queued_at": "2026-07-19T01:07:43.760591"
+  },
+  {
+    "prospect_id": 1035,
+    "business_name": "Ercon Handyman",
+    "trade": "Handyman",
+    "location": "155 Dulwich Rd, London SE24 0NG",
+    "website": "http://www.erconhandyman.co.uk/",
+    "website_status": "has_website",
+    "phone": "07971 456713",
+    "queued_at": "2026-07-19T01:07:44.388454"
+  },
+  {
+    "prospect_id": 1036,
+    "business_name": "Brockley handyman",
+    "trade": "Handyman",
+    "location": "Spalding House, Turnham Rd, London SE4 2HT",
+    "website": "https://www.brockleyhandyman.co.uk/",
+    "website_status": "has_website",
+    "phone": "07847 620357",
+    "queued_at": "2026-07-19T01:07:44.681553"
+  },
+  {
+    "prospect_id": 1037,
+    "business_name": "J.M.R HANDYMAN SERVICE",
+    "trade": "Handyman",
+    "location": "Chiswick business park, Chiswick, London W4 5AN",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07368 576200",
+    "queued_at": "2026-07-19T01:07:44.692974"
+  },
+  {
+    "prospect_id": 1038,
+    "business_name": "Handyman Services",
+    "trade": "Handyman",
+    "location": "108a Mitcham Ln, London SW16 6NR",
+    "website": "https://southlondonhandyman.co.uk/",
+    "website_status": "has_website",
+    "phone": "07897 761786",
+    "queued_at": "2026-07-19T01:07:44.783579"
+  },
+  {
+    "prospect_id": 1040,
+    "business_name": "Aussie Handyman",
+    "trade": "Handyman",
+    "location": "40 Portslade Rd, Nine Elms, London SW8 3DH",
+    "website": "https://aussieproperty.co.uk/?utm_source=Google+Map&utm_campaign=APS+Listing",
+    "website_status": "has_website",
+    "phone": "020 8267 6006",
+    "queued_at": "2026-07-19T01:07:45.052756"
+  },
+  {
+    "prospect_id": 1042,
+    "business_name": "SOUTH WEST HANDYMAN SERVICES",
+    "trade": "Handyman",
+    "location": "38 Langroyd Rd, Tooting Bec, London SW17 7PL",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07753 140771",
+    "queued_at": "2026-07-19T01:07:46.217743"
+  },
+  {
+    "prospect_id": 1043,
+    "business_name": "London Handyman Pro",
+    "trade": "Handyman",
+    "location": "15 Mitcham Park, London, Mitcham CR4 4EN",
+    "website": "http://www.londonhandymanpro.co.uk/",
+    "website_status": "has_website",
+    "phone": "0800 102 6422",
+    "queued_at": "2026-07-19T01:07:48.411699"
+  },
+  {
+    "prospect_id": 1044,
+    "business_name": "Man Maid",
+    "trade": "Handyman",
+    "location": "96-98 Wandsworth Bridge Rd., London SW6 2TF",
+    "website": "https://man-maid.co.uk/",
+    "website_status": "has_website",
+    "phone": "020 8066 0077",
+    "queued_at": "2026-07-19T01:07:48.527455"
+  },
+  {
+    "prospect_id": 1045,
+    "business_name": "HandymanForLondon",
+    "trade": "Handyman",
+    "location": "7 Parkwood Rd, Isleworth TW7 5HE",
+    "website": "http://www.handymanforlondon.com/",
+    "website_status": "has_website",
+    "phone": "07799 823825",
+    "queued_at": "2026-07-19T01:07:48.940345"
+  },
+  {
+    "prospect_id": 1047,
+    "business_name": "City Worker Services",
+    "trade": "Handyman",
+    "location": "10, Lopez House, 2 Willington Rd, London SW9 9NF",
+    "website": "http://cityworker.co.uk/",
+    "website_status": "has_website",
+    "phone": "0800 002 5885",
+    "queued_at": "2026-07-19T01:07:51.306450"
+  }
+]
