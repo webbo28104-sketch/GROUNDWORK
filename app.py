@@ -39,7 +39,7 @@ from emails import (send_verification_email, send_resend_email, send_password_re
                     send_site_ready_email)
 from outreach.reply_handling import handle_inbound_sms, handle_inbound_email, handle_forced_sms_stop
 from outreach.templates import SURVEY_DISCOUNT_PERCENT
-from outreach.followup import STAGE_LABELS
+from outreach.followup import STAGE_LABELS, STAGE_BY_SUBSTAGE
 from outreach.ramp import (
     get_health_signal, get_remaining_ramp_today, EMAIL_SPAM_RATE_TRIGGER,
     EMAIL_BOUNCE_RATE_TRIGGER, MIN_EMAIL_SAMPLE_SIZE, CIRCUIT_BREAKER_RECOVERY_DAYS,
@@ -4949,6 +4949,33 @@ _FUNNEL_STAGES = list(STAGE_LABELS.items())
 # False once Resend shows the tracking domain verified AND a genuine
 # open-without-click has been observed to actually set opened_at.
 _FUNNEL_OPENED_DISABLED = True
+
+# Every follow-up stage's cohort is defined by prospects already AT a given
+# funnel_substage when the touch fired (STAGE_BY_SUBSTAGE) — so every column
+# up to and including that substage reads ~100% by construction, not because
+# the touch caused anything. E.g. stage C only ever fires for prospects
+# already at clicked_generated, so "Opened" AND "Clicked/Generated" are both
+# tautological for that row; only "Account Created" and "Paid" are real
+# signal. Audited 2026-07-20 after the same issue was flagged for stage C's
+# Clicked/Generated column specifically — generalized to every row instead
+# of leaving it as a caveat in prose. Maps substage -> the _FUNNEL_STEPS
+# index it corresponds to; a stage's tautological columns are every index
+# from 1 up to and including its substage's index (index 0, "Sent", is
+# always real — it's just the cohort's size, not a claim about them).
+_SUBSTAGE_COLUMN_INDEX = {"opened": 1, "clicked_generated": 2, "account_created": 3}
+_SUBSTAGE_BY_STAGE_LETTER = {letter: substage for substage, letter in STAGE_BY_SUBSTAGE.items()}
+
+
+def _tautological_columns(stage_key):
+    """Column indices into _FUNNEL_STEPS that are ~100% by cohort
+    definition for this stage, not real signal. Empty for "initial" and
+    for stage A (cohort = still at "sent", i.e. hasn't opened yet — nothing
+    downstream of "Sent" is guaranteed for them)."""
+    substage = _SUBSTAGE_BY_STAGE_LETTER.get(stage_key)
+    boundary = _SUBSTAGE_COLUMN_INDEX.get(substage)
+    if boundary is None:
+        return []
+    return list(range(1, boundary + 1))
 _FUNNEL_STEPS = ["Sent", "Opened", "Clicked/Generated", "Account Created", "Paid"]
 
 
@@ -5251,6 +5278,7 @@ def admin_funnel():
                     f'{sent_n} attempted · <span style="color:#DC2626;">{bounced_n} bounced ({bounce_pct}%)</span></div>'
                 )
 
+            taut_cols = set(_tautological_columns(stage_key))
             cells = ""
             for i, (label, count) in enumerate(zip(_FUNNEL_STEPS, counts)):
                 if label == "Opened" and _FUNNEL_OPENED_DISABLED:
@@ -5263,6 +5291,18 @@ def admin_funnel():
                         f'<td style="text-align:center;opacity:.45;" title="Disabled — open tracking not yet verified working.">'
                         f'<div style="font-size:15px;font-weight:700;">{count}</div>'
                         f'<div style="font-size:10.5px;color:#9A9893;margin-top:2px;">disabled</div></td>'
+                    )
+                    continue
+                if i in taut_cols:
+                    # ~100% by cohort definition, not real signal — see
+                    # _tautological_columns. Greyed the same way as the
+                    # disabled Opened column, with a label explaining why
+                    # rather than a misleading bold number/percentage.
+                    cells += (
+                        f'<td style="text-align:center;opacity:.45;" '
+                        f'title="This cohort is defined by already having reached this stage — not a conversion this touch caused.">'
+                        f'<div style="font-size:15px;font-weight:700;">{count}</div>'
+                        f'<div style="font-size:10.5px;color:#9A9893;margin-top:2px;">cohort def.</div></td>'
                     )
                     continue
                 pct_html = ""
@@ -5313,11 +5353,13 @@ def admin_funnel():
 <h1 class="adm-title">Funnel</h1>
 <p class="adm-sub">Per-stage, per-channel outreach funnel — how many of each email type went out in the
 selected range, and what happened after. Each follow-up row's cohort is defined by the prospect's
-funnel stage at send time (see row labels below), not by "1st/2nd/3rd touch" — so e.g. the "viewed
-site, no account" row's Clicked/Generated column will read ~100% by construction, since that's who
-it's sent to, not a conversion it caused. The "Sent" column shows delivered count as the headline
-number, with attempted/bounced beneath it — a bounced send never reached an inbox, so every rate to
-its right is based on delivered, not attempted.</p>
+funnel stage at send time (see row labels below), not by "1st/2nd/3rd touch" — so every column up to
+and including that stage is ~100% by construction (that's who it's sent to, not a conversion it
+caused) and is greyed out with a "cohort def." label rather than shown as real signal. E.g. the
+"viewed site, no account" row (stage C) greys out Opened <em>and</em> Clicked/Generated — only
+Account Created and Paid are real, measurable outcomes for that row. The "Sent" column shows
+delivered count as the headline number, with attempted/bounced beneath it — a bounced send never
+reached an inbox, so every rate to its right is based on delivered, not attempted.</p>
 <p class="adm-sub" style="color:#B45309;background:#FEF3C7;padding:10px 14px;border-radius:8px;">
 ⚠ "Opened" is greyed out below, not removed — it's a real, important metric, just not a trustworthy
 one yet. The webhook code that would record a real open is fixed and verified correct, but the DNS
