@@ -3999,6 +3999,29 @@ def admin_generation_form_data(gen_id):
         db.close()
 
 
+@app.route("/admin/generations/<int:gen_id>/toggle-internal", methods=["POST"])
+@admin_required
+def admin_generation_toggle_internal(gen_id):
+    """Flip Generation.is_internal from the prospect profile page's checkbox
+    — the only setter for this flag until now; it existed on the model and
+    was read by several KPIs (Generation -> Paid, domain conversion, churn)
+    but had no UI to actually set it, so marking a self-paid test/demo
+    generation meant a direct DB edit."""
+    db = SessionLocal()
+    try:
+        gen = db.get(Generation, gen_id)
+        if not gen:
+            abort(404)
+        gen.is_internal = request.form.get("is_internal") == "1"
+        db.commit()
+    finally:
+        db.close()
+    redirect_to = request.form.get("redirect_to") or "/admin/generations"
+    if not redirect_to.startswith("/"):
+        redirect_to = "/admin/generations"
+    return redirect(redirect_to)
+
+
 # ---------------------------------------------------------------------------
 # Outreach prospect list — admin-only. Every prospect the pipeline has
 # sourced is auto-eligible for sending once qualified/scored (Section 5a —
@@ -4540,6 +4563,13 @@ def admin_prospect_detail(prospect_id):
                     f'<a href="/admin/generations/{generation.id}/form-data" target="_blank">Raw form data</a>'
                     f'<p class="muted" style="margin:8px 0 0;">Status: <b style="color:#1C1C1C;">{escape(generation.status)}</b> · created {_fmt_dt(generation.created_at)}</p>'
                     f'{view_stats_html}'
+                    f'<form method="post" action="/admin/generations/{generation.id}/toggle-internal" style="margin:10px 0 0;">'
+                    f'<input type="hidden" name="redirect_to" value="/admin/prospects/{p.id}">'
+                    f'<label style="display:flex;align-items:center;gap:7px;font-size:13px;color:#5C5A56;cursor:pointer;">'
+                    f'<input type="checkbox" name="is_internal" value="1" onchange="this.form.requestSubmit()"'
+                    f'{" checked" if generation.is_internal else ""}> '
+                    f'Internal (my own test/demo — excluded from Generation → Paid, domain conversion and churn KPIs)'
+                    f'</label></form>'
                 )
             else:
                 gen_links = '<p class="muted">Lead exists but no Generation row yet — likely still generating or failed.</p>'
