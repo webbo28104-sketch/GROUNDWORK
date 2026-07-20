@@ -4870,11 +4870,24 @@ def _render_kpi_strip(kpis: dict) -> str:
     than merged into _ADMIN_STYLE, same reasoning as the Funnel table and
     the outreach review card — a one-off component, not shared design
     system."""
-    def tile(label, big, sub):
+    def tile(label, big, sub, goal_pct=None, actual_pct=None):
+        # goal_pct/actual_pct: when set, shows progress against a stated
+        # target (currently 10% for click rate and Generation -> Paid, set
+        # 2026-07-20) directly on the tile instead of requiring someone to
+        # ask what the current rate is relative to the goal each time.
+        goal_html = ""
+        if goal_pct is not None:
+            met = actual_pct is not None and actual_pct >= goal_pct
+            color = "#059669" if met else "#B45309"
+            goal_html = (
+                f'<div style="font-size:11.5px;font-weight:700;color:{color};margin-top:4px;">'
+                f'Goal: {goal_pct:.0f}%{" ✓" if met else ""}</div>'
+            )
         return f"""<div class="kpi-tile">
           <div class="kpi-label">{escape(label)}</div>
           <div class="kpi-value">{big}</div>
           <div class="kpi-sub">{sub}</div>
+          {goal_html}
         </div>"""
 
     e = kpis["emails_sent_month"]
@@ -4892,11 +4905,13 @@ def _render_kpi_strip(kpis: dict) -> str:
         "Magic link click rate",
         f'{c["pct"]}%' if c["pct"] is not None else "—",
         f'{c["numer"]}/{c["denom"]} sent' if c["denom"] else "no sends yet",
+        goal_pct=10.0, actual_pct=c["pct"],
     )
     tiles += tile(
         "Generation → Paid",
         f'{g["pct"]}%' if g["pct"] is not None else "—",
         f'{g["numer"]}/{g["denom"]} clicked' if g["denom"] else "no outreach conversions yet",
+        goal_pct=10.0, actual_pct=g["pct"],
     )
     tiles += tile(
         "Custom domain conversion",
