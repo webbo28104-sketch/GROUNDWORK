@@ -5075,58 +5075,6 @@ def admin_funnel():
         extraction_quality_breakdown = _render_extraction_quality_breakdown(db)
         survey_breakdown = _render_survey_breakdown(db)
 
-        # Recent clicks — every prospect who has clicked their magic link,
-        # most recent first, with enough context to see WHY at a glance
-        # (score, trade, source, time-to-click) without a drill-down. Links
-        # to /admin/prospects/<id> for the full picture.
-        recent_clicked = db.query(Prospect).filter(
-            Prospect.clicked_at.isnot(None)
-        ).order_by(Prospect.clicked_at.desc()).limit(25).all()
-        recent_lead_ids = [cp.lead_id for cp in recent_clicked if cp.lead_id is not None]
-        gen_by_lead_id = {
-            g.lead_id: g for g in db.query(Generation).filter(Generation.lead_id.in_(recent_lead_ids)).all()
-        } if recent_lead_ids else {}
-
-        def _viewed_cell(cp):
-            gen = gen_by_lead_id.get(cp.lead_id)
-            if not gen or not gen.view_count:
-                return '<span style="color:#9A9893;">Never viewed</span>'
-            avg_s = round(gen.total_view_seconds / gen.view_count) if gen.view_count else 0
-            return f'{gen.view_count}x · ~{avg_s}s avg · scroll {gen.max_scroll_pct}%'
-
-        recent_clicks_rows = "".join(
-            f'<tr>'
-            f'<td style="padding:6px 10px;"><a href="/admin/prospects/{cp.id}">{escape(cp.business_name or "—")}</a></td>'
-            f'<td style="padding:6px 10px;">{escape(cp.trade or "—")}</td>'
-            f'<td style="padding:6px 10px;text-align:right;">{cp.score if cp.score is not None else "—"}</td>'
-            f'<td style="padding:6px 10px;">{escape(cp.website_status or "—")}</td>'
-            f'<td style="padding:6px 10px;">{escape(cp.email_source or "—")}</td>'
-            f'<td style="padding:6px 10px;">{_elapsed(cp.sent_at, cp.clicked_at) or "—"}</td>'
-            f'<td style="padding:6px 10px;">{_fmt_dt(cp.clicked_at)}</td>'
-            f'<td style="padding:6px 10px;">{_viewed_cell(cp)}</td>'
-            f'<td style="padding:6px 10px;">{"Paid" if cp.paid_at else ("Account created" if cp.account_created_at else "Not converted")}</td>'
-            f'</tr>'
-            for cp in recent_clicked
-        ) or '<tr><td colspan="9" style="padding:10px;color:#9A9893;">No clicks yet.</td></tr>'
-        recent_clicks_html = f"""
-<h2 style="font-size:15px;font-weight:700;margin:28px 0 10px;">Recent clicks ({len(recent_clicked)})</h2>
-<div class="adm-card" style="overflow-x:auto;">
-<table style="width:100%;border-collapse:collapse;font-size:13.5px;">
-<thead><tr style="color:#9A9893;font-size:11px;text-transform:uppercase;border-bottom:1px solid #E6E3DC;">
-  <th style="text-align:left;padding:6px 10px;">Business</th>
-  <th style="text-align:left;padding:6px 10px;">Trade</th>
-  <th style="text-align:right;padding:6px 10px;">Score</th>
-  <th style="text-align:left;padding:6px 10px;">Website</th>
-  <th style="text-align:left;padding:6px 10px;">Email source</th>
-  <th style="text-align:left;padding:6px 10px;">Time to click</th>
-  <th style="text-align:left;padding:6px 10px;">Clicked</th>
-  <th style="text-align:left;padding:6px 10px;">Viewed site?</th>
-  <th style="text-align:left;padding:6px 10px;">Outcome</th>
-</tr></thead>
-<tbody>{recent_clicks_rows}</tbody>
-</table>
-</div>"""
-
         # Bounced addresses in scope for this table's date range — reused
         # across every stage row below, same normalization as the
         # deliverability page's source breakdown (Resend sometimes logs the
@@ -5285,8 +5233,6 @@ bounced send never reached an inbox, so every rate to its right is based on deli
 
 <h2 style="font-size:15px;font-weight:700;margin:28px 0 10px;">Currently in the pipeline ({total_in_pipeline})</h2>
 <div class="statsbar" style="justify-content:flex-start;text-align:left;">{summary_html}</div>
-
-{recent_clicks_html}
 
 {survey_breakdown}
 
