@@ -69,6 +69,11 @@ TRADE_CANONICAL_MAP = {term: name for term, name, _ in TRADE_CATEGORIES}
 # UK_AREAS itself stays a flat list of names (unchanged shape — sourcer.py
 # iterates/len()s it directly) so day-to-day sourcing diversity comes from
 # get_pending_cells' shuffle, not from reordering this list.
+# Region lists mix big cities with a much larger set of smaller market
+# towns — added 2026-07-20 after noticing the original list was almost
+# entirely cities/commuter suburbs, which skews away from where trades
+# outreach likely performs best (less competition, weaker existing web
+# presence than a city-centre business already fighting for search rank).
 _AREAS_BY_REGION = {
     ("London", "high"): [
         "East London", "North London", "South London", "West London", "Central London",
@@ -79,41 +84,89 @@ _AREAS_BY_REGION = {
         "Brighton", "Hove", "Guildford", "Canterbury", "Maidstone", "Tunbridge Wells",
         "Oxford", "Reading", "Southampton", "Portsmouth", "Basingstoke", "Worthing",
         "Eastbourne", "Hastings", "Folkestone",
+        "Woking", "Horsham", "Crawley", "Chichester", "Winchester", "Andover",
+        "Newbury", "Slough", "Windsor", "Maidenhead", "Dartford", "Gravesend",
+        "Sevenoaks", "Ashford", "Dover", "Margate", "Ramsgate", "Rochester",
+        "Chatham", "Gillingham", "Aldershot", "Farnborough", "Fareham", "Gosport",
+        "Petersfield", "Haywards Heath", "Crowborough", "Horley", "Redhill",
+        "Epsom", "Leatherhead", "Dorking", "Camberley", "Bracknell", "Wokingham",
+        "Thame", "Wallingford", "Bicester", "Banbury", "Aylesbury", "High Wycombe",
+        "Amersham", "Chesham", "Marlow",
     ],
     ("South West", "medium"): [
         "Bristol", "Bath", "Exeter", "Plymouth", "Swindon", "Bournemouth",
         "Poole", "Cheltenham", "Gloucester", "Taunton", "Torquay",
+        "Weston-super-Mare", "Yeovil", "Trowbridge", "Chippenham", "Salisbury",
+        "Frome", "Weymouth", "Dorchester", "Bridgwater", "Wells", "Glastonbury",
+        "Tiverton", "Barnstaple", "Bideford", "Truro", "Falmouth", "Penzance",
+        "St Austell", "Newquay", "Camborne", "Redruth", "Launceston", "Bodmin",
+        "Street", "Shepton Mallet", "Melksham", "Devizes", "Marlborough",
+        "Tavistock", "Newton Abbot", "Paignton", "Totnes",
     ],
     ("East of England", "medium"): [
         "Cambridge", "Norwich", "Ipswich", "Chelmsford", "Luton",
         "Milton Keynes", "Peterborough", "Colchester", "Southend-on-Sea",
+        "St Albans", "Watford", "Stevenage", "Hitchin", "Letchworth",
+        "Welwyn Garden City", "Hemel Hempstead", "Bishop's Stortford", "Harlow",
+        "Braintree", "Witham", "Maldon", "Great Yarmouth", "King's Lynn",
+        "Bury St Edmunds", "Newmarket", "Ely", "Huntingdon", "St Neots",
+        "Wisbech", "Thetford", "Diss", "Sudbury", "Saffron Walden", "Royston",
     ],
     ("East Midlands", "medium"): [
         "Birmingham", "Coventry", "Leicester", "Nottingham", "Derby",
         "Wolverhampton", "Stoke-on-Trent", "Walsall", "Dudley",
+        "Mansfield", "Chesterfield", "Loughborough", "Kettering", "Wellingborough",
+        "Corby", "Rushden", "Grantham", "Newark-on-Trent", "Worksop", "Retford",
+        "Melton Mowbray", "Hinckley", "Rugby", "Oakham", "Boston", "Spalding",
+        "Ilkeston", "Long Eaton", "Beeston",
     ],
     ("West Midlands / Central", "medium"): [
         "Northampton", "Lincoln", "Shrewsbury", "Worcester", "Hereford",
+        "Telford", "Kidderminster", "Redditch", "Bromsgrove", "Solihull",
+        "Nuneaton", "Tamworth", "Cannock", "Lichfield", "Stafford", "Leek",
+        "Newcastle-under-Lyme", "Market Drayton", "Ludlow", "Bridgnorth",
+        "Oswestry", "Bromyard", "Leominster", "Ross-on-Wye", "Malvern", "Evesham",
     ],
     ("North West", "medium"): [
         "Manchester", "Liverpool", "Preston", "Blackpool", "Bolton",
         "Wigan", "Chester", "Warrington", "Stockport", "Salford", "Oldham",
+        "Lancaster", "Morecambe", "Kendal", "Barrow-in-Furness", "Southport",
+        "Crewe", "Nantwich", "Macclesfield", "Northwich", "Runcorn", "Widnes",
+        "St Helens", "Skelmersdale", "Burnley", "Nelson", "Colne", "Accrington",
+        "Rawtenstall", "Rochdale", "Bury", "Ashton-under-Lyne", "Altrincham", "Sale",
     ],
     ("Yorkshire", "low"): [
         "Leeds", "Sheffield", "Bradford", "Hull", "York", "Wakefield",
         "Harrogate", "Huddersfield", "Doncaster", "Rotherham",
+        "Scarborough", "Whitby", "Ripon", "Skipton", "Keighley", "Barnsley",
+        "Pontefract", "Castleford", "Selby", "Goole", "Beverley", "Bridlington",
+        "Halifax", "Dewsbury", "Batley", "Pudsey", "Otley", "Ilkley", "Malton",
+        "Northallerton", "Thirsk", "Richmond, North Yorkshire",
     ],
     ("North East", "low"): [
         "Newcastle", "Sunderland", "Middlesbrough", "Durham", "Gateshead",
+        "Hexham", "Berwick-upon-Tweed", "Alnwick", "Morpeth", "Blyth",
+        "Ashington", "Consett", "Bishop Auckland", "Darlington", "Hartlepool",
+        "Stockton-on-Tees", "Peterlee", "Chester-le-Street", "Washington, Tyne and Wear",
     ],
     ("Scotland", "medium"): [
         "Glasgow", "Edinburgh", "Aberdeen", "Dundee", "Inverness", "Stirling",
+        "Perth", "Ayr", "Kilmarnock", "Paisley", "Falkirk", "Livingston",
+        "Dunfermline", "Kirkcaldy", "St Andrews", "Elgin", "Peterhead",
+        "Fraserburgh", "Arbroath", "Montrose", "Hamilton", "East Kilbride",
+        "Motherwell", "Greenock", "Dumfries", "Galashiels",
     ],
     ("Wales", "low"): [
         "Cardiff", "Swansea", "Newport", "Wrexham",
+        "Bangor, Wales", "Llandudno", "Rhyl", "Colwyn Bay", "Aberystwyth",
+        "Carmarthen", "Haverfordwest", "Pembroke", "Merthyr Tydfil", "Bridgend",
+        "Neath", "Port Talbot", "Llanelli", "Pontypridd", "Caerphilly", "Barry",
+        "Monmouth", "Abergavenny", "Brecon",
     ],
     ("Northern Ireland", "low"): [
         "Belfast",
+        "Derry", "Lisburn", "Newry", "Bangor, Northern Ireland", "Craigavon",
+        "Ballymena", "Newtownabbey", "Coleraine", "Omagh", "Enniskillen", "Armagh",
     ],
 }
 
