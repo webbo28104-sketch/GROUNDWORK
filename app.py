@@ -4938,16 +4938,18 @@ def _render_kpi_strip(kpis: dict) -> str:
 
 _FUNNEL_STAGES = list(STAGE_LABELS.items())
 
-# "Opened" deliberately excluded (2026-07-20) — open-pixel tracking's DNS
-# record was still showing "Failed" in Resend as of the last check, and no
-# new open event has come in since the webhook fix to prove the pixel
-# actually fires end-to-end. The 3 historical values were back-filled from
-# clicked_at (a safe inference — you can't click a link without opening
-# the email), not from a real pixel event, so showing an "Opened" column
-# right now would imply a confidence in the data that doesn't exist yet.
-# Re-add once Resend shows the tracking domain verified AND a genuine
+# "Opened" is shown greyed-out/disabled, not removed (2026-07-20) — it's
+# an important metric long-term, but not a trustworthy one right now:
+# open-pixel tracking's DNS record was still showing "Failed" in Resend as
+# of the last check, and no new open event has come in since the webhook
+# fix to prove the pixel actually fires end-to-end. The 3 historical
+# values were back-filled from clicked_at (a safe inference — you can't
+# click a link without opening the email), not from a real pixel event.
+# _FUNNEL_OPENED_DISABLED gates the greyed-out styling below; flip to
+# False once Resend shows the tracking domain verified AND a genuine
 # open-without-click has been observed to actually set opened_at.
-_FUNNEL_STEPS = ["Sent", "Clicked/Generated", "Account Created", "Paid"]
+_FUNNEL_OPENED_DISABLED = True
+_FUNNEL_STEPS = ["Sent", "Opened", "Clicked/Generated", "Account Created", "Paid"]
 
 
 def _funnel_pct(numer, denom):
@@ -5212,6 +5214,7 @@ def admin_funnel():
                     1 for p in cohort
                     if p.id in email_prospect_ids and p.email and p.email.strip().lower() in bounced_emails_in_range
                 )
+                opened_n = sum(1 for p in cohort if p.opened_at is not None)
                 # Clicked and Generated used to be separate columns, but
                 # clicking /claim/<token> synchronously kicks off generation
                 # in the same request (_kickoff_generation) — there's no
@@ -5225,7 +5228,7 @@ def admin_funnel():
                 account_created_n = sum(1 for p in cohort if p.account_created_at is not None)
                 paid_n = sum(1 for p in cohort if p.paid_at is not None)
             else:
-                bounced_n = clicked_n = account_created_n = paid_n = 0
+                bounced_n = opened_n = clicked_n = account_created_n = paid_n = 0
 
             # delivered_n, not sent_n, is the headline number and the
             # denominator for every downstream rate — same principle as the
@@ -5235,7 +5238,7 @@ def admin_funnel():
             # shown, in the sub-caption, not hidden — this table is meant to
             # carry more detail than the single KPI tile, not less.
             delivered_n = sent_n - bounced_n
-            counts = [delivered_n, clicked_n, account_created_n, paid_n]
+            counts = [delivered_n, opened_n, clicked_n, account_created_n, paid_n]
             pcts = [None] + [
                 _funnel_pct(counts[i], counts[i - 1]) for i in range(1, len(counts))
             ]
@@ -5250,6 +5253,18 @@ def admin_funnel():
 
             cells = ""
             for i, (label, count) in enumerate(zip(_FUNNEL_STEPS, counts)):
+                if label == "Opened" and _FUNNEL_OPENED_DISABLED:
+                    # Greyed-out, not hidden — still an important metric,
+                    # just not a trustworthy one yet (see _FUNNEL_OPENED_DISABLED).
+                    # Raw count still shown so nothing's actually lost, but no
+                    # bold styling or %-of-delivered rate implying it's a
+                    # trusted, actionable number the way the other columns are.
+                    cells += (
+                        f'<td style="text-align:center;opacity:.45;" title="Disabled — open tracking not yet verified working.">'
+                        f'<div style="font-size:15px;font-weight:700;">{count}</div>'
+                        f'<div style="font-size:10.5px;color:#9A9893;margin-top:2px;">disabled</div></td>'
+                    )
+                    continue
                 pct_html = ""
                 if i == 0:
                     pct_html = sent_sub_html
@@ -5263,7 +5278,12 @@ def admin_funnel():
 
             rows_html += f'<tr><td style="font-weight:600;">{escape(stage_label)}</td>{cells}</tr>'
 
-        header_cells = "".join(f'<th style="text-align:center;">{s}</th>' for s in _FUNNEL_STEPS)
+        header_cells = "".join(
+            f'<th style="text-align:center;{"opacity:.45;" if s == "Opened" and _FUNNEL_OPENED_DISABLED else ""}" '
+            f'title="{"Disabled — open tracking not yet verified working." if s == "Opened" and _FUNNEL_OPENED_DISABLED else ""}">'
+            f'{s}{" (disabled)" if s == "Opened" and _FUNNEL_OPENED_DISABLED else ""}</th>'
+            for s in _FUNNEL_STEPS
+        )
 
         # Summary strip: live snapshot of current funnel_substage distribution —
         # always real, independent of the date-range filter (it's "right now",
@@ -5299,10 +5319,11 @@ it's sent to, not a conversion it caused. The "Sent" column shows delivered coun
 number, with attempted/bounced beneath it — a bounced send never reached an inbox, so every rate to
 its right is based on delivered, not attempted.</p>
 <p class="adm-sub" style="color:#B45309;background:#FEF3C7;padding:10px 14px;border-radius:8px;">
-⚠ "Opened" is deliberately not shown here (2026-07-20). The webhook code that would record a real
-open is fixed and verified correct, but the DNS record Resend needs for tracking was still showing
-"Failed" in Resend's dashboard as of the last check, and no genuine open-without-click has been
-observed since the fix to prove the pixel actually fires end-to-end. Re-add once Resend shows the
+⚠ "Opened" is greyed out below, not removed — it's a real, important metric, just not a trustworthy
+one yet. The webhook code that would record a real open is fixed and verified correct, but the DNS
+record Resend needs for tracking was still showing "Failed" in Resend's dashboard as of the last
+check, and no genuine open-without-click has been observed since the fix to prove the pixel actually
+fires end-to-end. Re-enable (<code>_FUNNEL_OPENED_DISABLED = False</code>) once Resend shows the
 tracking domain verified <em>and</em> a real open has been confirmed to set opened_at on its own.</p>
 
 {kpi_strip}
