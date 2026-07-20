@@ -5573,6 +5573,10 @@ def admin_replies():
             (Prospect.email_unsubscribed == True) | (Prospect.sms_unsubscribed == True)  # noqa: E712
         ).order_by(Prospect.id.desc()).all()
 
+        email_unsub_n = db.query(Prospect).filter(Prospect.email_unsubscribed == True).count()  # noqa: E712
+        sms_unsub_n = db.query(Prospect).filter(Prospect.sms_unsubscribed == True).count()  # noqa: E712
+        total_unsub_n = len(stopped)  # distinct prospects — a prospect stopped on both channels counts once
+
         rows = []
         for p in replied:
             rows.append((p, "Non-stop (paused for review)", None))
@@ -5609,6 +5613,13 @@ def admin_replies():
   <a href="mailto:groundwork-build@outlook.com">groundwork-build@outlook.com</a>. Check that inbox to
   read what anyone actually wrote.
 </p>
+
+<div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-bottom:16px;font-size:13px;color:#5C5A56;font-weight:600;">
+  <span><b style="color:#1C1C1C;font-weight:800;font-size:15px;margin-right:4px;">{total_unsub_n}</b>unsubscribed (any channel)</span>
+  <span><b style="color:#1C1C1C;font-weight:800;font-size:15px;margin-right:4px;">{email_unsub_n}</b>email</span>
+  <span><b style="color:#1C1C1C;font-weight:800;font-size:15px;margin-right:4px;">{sms_unsub_n}</b>SMS</span>
+</div>
+
 <p class="adm-sub" style="color:#B45309;background:#FEF3C7;padding:10px 14px;border-radius:8px;">
   ⚠ Non-stop replies (paused for human review) have no timestamp in the schema — only stop-intent
   opt-outs record one (<code>email_unsubscribed_at</code>/<code>sms_unsubscribed_at</code>). Rows below
