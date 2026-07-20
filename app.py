@@ -3130,6 +3130,8 @@ def _date_preset_range(preset: str, now: datetime):
     """Returns (from, to) datetimes for a named quick-preset, or (None, None)
     if unrecognized (falls back to the dashboard's no-filter default)."""
     today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    if preset == "today":
+        return today, now
     if preset == "this_week":
         start = today - timedelta(days=today.weekday())
         return start, now
@@ -3149,6 +3151,29 @@ def _date_preset_range(preset: str, now: datetime):
     if preset == "all_time":
         return datetime(2020, 1, 1), now
     return None, None
+
+
+# Shared by /admin and /admin/funnel (added 2026-07-20 — funnel previously
+# had no preset buttons at all, only raw from/to inputs) so both pages'
+# quick-filter buttons can never drift out of sync with each other or with
+# _date_preset_range's own recognized keys.
+_DATE_PRESETS = [
+    ("today", "Today"),
+    ("this_week", "This week"), ("last_week", "Last week"),
+    ("this_month", "This month"), ("last_month", "Last month"),
+    ("all_time", "All time"),
+]
+
+
+def _render_date_preset_links(base_url: str, active_preset: str, extra_params: str = "") -> str:
+    """Pill-style quick-filter buttons, shared markup for /admin and
+    /admin/funnel — extra_params (e.g. "&channel=email") lets a page
+    preserve its own other filters when a preset is clicked."""
+    return "".join(
+        f'<a href="{base_url}?preset={key}{extra_params}" style="padding:6px 13px;border-radius:999px;font-size:12.5px;font-weight:700;'
+        f'text-decoration:none;{"background:#1C1C1C;color:#fff;" if active_preset == key else "background:#fff;color:#5C5A56;border:1px solid #D8D5CE;"}">{label}</a>'
+        for key, label in _DATE_PRESETS
+    )
 
 
 @app.route("/admin")
@@ -3189,16 +3214,7 @@ def admin_dashboard():
 
     banner = ""
 
-    presets = [
-        ("this_week", "This week"), ("last_week", "Last week"),
-        ("this_month", "This month"), ("last_month", "Last month"),
-        ("all_time", "All time"),
-    ]
-    preset_links = "".join(
-        f'<a href="/admin?preset={key}" style="padding:6px 13px;border-radius:999px;font-size:12.5px;font-weight:700;'
-        f'text-decoration:none;{"background:#1C1C1C;color:#fff;" if preset == key else "background:#fff;color:#5C5A56;border:1px solid #D8D5CE;"}">{label}</a>'
-        for key, label in presets
-    )
+    preset_links = _render_date_preset_links("/admin", preset)
 
     content = f"""
 <h1 class="adm-title">Dashboard</h1>
@@ -5142,6 +5158,8 @@ def admin_funnel():
     not per-message. That's the honest framing given what the schema
     actually stores.
     """
+    now = datetime.utcnow()
+    preset = request.args.get("preset", "").strip()
     from_str = request.args.get("from", "").strip()
     to_str = request.args.get("to", "").strip()
     channel = request.args.get("channel", "both").strip().lower()
@@ -5154,8 +5172,20 @@ def admin_funnel():
         except ValueError:
             return None
 
-    range_from = _parse_date(from_str)
-    range_to = _parse_date(to_str)
+    # Same preset mechanism as /admin (_date_preset_range) — added
+    # 2026-07-20 alongside the "Today" preset, previously only available
+    # on the dashboard. Both paths normalize range_to to the actual end-
+    # of-range timestamp (not just a bare date), matching /admin's
+    # convention, so the query filters below can use a plain <= comparison
+    # instead of the previous "+ timedelta(days=1)" bare-date workaround.
+    range_from, range_to = (None, None)
+    if preset:
+        range_from, range_to = _date_preset_range(preset, now)
+    elif from_str or to_str:
+        range_from = _parse_date(from_str)
+        range_to = _parse_date(to_str)
+        if range_to:
+            range_to = range_to.replace(hour=23, minute=59, second=59)
 
     # Shadows the module-level default with a per-request value based on
     # the selected range — see _OPENED_TRACKING_RELIABLE_FROM's comment.
@@ -5246,7 +5276,7 @@ def admin_funnel():
         if range_from:
             bounce_event_q = bounce_event_q.filter(EmailEventLog.created_at >= range_from)
         if range_to:
-            bounce_event_q = bounce_event_q.filter(EmailEventLog.created_at < range_to + timedelta(days=1))
+            bounce_event_q = bounce_event_q.filter(EmailEventLog.created_at <= range_to)
         bounced_emails_in_range = {
             (email_utils.parseaddr(e.to_email)[1] or e.to_email or "").strip().lower()
             for e in bounce_event_q.all() if e.to_email
@@ -5262,7 +5292,7 @@ def admin_funnel():
             if range_from:
                 q = q.filter(OutreachTouch.sent_at >= range_from)
             if range_to:
-                q = q.filter(OutreachTouch.sent_at < range_to + timedelta(days=1))
+                q = q.filter(OutreachTouch.sent_at <= range_to)
             touches = q.all()
 
             prospect_ids = sorted({t.prospect_id for t in touches})
@@ -5374,6 +5404,10 @@ def admin_funnel():
             for s in _FUNNEL_STEPS
         )
 
+        funnel_preset_links = _render_date_preset_links(
+            "/admin/funnel", preset, extra_params=f"&channel={channel}" if channel != "both" else ""
+        )
+
         # Summary strip: live snapshot of current funnel_substage distribution —
         # always real, independent of the date-range filter (it's "right now",
         # not historical).
@@ -5421,6 +5455,9 @@ out automatically rather than showing numbers from before the fix.</p>'''}
 
 {kpi_strip}
 
+<form method="get" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
+  {funnel_preset_links}
+</form>
 <form method="get" style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-bottom:22px;">
   <div>
     <label style="display:block;font-size:12px;font-weight:600;color:#5C5A56;margin-bottom:4px;">From</label>
@@ -5439,6 +5476,7 @@ out automatically rather than showing numbers from before the fix.</p>'''}
     </select>
   </div>
   <button type="submit" style="background:#3B82F6;color:#fff;border:0;font-weight:700;padding:9px 18px;border-radius:7px;font-size:13.5px;cursor:pointer;">Apply</button>
+  <a href="/admin/funnel" style="font-size:13px;color:#807E79;text-decoration:none;padding:9px 4px;">Reset to default (all time)</a>
 </form>
 
 <div class="adm-card" style="overflow-x:auto;">
