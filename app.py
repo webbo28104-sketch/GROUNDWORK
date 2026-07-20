@@ -4718,7 +4718,19 @@ def _compute_kpis(db, range_from: datetime = None, range_to: datetime = None) ->
     # outreach-to-paid conversions are ~0 today (the 5 real paying
     # customers are all direct signups, not outreach-originated) — shown
     # honestly, not hidden.
-    gen_cohort_q = db.query(Prospect).filter(Prospect.clicked_at.isnot(None))
+    # Excludes prospects whose generation is Generation.is_internal — same
+    # flag/reasoning as the domain-conversion fix below: paying for a
+    # prospect's own site while testing a flow (or going live on one as a
+    # demo) goes through the real Stripe checkout and sets a real paid_at,
+    # but it isn't a paying customer and shouldn't count toward this rate
+    # either way, not just be excluded from the numerator.
+    internal_prospect_lead_ids = db.query(Generation.lead_id).filter(
+        Generation.is_internal == True, Generation.lead_id.isnot(None)  # noqa: E712
+    )
+    gen_cohort_q = db.query(Prospect).filter(
+        Prospect.clicked_at.isnot(None),
+        ~Prospect.lead_id.in_(internal_prospect_lead_ids),
+    )
     gen_cohort_q = gen_cohort_q.filter(Prospect.clicked_at >= period_start, Prospect.clicked_at <= period_end)
     gen_cohort_n = gen_cohort_q.count()
     gen_paid_n = gen_cohort_q.filter(Prospect.paid_at.isnot(None)).count()
