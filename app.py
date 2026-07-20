@@ -4938,7 +4938,16 @@ def _render_kpi_strip(kpis: dict) -> str:
 
 _FUNNEL_STAGES = list(STAGE_LABELS.items())
 
-_FUNNEL_STEPS = ["Sent", "Opened", "Clicked/Generated", "Account Created", "Paid"]
+# "Opened" deliberately excluded (2026-07-20) — open-pixel tracking's DNS
+# record was still showing "Failed" in Resend as of the last check, and no
+# new open event has come in since the webhook fix to prove the pixel
+# actually fires end-to-end. The 3 historical values were back-filled from
+# clicked_at (a safe inference — you can't click a link without opening
+# the email), not from a real pixel event, so showing an "Opened" column
+# right now would imply a confidence in the data that doesn't exist yet.
+# Re-add once Resend shows the tracking domain verified AND a genuine
+# open-without-click has been observed to actually set opened_at.
+_FUNNEL_STEPS = ["Sent", "Clicked/Generated", "Account Created", "Paid"]
 
 
 def _funnel_pct(numer, denom):
@@ -5203,7 +5212,6 @@ def admin_funnel():
                     1 for p in cohort
                     if p.id in email_prospect_ids and p.email and p.email.strip().lower() in bounced_emails_in_range
                 )
-                opened_n = sum(1 for p in cohort if p.opened_at is not None)
                 # Clicked and Generated used to be separate columns, but
                 # clicking /claim/<token> synchronously kicks off generation
                 # in the same request (_kickoff_generation) — there's no
@@ -5217,7 +5225,7 @@ def admin_funnel():
                 account_created_n = sum(1 for p in cohort if p.account_created_at is not None)
                 paid_n = sum(1 for p in cohort if p.paid_at is not None)
             else:
-                bounced_n = opened_n = clicked_n = account_created_n = paid_n = 0
+                bounced_n = clicked_n = account_created_n = paid_n = 0
 
             # delivered_n, not sent_n, is the headline number and the
             # denominator for every downstream rate — same principle as the
@@ -5227,7 +5235,7 @@ def admin_funnel():
             # shown, in the sub-caption, not hidden — this table is meant to
             # carry more detail than the single KPI tile, not less.
             delivered_n = sent_n - bounced_n
-            counts = [delivered_n, opened_n, clicked_n, account_created_n, paid_n]
+            counts = [delivered_n, clicked_n, account_created_n, paid_n]
             pcts = [None] + [
                 _funnel_pct(counts[i], counts[i - 1]) for i in range(1, len(counts))
             ]
@@ -5286,18 +5294,16 @@ def admin_funnel():
 <p class="adm-sub">Per-stage, per-channel outreach funnel — how many of each email type went out in the
 selected range, and what happened after. Each follow-up row's cohort is defined by the prospect's
 funnel stage at send time (see row labels below), not by "1st/2nd/3rd touch" — so e.g. the "viewed
-site, no account" row's Generated column will read ~100% by construction, since that's who it's sent
-to, not a conversion it caused. "Opened" means "has an opened_at timestamp from any email, ever," not
-"opened this specific touch" (opened_at is a single per-prospect field, not per-message). The
-"Sent" column shows delivered count as the headline number, with attempted/bounced beneath it — a
-bounced send never reached an inbox, so every rate to its right is based on delivered, not attempted.</p>
+site, no account" row's Clicked/Generated column will read ~100% by construction, since that's who
+it's sent to, not a conversion it caused. The "Sent" column shows delivered count as the headline
+number, with attempted/bounced beneath it — a bounced send never reached an inbox, so every rate to
+its right is based on delivered, not attempted.</p>
 <p class="adm-sub" style="color:#B45309;background:#FEF3C7;padding:10px 14px;border-radius:8px;">
-⚠ Opened relies on Resend's tracking pixel, which is off by default per sending domain and can also be
-silently blocked by the recipient's mail client — a prospect can (and regularly does) click the real
-magic link and generate a site without ever registering an "opened" event first. If every row here
-shows 0 opens despite real sends/clicks, that's a strong signal open tracking isn't enabled on the
-sending domain in the Resend dashboard, not that this table is broken — the webhook code that would
-record a real open has been verified working.</p>
+⚠ "Opened" is deliberately not shown here (2026-07-20). The webhook code that would record a real
+open is fixed and verified correct, but the DNS record Resend needs for tracking was still showing
+"Failed" in Resend's dashboard as of the last check, and no genuine open-without-click has been
+observed since the fix to prove the pixel actually fires end-to-end. Re-add once Resend shows the
+tracking domain verified <em>and</em> a real open has been confirmed to set opened_at on its own.</p>
 
 {kpi_strip}
 
