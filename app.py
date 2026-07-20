@@ -3629,14 +3629,6 @@ def admin_dashboard():
         db.close()
 
     banner = ""
-    if not kpis["churn_rate"]["has_full_month_baseline"] or kpis["gen_paid_rate"]["denom"] < 5:
-        banner = (
-            '<p class="adm-sub" style="color:#B45309;background:#FEF3C7;padding:10px 14px;'
-            'border-radius:8px;margin:0 0 20px;">'
-            '⚠ Several of these numbers are genuinely thin on data right now — Generation → Paid '
-            'has almost no real outreach conversions yet, and Churn Rate has less than one full '
-            'period of history to compare against for the range selected. Real, not placeholder — just early.</p>'
-        )
 
     presets = [
         ("this_week", "This week"), ("last_week", "Last week"),
@@ -4856,7 +4848,7 @@ def admin_prospect_detail(prospect_id):
             f'<td style="padding:6px 10px;">{escape(t.channel)}</td>'
             f'<td style="padding:6px 10px;">{_fmt_dt(t.sent_at)}</td></tr>'
             for t in touches
-        ) or '<tr><td colspan="3" style="padding:10px;color:#9A9893;">No logged touches (may predate the OutreachTouch table, added 2026-07-14).</td></tr>'
+        ) or '<tr><td colspan="3" style="padding:10px;color:#9A9893;">No logged touches.</td></tr>'
 
         email_events_html = ""
         if p.email:
@@ -5054,11 +5046,7 @@ def _compute_kpis(db, range_from: datetime = None, range_to: datetime = None) ->
     # tell them apart — so "Emails sent / month" was silently inflated by
     # every A/B/C/D follow-up touch on top of first contact. OutreachTouch
     # tags each row with its stage ("initial" vs "A"/"B"/"C"/"D"), so this
-    # can now filter to first-contact sends only. Trade-off: OutreachTouch
-    # only has real data from _FUNNEL_INSTRUMENTATION_START onward (nothing
-    # before that date was logged, not because nothing was sent) — flagged
-    # to the caller via "low_data" so the tile can show the same "low data"
-    # caveat the Funnel page already uses for this exact table.
+    # can now filter to first-contact sends only.
     # Bounce exclusion unchanged: a bounce is not a successfully sent email
     # (the message never reached an inbox), so distinct bounced-address
     # events (EmailEventLog) logged within the same period are subtracted.
@@ -5074,7 +5062,6 @@ def _compute_kpis(db, range_from: datetime = None, range_to: datetime = None) ->
         EmailEventLog.created_at <= period_end,
     ).distinct().count()
     emails_sent = max(0, emails_attempted - bounced_n)
-    emails_sent_low_data = period_start < _FUNNEL_INSTRUMENTATION_START
 
     # 2. Magic link click rate (aggregate, not per-stage) — Prospect.sent_at
     # vs clicked_at, both real fields with history predating today's fixes.
@@ -5188,7 +5175,6 @@ def _compute_kpis(db, range_from: datetime = None, range_to: datetime = None) ->
             "attempted": emails_attempted,
             "bounced": bounced_n,
             "month_label": period_label,
-            "low_data": emails_sent_low_data,
         },
         "click_rate": {
             "pct": _funnel_pct(clicked_n, sent_n),
@@ -5217,12 +5203,11 @@ def _render_kpi_strip(kpis: dict) -> str:
     than merged into _ADMIN_STYLE, same reasoning as the Funnel table and
     the outreach review card — a one-off component, not shared design
     system."""
-    def tile(label, big, sub, low_n=False):
-        low_n_html = ' <span style="color:#B45309;">·&nbsp;low data</span>' if low_n else ""
+    def tile(label, big, sub):
         return f"""<div class="kpi-tile">
           <div class="kpi-label">{escape(label)}</div>
           <div class="kpi-value">{big}</div>
-          <div class="kpi-sub">{sub}{low_n_html}</div>
+          <div class="kpi-sub">{sub}</div>
         </div>"""
 
     e = kpis["emails_sent_month"]
@@ -5235,33 +5220,27 @@ def _render_kpi_strip(kpis: dict) -> str:
     sent_sub = e["month_label"]
     if e["bounced"]:
         sent_sub = f'{e["month_label"]} · {e["attempted"]} attempted, {e["bounced"]} bounced'
-    tiles += tile("Clients reached out to (email)", str(e["value"]), sent_sub, low_n=e.get("low_data", False))
+    tiles += tile("Clients reached out to (email)", str(e["value"]), sent_sub)
     tiles += tile(
         "Magic link click rate",
         f'{c["pct"]}%' if c["pct"] is not None else "—",
         f'{c["numer"]}/{c["denom"]} sent' if c["denom"] else "no sends yet",
-        low_n=(c["denom"] or 0) < 10,
     )
     tiles += tile(
         "Generation → Paid",
         f'{g["pct"]}%' if g["pct"] is not None else "—",
         f'{g["numer"]}/{g["denom"]} clicked' if g["denom"] else "no outreach conversions yet",
-        low_n=(g["denom"] or 0) < 5,
     )
     tiles += tile(
         "Custom domain conversion",
         f'{d["pct"]}%' if d["pct"] is not None else "—",
         f'{d["numer"]}/{d["denom"]} live sites' if d["denom"] else "no live sites yet",
-        low_n=(d["denom"] or 0) < 5,
     )
     ch_sub = f'{ch["numer"]} churned / {ch["denom"]} active this month'
-    if not ch["has_full_month_baseline"]:
-        ch_sub += " — first month of data"
     tiles += tile(
         "Churn rate (month-to-date)",
         f'{ch["pct"]}%' if ch["pct"] is not None else "—",
         ch_sub,
-        low_n=not ch["has_full_month_baseline"],
     )
 
     return f"""<style>
@@ -5274,8 +5253,6 @@ def _render_kpi_strip(kpis: dict) -> str:
 </style>
 <div class="kpi-strip">{tiles}</div>"""
 
-
-_FUNNEL_INSTRUMENTATION_START = datetime(2026, 7, 14)
 
 _FUNNEL_STAGES = [
     ("initial", "Initial"),
@@ -5294,26 +5271,11 @@ def _funnel_pct(numer, denom):
     return round(100.0 * numer / denom, 1)
 
 
-# Minimum outcomes per extraction_quality tier before a full/partial/none
-# conversion-rate comparison is treated as a real signal rather than noise.
-# Matches the threshold docs/outreach-pipeline-spec.md Section 5b already
-# uses for the (separate, not-yet-built) scoring-feedback factor analysis —
-# "require 30+ click/paid outcomes per factor-tier before treating a
-# divergence as real." Reused here for the same reason: this is a
-# comparative claim across groups, not a single KPI's raw rate, so it needs
-# the stricter of the two thresholds already established in this codebase
-# (the 5/10 used by _render_kpi_strip's low_n is for a single metric's own
-# denominator, not for comparing groups against each other).
-_EXTRACTION_QUALITY_MIN_SAMPLE = 30
-
-
 def _render_extraction_quality_breakdown(db):
     """
     Conversion rate (account created, paid) by extraction_quality tier
     (full/partial/none), for prospects the click-triggered logo/photo
     extraction actually ran for (see _try_extract_prospect_assets).
-    Purely observational instrumentation — not shown as a meaningful
-    correlation until each tier clears _EXTRACTION_QUALITY_MIN_SAMPLE.
     """
     # Aggregated in Python rather than SQL (small dataset, and avoids a
     # boolean->int CAST that behaves differently between SQLite dev and
@@ -5327,39 +5289,26 @@ def _render_extraction_quality_breakdown(db):
             t["account_n"] += 1
         if p.paid_at is not None:
             t["paid_n"] += 1
-    total_n = sum(t["n"] for t in by_tier.values())
 
     tier_order = [("full", "Full (logo + photos)"), ("partial", "Partial (one of the two)"), ("none", "None (fallback)")]
     body_rows = ""
     for key, label in tier_order:
         t = by_tier.get(key, {"n": 0, "account_n": 0, "paid_n": 0})
-        low_n = t["n"] < _EXTRACTION_QUALITY_MIN_SAMPLE
         account_pct = _funnel_pct(t["account_n"], t["n"])
         paid_pct = _funnel_pct(t["paid_n"], t["n"])
-        note = ' <span style="color:#B45309;font-size:11px;">· insufficient sample</span>' if low_n and t["n"] else ""
         body_rows += (
-            f'<tr><td style="font-weight:600;">{escape(label)}{note}</td>'
+            f'<tr><td style="font-weight:600;">{escape(label)}</td>'
             f'<td style="text-align:center;">{t["n"]}</td>'
             f'<td style="text-align:center;">{f"{account_pct}%" if account_pct is not None else "—"}</td>'
             f'<td style="text-align:center;">{f"{paid_pct}%" if paid_pct is not None else "—"}</td>'
             f'</tr>'
         )
 
-    threshold_note = (
-        f'<p class="adm-sub" style="color:#B45309;background:#FEF3C7;padding:10px 14px;'
-        f'border-radius:8px;margin:0 0 14px;">⚠ Each tier needs {_EXTRACTION_QUALITY_MIN_SAMPLE}+ prospects '
-        f'before its conversion rate is treated as a real signal rather than noise (same threshold used for '
-        f'factor-tier comparisons in the scoring feedback loop — see docs/outreach-pipeline-spec.md Section 5b). '
-        f'Currently {total_n} prospect(s) total across all three tiers — nowhere near enough to draw any '
-        f'conclusion yet. This panel is instrumentation for the future, not something to interpret today.</p>'
-    )
-
     return f"""
 <h2 style="font-size:15px;font-weight:700;margin:28px 0 10px;">Conversion by extraction quality</h2>
 <p class="adm-sub">For has_website_dated/has_website_modern prospects, whether the click-time logo/photo
 extraction (outreach/site_extract.py) found a usable logo and photos, one of the two, or neither —
 and how that cohort's account-creation and paid rates compare. Set once per prospect at claim-click time.</p>
-{threshold_note}
 <div class="adm-card" style="overflow-x:auto;">
 <table>
 <thead><tr><th>Extraction quality</th><th style="text-align:center;">Prospects</th><th style="text-align:center;">Account created</th><th style="text-align:center;">Paid</th></tr></thead>
@@ -5625,17 +5574,6 @@ def admin_funnel():
         )
         total_in_pipeline = sum(substage_counts.values())
 
-        instrumentation_note = ""
-        if not range_from or range_from < _FUNNEL_INSTRUMENTATION_START:
-            instrumentation_note = (
-                '<p class="adm-sub" style="color:#B45309;background:#FEF3C7;padding:10px 14px;'
-                'border-radius:8px;margin:0 0 20px;">'
-                '⚠ Per-stage send counts are only tracked from '
-                f'{_FUNNEL_INSTRUMENTATION_START.strftime("%d %b %Y")} onward (OutreachTouch table added that '
-                'date). No historical data exists before this — rows will show 0 for any period entirely '
-                'before it, not because nothing was sent, but because nothing was logged yet.</p>'
-            )
-
         content = f"""
 <style>
 .statsbar{{display:flex;gap:16px;flex-wrap:wrap;align-items:center;}}
@@ -5651,8 +5589,6 @@ necessarily that specific one (opened_at is a single per-prospect timestamp, not
 bounced send never reached an inbox, so every rate to its right is based on delivered, not attempted.</p>
 
 {kpi_strip}
-
-{instrumentation_note}
 
 <form method="get" style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-bottom:22px;">
   <div>
