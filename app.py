@@ -5078,9 +5078,18 @@ def admin_funnel():
         # Recent clicks — every prospect who has clicked their magic link,
         # most recent first, with enough context to see WHY at a glance
         # (score, trade, source, time-to-click) without a drill-down. Links
-        # to /admin/prospects/<id> for the full picture.
+        # to /admin/prospects/<id> for the full picture. Excludes prospects
+        # whose generation is Generation.is_internal — same flag/reasoning
+        # as the KPIs (real incident: an already-unsubscribed prospect got
+        # accidentally generated for via the admin opening their real magic
+        # link — marking that generation internal via the profile-page
+        # checkbox now also clears it from this table, not just the stats).
+        internal_lead_ids = db.query(Generation.lead_id).filter(
+            Generation.is_internal == True, Generation.lead_id.isnot(None)  # noqa: E712
+        )
         recent_clicked = db.query(Prospect).filter(
-            Prospect.clicked_at.isnot(None)
+            Prospect.clicked_at.isnot(None),
+            ~Prospect.lead_id.in_(internal_lead_ids),
         ).order_by(Prospect.clicked_at.desc()).limit(25).all()
         recent_lead_ids = [cp.lead_id for cp in recent_clicked if cp.lead_id is not None]
         gen_by_lead_id = {
