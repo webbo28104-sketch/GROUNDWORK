@@ -4960,9 +4960,24 @@ _OPENED_TRACKING_RELIABLE_FROM = datetime(2026, 7, 20)
 # of leaving it as a caveat in prose. Maps substage -> the _FUNNEL_STEPS
 # index it corresponds to; a stage's tautological columns are every index
 # from 1 up to and including its substage's index (index 0, "Sent", is
-# always real — it's just the cohort's size, not a claim about them).
-_SUBSTAGE_COLUMN_INDEX = {"opened": 1, "clicked_generated": 2, "account_created": 3}
+# always real — it's just the cohort's size, not a claim about them),
+# EXCEPT _VIEWED_COLUMN_INDEX — see that constant's comment for why it's
+# deliberately carved out of this range rather than included in it.
+_SUBSTAGE_COLUMN_INDEX = {"opened": 1, "clicked_generated": 2, "account_created": 4}
 _SUBSTAGE_BY_STAGE_LETTER = {letter: substage for substage, letter in STAGE_BY_SUBSTAGE.items()}
+
+_FUNNEL_STEPS = ["Sent", "Opened", "Clicked/Generated", "Viewed", "Account Created", "Paid"]
+# "Viewed" (added 2026-07-20) is never tautological, even for a
+# clicked_generated/account_created-cohort row — reaching /claim/<token>
+# and having a Generation row created (what "Clicked/Generated" means)
+# does NOT guarantee the prospect actually stuck around through the
+# 150-300s build to see the result. Confirmed with real data: 2 of 5
+# clicked-and-generated prospects have Generation.view_count == 0 despite
+# clicking 2+ hours earlier (long past any plausible still-generating
+# window) — genuine abandonment during the wait, not a tracking gap
+# (loading.html auto-navigates straight to the tracked /html route with
+# no click-through required, so this isn't a missed-instrumentation bug).
+_VIEWED_COLUMN_INDEX = _FUNNEL_STEPS.index("Viewed")
 
 
 def _tautological_columns(stage_key):
@@ -4974,8 +4989,7 @@ def _tautological_columns(stage_key):
     boundary = _SUBSTAGE_COLUMN_INDEX.get(substage)
     if boundary is None:
         return []
-    return list(range(1, boundary + 1))
-_FUNNEL_STEPS = ["Sent", "Opened", "Clicked/Generated", "Account Created", "Paid"]
+    return [i for i in range(1, boundary + 1) if i != _VIEWED_COLUMN_INDEX]
 
 
 def _funnel_pct(numer, denom):
@@ -5100,6 +5114,17 @@ def admin_funnel():
         tracking settings before assuming this column is broken.
       - Paid is real (Stripe webhook now writes Prospect.paid_at directly,
         traced via client_reference_id -> Lead -> Prospect.lead_id).
+      - Viewed (added 2026-07-20) is real and server-side: Generation.view_count
+        is bumped by _record_generation_view on every actual serve of
+        /api/generate/<id>/html, and loading.html auto-navigates straight to
+        that route the moment generation finishes (no click-through required
+        in either the outreach or normal form flow) — so a 0 here means the
+        prospect genuinely never had the page load client-side, most likely
+        because they closed the tab during the ~150-300s generation wait
+        rather than any tracking gap. Confirmed against real data 2026-07-20:
+        2 of 5 clicked-and-generated prospects had view_count=0 despite
+        clicking 2+ hours earlier (long past any plausible still-generating
+        window).
       - Per-stage rows are only real from OutreachTouch's creation date
         forward — there is no historical per-stage log before that, and
         nothing here pretends otherwise (see the banner below the filters).
@@ -5263,10 +5288,23 @@ def admin_funnel():
                 # rather than showing two numbers that are always identical
                 # and imply a distinction that doesn't exist yet.
                 clicked_n = sum(1 for p in cohort if p.clicked_at is not None)
+                # Viewed (added 2026-07-20) — Generation.view_count, not
+                # anything on Prospect, so this needs its own join via
+                # lead_id rather than a plain attribute check like the
+                # others above. Real signal even for later-stage cohorts —
+                # see _VIEWED_COLUMN_INDEX's comment for why it's excluded
+                # from the tautological-columns treatment.
+                cohort_lead_ids = [p.lead_id for p in cohort if p.lead_id is not None]
+                viewed_n = (
+                    db.query(Generation).filter(
+                        Generation.lead_id.in_(cohort_lead_ids), Generation.view_count > 0
+                    ).count()
+                    if cohort_lead_ids else 0
+                )
                 account_created_n = sum(1 for p in cohort if p.account_created_at is not None)
                 paid_n = sum(1 for p in cohort if p.paid_at is not None)
             else:
-                bounced_n = opened_n = clicked_n = account_created_n = paid_n = 0
+                bounced_n = opened_n = clicked_n = viewed_n = account_created_n = paid_n = 0
 
             # delivered_n, not sent_n, is the headline number and the
             # denominator for every downstream rate — same principle as the
@@ -5276,7 +5314,7 @@ def admin_funnel():
             # shown, in the sub-caption, not hidden — this table is meant to
             # carry more detail than the single KPI tile, not less.
             delivered_n = sent_n - bounced_n
-            counts = [delivered_n, opened_n, clicked_n, account_created_n, paid_n]
+            counts = [delivered_n, opened_n, clicked_n, viewed_n, account_created_n, paid_n]
             pcts = [None] + [
                 _funnel_pct(counts[i], counts[i - 1]) for i in range(1, len(counts))
             ]
@@ -5368,9 +5406,12 @@ funnel stage at send time (see row labels below), not by "1st/2nd/3rd touch" —
 and including that stage is ~100% by construction (that's who it's sent to, not a conversion it
 caused) and is greyed out with a "cohort def." label rather than shown as real signal. E.g. the
 "viewed site, no account" row (stage C) greys out Opened <em>and</em> Clicked/Generated — only
-Account Created and Paid are real, measurable outcomes for that row. The "Sent" column shows
-delivered count as the headline number, with attempted/bounced beneath it — a bounced send never
-reached an inbox, so every rate to its right is based on delivered, not attempted.</p>
+Viewed, Account Created, and Paid are real, measurable outcomes for that row. "Viewed" (a Generation
+row with view_count &gt; 0) is <em>never</em> greyed out, even on later-stage rows — reaching
+/claim/&lt;token&gt; guarantees a Generation row gets created, not that the prospect stuck around
+through the ~150-300s build to actually see it, so this stays real signal at every stage. The "Sent"
+column shows delivered count as the headline number, with attempted/bounced beneath it — a bounced
+send never reached an inbox, so every rate to its right is based on delivered, not attempted.</p>
 {"" if _FUNNEL_OPENED_DISABLED else f'''<p class="adm-sub" style="color:#B45309;background:#FEF3C7;padding:10px 14px;border-radius:8px;">
 ⚠ "Opened" is only reliable for data on/after {_OPENED_TRACKING_RELIABLE_FROM.strftime("%d %b %Y")} — before that,
 open tracking wasn't verified in Resend and a webhook bug gated opened_at behind funnel_substage == "sent" so it
