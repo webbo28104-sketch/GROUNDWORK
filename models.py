@@ -209,6 +209,13 @@ class Prospect(Base):
     trade_tier = Column(String(20))
     location = Column(String(255))
     postcode_area = Column(String(20))
+    # ONS-region-derived income tier ("high"/"medium"/"low") of postcode_area,
+    # from outreach.trade_categories.AREA_INCOME_TIER — set once at sourcing
+    # time so click-through/conversion can be analysed against geographic
+    # economic data without joining back to that lookup (which region names
+    # map to which tier could reasonably change over time; this freezes the
+    # tier that was actually in effect when the prospect was sourced).
+    income_tier = Column(String(10), nullable=True)
     rating = Column(Float, nullable=True)
     review_count = Column(Integer, nullable=True)
     business_status = Column(String(50))
@@ -562,6 +569,7 @@ def init_db():
     _ensure_column(Prospect.__tablename__, "sms_unsubscribed_at", "TIMESTAMP")
     _ensure_column(Prospect.__tablename__, "extraction_quality", "VARCHAR(10)")
     _ensure_column(Prospect.__tablename__, "website_quality", "VARCHAR(20)")
+    _ensure_column(Prospect.__tablename__, "income_tier", "VARCHAR(10)")
     _ensure_column(SearchCell.__tablename__, "last_searched_at", "TIMESTAMP")
     _ensure_column(SearchCell.__tablename__, "search_count", "INTEGER DEFAULT 0")
     _ensure_column(SearchCell.__tablename__, "results_found", "INTEGER DEFAULT 0")

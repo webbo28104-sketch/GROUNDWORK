@@ -4008,6 +4008,7 @@ def admin_generation_form_data(gen_id):
 # queue — /admin/prospects/<id> is the click-through profile page.
 # ---------------------------------------------------------------------------
 _OUTREACH_TRADE_TIERS = [("high", "High"), ("medium", "Medium"), ("low", "Low")]
+_OUTREACH_INCOME_TIERS = [("high", "High"), ("medium", "Medium"), ("low", "Low")]
 _OUTREACH_WEBSITE_STATUSES = [("no_website", "No website"), ("has_website", "Has website")]
 _OUTREACH_WEBSITE_QUALITIES = [("modern", "Modern"), ("dated", "Dated")]
 _OUTREACH_FUNNEL_STAGES = [
@@ -4039,6 +4040,7 @@ def admin_outreach():
         return v or None
 
     trade_tier = _arg("trade_tier")
+    income_tier = _arg("income_tier")
     website_status = _arg("website_status")
     website_quality = _arg("website_quality")
     funnel_stage = _arg("funnel_stage")
@@ -4055,6 +4057,8 @@ def admin_outreach():
         q = db.query(Prospect)
         if trade_tier:
             q = q.filter(Prospect.trade_tier == trade_tier)
+        if income_tier:
+            q = q.filter(Prospect.income_tier == income_tier)
         if website_status:
             q = q.filter(Prospect.website_status == website_status)
         if website_quality:
@@ -4111,6 +4115,7 @@ def admin_outreach():
   <td style="padding:8px 10px;">{escape(p.trade or "—")}</td>
   <td style="padding:8px 10px;text-transform:capitalize;">{escape(p.trade_tier or "—")}</td>
   <td style="padding:8px 10px;">{escape(p.location or "—")}</td>
+  <td style="padding:8px 10px;text-transform:capitalize;">{escape(p.income_tier or "—")}</td>
   <td style="padding:8px 10px;">{f"{p.rating:.1f} ({p.review_count or 0})" if p.rating is not None else "—"}</td>
   <td style="padding:8px 10px;">{escape(p.website_status or "—")}{f" ({escape(p.website_quality)})" if p.website_quality else ""}</td>
   <td style="padding:8px 10px;font-weight:700;">{round(p.score) if p.score is not None else "—"}</td>
@@ -4135,6 +4140,8 @@ approve/pass step anymore. Filter by any metric the pipeline tracks, then click 
 <form method="get" class="adm-card" style="padding:16px 20px;margin-bottom:18px;display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;">
   <div><label style="display:block;font-size:11px;color:#9A9893;margin-bottom:4px;">Trade tier</label>
     <select name="trade_tier">{opts("trade_tier", _OUTREACH_TRADE_TIERS, trade_tier)}</select></div>
+  <div><label style="display:block;font-size:11px;color:#9A9893;margin-bottom:4px;">Income tier (area)</label>
+    <select name="income_tier">{opts("income_tier", _OUTREACH_INCOME_TIERS, income_tier)}</select></div>
   <div><label style="display:block;font-size:11px;color:#9A9893;margin-bottom:4px;">Website</label>
     <select name="website_status">{opts("website_status", _OUTREACH_WEBSITE_STATUSES, website_status)}</select></div>
   <div><label style="display:block;font-size:11px;color:#9A9893;margin-bottom:4px;">Website quality</label>
@@ -4168,6 +4175,7 @@ approve/pass step anymore. Filter by any metric the pipeline tracks, then click 
   <th style="text-align:left;padding:6px 10px;">Trade</th>
   <th style="text-align:left;padding:6px 10px;">Tier</th>
   <th style="text-align:left;padding:6px 10px;">Location</th>
+  <th style="text-align:left;padding:6px 10px;">Income tier</th>
   <th style="text-align:left;padding:6px 10px;">Rating</th>
   <th style="text-align:left;padding:6px 10px;">Website</th>
   <th style="text-align:left;padding:6px 10px;">Score</th>
@@ -4176,7 +4184,7 @@ approve/pass step anymore. Filter by any metric the pipeline tracks, then click 
   <th style="text-align:left;padding:6px 10px;">Phone</th>
   <th style="text-align:left;padding:6px 10px;">Sourced</th>
 </tr></thead>
-<tbody>{rows_html or '<tr><td colspan="11" style="padding:16px 10px;color:#9A9893;">No prospects match these filters.</td></tr>'}</tbody>
+<tbody>{rows_html or '<tr><td colspan="12" style="padding:16px 10px;color:#9A9893;">No prospects match these filters.</td></tr>'}</tbody>
 </table>
 </div>
 """

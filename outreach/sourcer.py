@@ -14,13 +14,14 @@ Flow:
 import logging
 
 import requests
+from sqlalchemy import func
 
 try:
     from models import Prospect, SearchCell
-    from outreach.trade_categories import TRADE_CATEGORIES, UK_AREAS, get_trade_by_term
+    from outreach.trade_categories import TRADE_CATEGORIES, UK_AREAS, AREA_INCOME_TIER, get_trade_by_term
 except ImportError:  # pragma: no cover — supports `python outreach/sourcer.py` style imports
     from models import Prospect, SearchCell
-    from trade_categories import TRADE_CATEGORIES, UK_AREAS, get_trade_by_term
+    from trade_categories import TRADE_CATEGORIES, UK_AREAS, AREA_INCOME_TIER, get_trade_by_term
 
 logger = logging.getLogger("outreach.sourcer")
 
@@ -101,26 +102,44 @@ def _ensure_all_cells(db):
 
 def get_pending_cells(db, limit=25):
     """Return up to `limit` SearchCell rows to search next, never-searched
-    first (last_searched_at NULLS FIRST), then oldest-searched. If the total
-    number of cells on disk is smaller than the full grid, backfill the missing
-    combinations first so coverage can grow over time."""
+    first, then oldest-searched. If the total number of cells on disk is
+    smaller than the full grid, backfill the missing combinations first so
+    coverage can grow over time.
+
+    Never-searched cells are shuffled (func.random()), not taken in
+    insertion order. _ensure_all_cells() inserts the full (area x trade)
+    grid in UK_AREAS order, which is grouped by region (all ~480 London
+    cells first, then South East, ...) — insertion-order selection meant a
+    fixed daily limit exhausted one region for weeks before ever reaching
+    another, so click-through data only ever built up for whichever region
+    happened to be first (real incident: ~19 days straight in London before
+    reaching anywhere else, at 25 cells/day). A random draw from the full
+    never-searched pool spans regions/income tiers from day one instead,
+    without needing to hand-interleave the area list. Already-searched
+    cells keep oldest-first ordering — no reason to shuffle re-searches."""
     total = db.query(SearchCell).count()
     if total < len(UK_AREAS) * len(TRADE_CATEGORIES):
         _ensure_all_cells(db)
 
-    # NULLS FIRST so never-searched cells are always picked before any that
-    # already have a timestamp. isnot(None) sort key: False (0) sorts before
-    # True (1), i.e. NULLs first, then by the timestamp ascending.
-    cells = (
+    unsearched = (
         db.query(SearchCell)
-        .order_by(
-            SearchCell.last_searched_at.isnot(None),
-            SearchCell.last_searched_at.asc(),
-        )
+        .filter(SearchCell.last_searched_at.is_(None))
+        .order_by(func.random())
         .limit(limit)
         .all()
     )
-    return cells
+    if len(unsearched) >= limit:
+        return unsearched
+
+    remaining = limit - len(unsearched)
+    research = (
+        db.query(SearchCell)
+        .filter(SearchCell.last_searched_at.isnot(None))
+        .order_by(SearchCell.last_searched_at.asc())
+        .limit(remaining)
+        .all()
+    )
+    return unsearched + research
 
 
 def parse_place(raw, search_term, postcode_area):
@@ -146,6 +165,7 @@ def parse_place(raw, search_term, postcode_area):
         "trade_tier": tier,
         "location": raw.get("formattedAddress"),
         "postcode_area": postcode_area,
+        "income_tier": AREA_INCOME_TIER.get(postcode_area),
         "rating": raw.get("rating"),
         "review_count": raw.get("userRatingCount"),
         "business_status": raw.get("businessStatus"),
@@ -187,6 +207,7 @@ def upsert_prospect(db, place_data):
         trade_tier=place_data.get("trade_tier"),
         location=place_data.get("location"),
         postcode_area=place_data.get("postcode_area"),
+        income_tier=place_data.get("income_tier"),
         rating=place_data.get("rating"),
         review_count=place_data.get("review_count"),
         business_status=status,
