@@ -868,5 +868,955 @@
     "website_status": "has_website",
     "phone": "0800 002 5885",
     "queued_at": "2026-07-19T01:07:51.306450"
+  },
+  {
+    "prospect_id": 1179,
+    "business_name": "S M B Plastering and sons",
+    "trade": "Plasterer",
+    "location": "1 Elmfield Park, Bromley BR1 1LU",
+    "website": "https://smbplasteringandsons.co.uk/",
+    "website_status": "has_website",
+    "phone": "07861 312466",
+    "queued_at": "2026-07-20T01:03:35.245194"
+  },
+  {
+    "prospect_id": 1180,
+    "business_name": "LS Plastering",
+    "trade": "Plasterer",
+    "location": "270 Sutherland Ave, Welling DA16 2NG",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07890 570416",
+    "queued_at": "2026-07-20T01:03:35.255751"
+  },
+  {
+    "prospect_id": 1181,
+    "business_name": "Aaron The Plasterer",
+    "trade": "Plasterer",
+    "location": "Toynbee Rd, Wimbledon Chase, London SW20 8SH",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07465 991634",
+    "queued_at": "2026-07-20T01:03:35.265988"
+  },
+  {
+    "prospect_id": 1119,
+    "business_name": "Doors4garagesltd",
+    "trade": "Garage Door Fitter",
+    "location": "16 Hospital Bridge Rd, Twickenham TW2 5UJ",
+    "website": "http://www.doors4garagesltd.co.uk/",
+    "website_status": "has_website",
+    "phone": "07949 020111",
+    "queued_at": "2026-07-20T01:03:37.866810"
+  },
+  {
+    "prospect_id": 1120,
+    "business_name": "PES Garage Doors",
+    "trade": "Garage Door Fitter",
+    "location": "Great Ellshams, Banstead SM7 2BA",
+    "website": "http://www.pesgaragedoors.co.uk/",
+    "website_status": "has_website",
+    "phone": "01737 356009",
+    "queued_at": "2026-07-20T01:03:37.947060"
+  },
+  {
+    "prospect_id": 1123,
+    "business_name": "Access Garage Doors - Sidcup",
+    "trade": "Garage Door Fitter",
+    "location": "9, Elm Parade, Main Rd, Sidcup DA14 6NF",
+    "website": "https://accessgaragedoors.com/sidcup/?utm_campaign=gmb",
+    "website_status": "has_website",
+    "phone": "020 4572 9011",
+    "queued_at": "2026-07-20T01:03:41.546197"
+  },
+  {
+    "prospect_id": 1125,
+    "business_name": "London Washing Machine Repairs",
+    "trade": "Appliance Repair",
+    "location": "41, Ducavel House, 37 Palace Rd, London SW2 3EB",
+    "website": "http://www.londonwashingmachinerepairs.com/",
+    "website_status": "has_website",
+    "phone": "07940 177263",
+    "queued_at": "2026-07-20T01:03:41.725604"
+  },
+  {
+    "prospect_id": 1126,
+    "business_name": "South London Appliance Pros",
+    "trade": "Appliance Repair",
+    "location": "Kennington Oval, London SE11 5SQ",
+    "website": "https://www.southlondonappliancepros.co.uk/",
+    "website_status": "has_website",
+    "phone": "07850 217787",
+    "queued_at": "2026-07-20T01:03:41.952370"
+  },
+  {
+    "prospect_id": 1128,
+    "business_name": "London Spin Doctor",
+    "trade": "Appliance Repair",
+    "location": "44 Woodfield Ave, London SW16 1LG",
+    "website": "http://www.londonspindoctor.com/",
+    "website_status": "has_website",
+    "phone": "07921 777428",
+    "queued_at": "2026-07-20T01:03:47.776262"
+  },
+  {
+    "prospect_id": 1184,
+    "business_name": "Plastering Art",
+    "trade": "Plasterer",
+    "location": "93 Mitcham Ln, London SW16 6LY",
+    "website": "http://www.plasteringart.co.uk/",
+    "website_status": "has_website",
+    "phone": "07949 139835",
+    "queued_at": "2026-07-20T01:03:48.116805"
+  },
+  {
+    "prospect_id": 1186,
+    "business_name": "MasterMind Plastering Services",
+    "trade": "Plasterer",
+    "location": "London SE26 6XU",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07880 345767",
+    "queued_at": "2026-07-20T01:03:50.797937"
+  },
+  {
+    "prospect_id": 1130,
+    "business_name": "Ani Appliances Sales and Repairs",
+    "trade": "Appliance Repair",
+    "location": "228 Brixton Rd, London SW9 6AH",
+    "website": "https://aniappliances.co.uk/",
+    "website_status": "has_website",
+    "phone": "07411 659367",
+    "queued_at": "2026-07-20T01:03:55.250843"
+  },
+  {
+    "prospect_id": 1135,
+    "business_name": "The London Chimney Sweeps",
+    "trade": "Chimney Sweep",
+    "location": "Unit G06, Lombard Business Park, 8 Lombard Rd, London SW19 3TZ",
+    "website": "https://www.thelondonchimneysweeps.co.uk/",
+    "website_status": "has_website",
+    "phone": "020 8012 7851",
+    "queued_at": "2026-07-20T01:03:59.038299"
+  },
+  {
+    "prospect_id": 1137,
+    "business_name": "Bliss Chimney Sweeps",
+    "trade": "Chimney Sweep",
+    "location": "8 Morley Rd, South Croydon CR2 0EN",
+    "website": "https://chimneysweepsurrey.co.uk/",
+    "website_status": "has_website",
+    "phone": "07739 638431",
+    "queued_at": "2026-07-20T01:03:59.497625"
+  },
+  {
+    "prospect_id": 1139,
+    "business_name": "Home Sweep Home - S. London",
+    "trade": "Chimney Sweep",
+    "location": "4, Chimneys Court, 119 Ridgway, London SW19 4RE",
+    "website": "http://www.thelocalchimneysweep.co.uk/",
+    "website_status": "has_website",
+    "phone": "07785 563364",
+    "queued_at": "2026-07-20T01:04:06.853883"
+  },
+  {
+    "prospect_id": 1140,
+    "business_name": "London Chimney Cleaner",
+    "trade": "Chimney Sweep",
+    "location": "27 Kenilworth Rd, London SE20 7QG",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "020 3667 2678",
+    "queued_at": "2026-07-20T01:04:06.864606"
+  },
+  {
+    "prospect_id": 1141,
+    "business_name": "South London Chimney Sweep",
+    "trade": "Chimney Sweep",
+    "location": "62a, Basement Flat, Blackheath, London SE22 8PS",
+    "website": "https://www.mrjollychimneysweep.com/",
+    "website_status": "has_website",
+    "phone": "07752 130577",
+    "queued_at": "2026-07-20T01:04:07.005788"
+  },
+  {
+    "prospect_id": 1144,
+    "business_name": "Naish & Sons",
+    "trade": "Chimney Sweep",
+    "location": "17 Richmond Rd, Coulsdon CR5 2PH",
+    "website": "http://www.naishandsons.com/",
+    "website_status": "has_website",
+    "phone": "020 8668 9914",
+    "queued_at": "2026-07-20T01:04:11.212806"
+  },
+  {
+    "prospect_id": 1145,
+    "business_name": "A1 Chimney Sweeps",
+    "trade": "Chimney Sweep",
+    "location": "46 Bennetts Way, Croydon CR0 8AA",
+    "website": "https://www.a1chimneysweepscroydon.co.uk/",
+    "website_status": "has_website",
+    "phone": "020 8777 4674",
+    "queued_at": "2026-07-20T01:04:11.415761"
+  },
+  {
+    "prospect_id": 1149,
+    "business_name": "Clapham Construction Service",
+    "trade": "Builder",
+    "location": "Ste 17, 264 Lavender Hill, London SW11 1LJ",
+    "website": "https://claphamconstructionservice.com/?utm_source=GMBListing&utm_medium=organic",
+    "website_status": "has_website",
+    "phone": "020 3950 7957",
+    "queued_at": "2026-07-20T01:04:14.053818"
+  },
+  {
+    "prospect_id": 1150,
+    "business_name": "London Pro Builders",
+    "trade": "Builder",
+    "location": "Sydenham Rd, London SE26 5QW",
+    "website": "https://www.londonprobuilders.co.uk/%20https://uk.trustpilot.com/users/668d8a9a73fc6e486681e09f",
+    "website_status": "has_website",
+    "phone": "07703 296274",
+    "queued_at": "2026-07-20T01:04:14.307183"
+  },
+  {
+    "prospect_id": 1152,
+    "business_name": "Gurra Construction",
+    "trade": "Builder",
+    "location": "92a Wandsworth Bridge Rd., London SW6 2TF",
+    "website": "http://www.gurraconstruction.co.uk/",
+    "website_status": "has_website",
+    "phone": "07452 804995",
+    "queued_at": "2026-07-20T01:04:18.026886"
+  },
+  {
+    "prospect_id": 1153,
+    "business_name": "Xpress Builders LTD",
+    "trade": "Builder",
+    "location": "1 Crampton Rd, London SE20 7AR",
+    "website": "https://m.facebook.com/XpressBuildersLTD/?ref=bookmarks",
+    "website_status": "has_website",
+    "phone": "07908 154102",
+    "queued_at": "2026-07-20T01:04:18.315794"
+  },
+  {
+    "prospect_id": 1154,
+    "business_name": "Insight-Builders",
+    "trade": "Builder",
+    "location": "4 Tavern Ln, Myatts Field South, London SW9 6NG",
+    "website": "http://www.insight-builders.co.uk/",
+    "website_status": "has_website",
+    "phone": "07985 008167",
+    "queued_at": "2026-07-20T01:04:18.874033"
+  },
+  {
+    "prospect_id": 1156,
+    "business_name": "Bloom Builders",
+    "trade": "Builder",
+    "location": "53 Webb's Rd, Southwest SW11 6RX",
+    "website": "https://www.bloombuilders.co.uk/",
+    "website_status": "has_website",
+    "phone": "020 7585 2020",
+    "queued_at": "2026-07-20T01:04:20.245680"
+  },
+  {
+    "prospect_id": 1157,
+    "business_name": "Building Vision London Ltd",
+    "trade": "Builder",
+    "location": "108 Westleigh Ave, London SW15 6UZ",
+    "website": "https://www.buildingvisionlondon.uk/",
+    "website_status": "has_website",
+    "phone": "07871 647667",
+    "queued_at": "2026-07-20T01:04:20.729703"
+  },
+  {
+    "prospect_id": 1051,
+    "business_name": "JK Fitted Kitchens Joinery",
+    "trade": "Kitchen Fitter",
+    "location": "76 High St, Thornton Heath CR7 8LF",
+    "website": "https://fittedkitchensjoinery.co.uk/",
+    "website_status": "has_website",
+    "phone": "07418 359840",
+    "queued_at": "2026-07-20T01:04:23.618311"
+  },
+  {
+    "prospect_id": 1159,
+    "business_name": "Dan Construction",
+    "trade": "Builder",
+    "location": "30 Downton Ave, London SW2 3TR",
+    "website": "http://dcdanconstruction.co.uk/",
+    "website_status": "has_website",
+    "phone": "07713 010856",
+    "queued_at": "2026-07-20T01:04:26.530744"
+  },
+  {
+    "prospect_id": 1054,
+    "business_name": "Bathroom Renovation, Kitchen Refurbishment & Home Improvement Specialists in South London",
+    "trade": "Kitchen Fitter",
+    "location": "Unit 5 bay 8, 11 Mowll St, London SW9 6BG",
+    "website": "http://www.jmdltd.co.uk/",
+    "website_status": "has_website",
+    "phone": "07568 512261",
+    "queued_at": "2026-07-20T01:04:26.647392"
+  },
+  {
+    "prospect_id": 1060,
+    "business_name": "Complete Kitchens & Bathrooms",
+    "trade": "Kitchen Fitter",
+    "location": "56-58 Springbank Rd, London SE13 6SN",
+    "website": "https://comkit.co.uk/",
+    "website_status": "has_website",
+    "phone": "020 8852 5926",
+    "queued_at": "2026-07-20T01:04:43.041836"
+  },
+  {
+    "prospect_id": 1061,
+    "business_name": "Eclectic Interiors",
+    "trade": "Kitchen Fitter",
+    "location": "65 Abbeville Rd, London SW4 9JW",
+    "website": "https://www.eclecticinteriors.co.uk/",
+    "website_status": "has_website",
+    "phone": "020 8673 0572",
+    "queued_at": "2026-07-20T01:04:44.640062"
+  },
+  {
+    "prospect_id": 1062,
+    "business_name": "Graph kitchen & floor Fitter",
+    "trade": "Kitchen Fitter",
+    "location": "Darley Gardens, Morden SM4 6QF",
+    "website": "https://www.facebook.com/profile.php?id=100087502369627",
+    "website_status": "has_website",
+    "phone": "07782 117555",
+    "queued_at": "2026-07-20T01:04:45.198040"
+  },
+  {
+    "prospect_id": 1063,
+    "business_name": "Navi Bathroom Design & Installation",
+    "trade": "Bathroom Fitter",
+    "location": "124 Phipps Bridge Rd, London SW19 2SU",
+    "website": "https://www.navibathroom.co.uk/contact-us/",
+    "website_status": "has_website",
+    "phone": "07746 383608",
+    "queued_at": "2026-07-20T01:04:47.270014"
+  },
+  {
+    "prospect_id": 1168,
+    "business_name": "South London Carpentry & Joinery",
+    "trade": "Carpenter",
+    "location": "London SW9 8PH",
+    "website": "https://forms.office.com/r/PZUaMdra1W",
+    "website_status": "has_website",
+    "phone": "07533 585507",
+    "queued_at": "2026-07-20T01:04:48.224593"
+  },
+  {
+    "prospect_id": 1066,
+    "business_name": "PS Bathrooms",
+    "trade": "Bathroom Fitter",
+    "location": "6A Havelock Rd, London SW19 8HD",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07832 351284",
+    "queued_at": "2026-07-20T01:04:48.807752"
+  },
+  {
+    "prospect_id": 1067,
+    "business_name": "Level London",
+    "trade": "Bathroom Fitter",
+    "location": "8 Marney Rd, London SW11 5EP",
+    "website": "http://www.levellondon.co.uk/",
+    "website_status": "has_website",
+    "phone": "020 7101 4694",
+    "queued_at": "2026-07-20T01:04:49.060041"
+  },
+  {
+    "prospect_id": 1071,
+    "business_name": "Victorian Tiling London",
+    "trade": "Tiler",
+    "location": "1 Gipsy Rd, Norwood, London SE27 9TD",
+    "website": "https://victoriantiling.london/",
+    "website_status": "has_website",
+    "phone": "07970 656743",
+    "queued_at": "2026-07-20T01:04:56.785134"
+  },
+  {
+    "prospect_id": 1073,
+    "business_name": "Amars Tiling Specialist Ltd",
+    "trade": "Tiler",
+    "location": "23 Kingwood Rd, London SW6 6SP",
+    "website": "https://amarstilingspecialist.co.uk/",
+    "website_status": "has_website",
+    "phone": "07388 056366",
+    "queued_at": "2026-07-20T01:04:57.099338"
+  },
+  {
+    "prospect_id": 1074,
+    "business_name": "Royal Tile Experts - tiler",
+    "trade": "Tiler",
+    "location": "23 Osborne Rd, London NW2 5DR",
+    "website": "https://wa.me/qr/ZVR7D3CW4CLHH1",
+    "website_status": "has_website",
+    "phone": "07463 928389",
+    "queued_at": "2026-07-20T01:04:57.778919"
+  },
+  {
+    "prospect_id": 1075,
+    "business_name": "Elite Tilers",
+    "trade": "Tiler",
+    "location": "207 Barry Rd, London SE22 0JU",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07724 871338",
+    "queued_at": "2026-07-20T01:04:57.786032"
+  },
+  {
+    "prospect_id": 1076,
+    "business_name": "Custom Tiles & Co",
+    "trade": "Tiler",
+    "location": "39, Malam Court, Marylee Way, London SE11 6UD",
+    "website": "http://www.customtilesco.com/",
+    "website_status": "has_website",
+    "phone": "07538 037185",
+    "queued_at": "2026-07-20T01:04:58.318646"
+  },
+  {
+    "prospect_id": 1078,
+    "business_name": "Roman Tiling Services",
+    "trade": "Tiler",
+    "location": "6 Woodmere Cl, Croydon CR0 7PN",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07475 557602",
+    "queued_at": "2026-07-20T01:04:58.534451"
+  },
+  {
+    "prospect_id": 1080,
+    "business_name": "Nl Tiling",
+    "trade": "Tiler",
+    "location": "36 Southend Rd, Beckenham BR3 5AE",
+    "website": "https://www.facebook.com/share/16ZvHvKjyb/?mibextid=wwXIfr",
+    "website_status": "has_website",
+    "phone": "07833 891189",
+    "queued_at": "2026-07-20T01:04:59.648111"
+  },
+  {
+    "prospect_id": 1178,
+    "business_name": "Prime Plastering London",
+    "trade": "Plasterer",
+    "location": "10 Woodland Way, London CR4 2DY",
+    "website": "http://primeplasteringlondon.co.uk/",
+    "website_status": "has_website",
+    "phone": "07440 299684",
+    "queued_at": "2026-07-20T01:05:00.488373"
+  },
+  {
+    "prospect_id": 1082,
+    "business_name": "JJRM Flooring - LVT & Wood Flooring Specialist's",
+    "trade": "Flooring Fitter",
+    "location": "5 Woodcroft Cl, London SE9 2AS",
+    "website": "https://jjrmflooring.co.uk/",
+    "website_status": "has_website",
+    "phone": "020 8050 2866",
+    "queued_at": "2026-07-20T01:05:00.605089"
+  },
+  {
+    "prospect_id": 1083,
+    "business_name": "Rolls Flooring",
+    "trade": "Flooring Fitter",
+    "location": "44 Verdant Ln, London SE6 1LF",
+    "website": "https://www.facebook.com/RollsFlooring/",
+    "website_status": "has_website",
+    "phone": "07504 329601",
+    "queued_at": "2026-07-20T01:05:01.036844"
+  },
+  {
+    "prospect_id": 1084,
+    "business_name": "A Flooring Boutique",
+    "trade": "Flooring Fitter",
+    "location": "73 Bedford Hill, London SW12 9HA",
+    "website": "http://www.aflooringboutique.co.uk/",
+    "website_status": "has_website",
+    "phone": "020 8673 9900",
+    "queued_at": "2026-07-20T01:05:01.183315"
+  },
+  {
+    "prospect_id": 1085,
+    "business_name": "Style Flooring",
+    "trade": "Flooring Fitter",
+    "location": "53 Amblecote Mdws, London SE12 9TA",
+    "website": "https://www.styleflooringltd.co.uk/",
+    "website_status": "has_website",
+    "phone": "07565 300586",
+    "queued_at": "2026-07-20T01:05:01.277540"
+  },
+  {
+    "prospect_id": 1086,
+    "business_name": "SG flooring London",
+    "trade": "Flooring Fitter",
+    "location": "38 Daneswood Ave, London SE6 2RQ",
+    "website": "http://www.sgflooringlondon.co.uk/",
+    "website_status": "has_website",
+    "phone": "07597 197979",
+    "queued_at": "2026-07-20T01:05:01.741782"
+  },
+  {
+    "prospect_id": 1089,
+    "business_name": "The Flooring Empire | Luxury Wood Flooring in London",
+    "trade": "Flooring Fitter",
+    "location": "9A Streatham High Road, London, Flat 2, Cromer Court, SW SW16 1EE",
+    "website": "https://theflooringempire.co.uk/",
+    "website_status": "has_website",
+    "phone": "07404 221826",
+    "queued_at": "2026-07-20T01:05:06.966157"
+  },
+  {
+    "prospect_id": 1092,
+    "business_name": "FloorMasters",
+    "trade": "Flooring Fitter",
+    "location": "541 Battersea Park Rd, London SW11 3BL",
+    "website": "http://www.floormastersonline.co.uk/",
+    "website_status": "has_website",
+    "phone": "020 7967 0474",
+    "queued_at": "2026-07-20T01:05:10.612306"
+  },
+  {
+    "prospect_id": 1093,
+    "business_name": "Techflooring",
+    "trade": "Flooring Fitter",
+    "location": "Unit 9 Broadfield Cl, Croydon CR0 4XR",
+    "website": "http://techflooring.co.uk/",
+    "website_status": "has_website",
+    "phone": "020 8150 7213",
+    "queued_at": "2026-07-20T01:05:14.643603"
+  },
+  {
+    "prospect_id": 1095,
+    "business_name": "E.J. Carpets",
+    "trade": "Flooring Fitter",
+    "location": "1-5 Perry Vale, London SE23 2NE",
+    "website": "http://www.ejcarpets.co.uk/",
+    "website_status": "has_website",
+    "phone": "020 8699 9300",
+    "queued_at": "2026-07-20T01:05:16.349095"
+  },
+  {
+    "prospect_id": 1100,
+    "business_name": "Man Glazing London Glazier Fulham",
+    "trade": "Glazier",
+    "location": "Flat 25, Macey House, 40 Surrey Ln, London SW11 3PR",
+    "website": "https://manglazing.co.uk/?utm_source=GoogleMaps&utm_medium=LondonSW113PR&utm_campaign=GoogleMaps",
+    "website_status": "has_website",
+    "phone": "07451 293645",
+    "queued_at": "2026-07-20T01:05:17.679902"
+  },
+  {
+    "prospect_id": 1101,
+    "business_name": "Browns Glazing",
+    "trade": "Glazier",
+    "location": "2 Lawrence Rd, London SE25 5AA",
+    "website": "http://www.brownsglazing.co.uk/",
+    "website_status": "has_website",
+    "phone": "07943 001692",
+    "queued_at": "2026-07-20T01:05:17.900178"
+  },
+  {
+    "prospect_id": 1102,
+    "business_name": "A to B Glass & Glazing",
+    "trade": "Glazier",
+    "location": "99 Anerley Rd, London SE20 8AP",
+    "website": "https://www.atobglass.co.uk/",
+    "website_status": "has_website",
+    "phone": "020 8778 8040",
+    "queued_at": "2026-07-20T01:05:18.210310"
+  },
+  {
+    "prospect_id": 1104,
+    "business_name": "Britannia Glass & Glazing",
+    "trade": "Glazier",
+    "location": "6 Upfield, Croydon CR0 5DP",
+    "website": "https://www.britanniaglass.co.uk/",
+    "website_status": "has_website",
+    "phone": "020 3305 7161",
+    "queued_at": "2026-07-20T01:05:19.214391"
+  },
+  {
+    "prospect_id": 1209,
+    "business_name": "Kjb scaffolding Ltd",
+    "trade": "Scaffolding",
+    "location": "1 Albemarle Pk, London BR3 5XG",
+    "website": "http://wwwkjbscaffolding.co.uk/",
+    "website_status": "has_website",
+    "phone": "07447 162826",
+    "queued_at": "2026-07-20T01:05:19.283611"
+  },
+  {
+    "prospect_id": 1105,
+    "business_name": "LG London Glazier & Glass Fitters",
+    "trade": "Glazier",
+    "location": "3131B Rosebury Rd, London SW6 2NQ",
+    "website": "http://glazierlondonglassfitters.co.uk/",
+    "website_status": "has_website",
+    "phone": "07418 356327",
+    "queued_at": "2026-07-20T01:05:19.363701"
+  },
+  {
+    "prospect_id": 1106,
+    "business_name": "Thomson Glazing",
+    "trade": "Glazier",
+    "location": "25 Bellefields Rd, London SW9 9UH",
+    "website": "https://clapham-glaziers.co.uk/",
+    "website_status": "has_website",
+    "phone": "020 3519 7012",
+    "queued_at": "2026-07-20T01:05:19.500120"
+  },
+  {
+    "prospect_id": 1107,
+    "business_name": "Britannia Glass & Glazing",
+    "trade": "Glazier",
+    "location": "80 Battersea Rise, London SW11 1EH",
+    "website": "https://www.britanniaglass.co.uk/emergency-glaziers/battersea/",
+    "website_status": "has_website",
+    "phone": "020 3305 7161",
+    "queued_at": "2026-07-20T01:05:19.568288"
+  },
+  {
+    "prospect_id": 1108,
+    "business_name": "B & B Glaziers & Property Maintenance Ltd",
+    "trade": "Glazier",
+    "location": "73A-75A, Gibbon Rd, London SE15 3XF",
+    "website": "https://www.facebook.com/B-B-Glaziers-2023423057979757/",
+    "website_status": "has_website",
+    "phone": "020 7732 4797",
+    "queued_at": "2026-07-20T01:05:20.142948"
+  },
+  {
+    "prospect_id": 1112,
+    "business_name": "South Norwood Double Glazing & Windows Doors",
+    "trade": "Glazier",
+    "location": "100a Portland Rd, London SE25 4PJ",
+    "website": "http://southnorwooddoubleglazing.co.uk/",
+    "website_status": "has_website",
+    "phone": "020 3670 4801",
+    "queued_at": "2026-07-20T01:05:24.742180"
+  },
+  {
+    "prospect_id": 1113,
+    "business_name": "Ably Glass Ltd.",
+    "trade": "Glazier",
+    "location": "108 Eardley Rd, London SW16 6BJ",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "020 8677 7872",
+    "queued_at": "2026-07-20T01:05:24.750163"
+  },
+  {
+    "prospect_id": 1114,
+    "business_name": "Repair My Garage",
+    "trade": "Garage Door Fitter",
+    "location": "Coulsdon Rd, Caterham CR3 5QP",
+    "website": "https://repairmygarage.co.uk/",
+    "website_status": "has_website",
+    "phone": "020 3488 7492",
+    "queued_at": "2026-07-20T01:05:25.463942"
+  },
+  {
+    "prospect_id": 1115,
+    "business_name": "Access Garage Doors - Croydon",
+    "trade": "Garage Door Fitter",
+    "location": "416 Brighton Rd, South Croydon CR2 6AN",
+    "website": "https://accessgaragedoors.com/croydon/",
+    "website_status": "has_website",
+    "phone": "020 4572 8622",
+    "queued_at": "2026-07-20T01:05:25.700814"
+  },
+  {
+    "prospect_id": 1116,
+    "business_name": "AA Garage Door Services",
+    "trade": "Garage Door Fitter",
+    "location": "10C Radcliffe Rd, Croydon CR0 5QE",
+    "website": "http://www.aagaragedoors.co.uk/",
+    "website_status": "has_website",
+    "phone": "07734 086869",
+    "queued_at": "2026-07-20T01:05:25.789789"
+  },
+  {
+    "prospect_id": 1160,
+    "business_name": "The South London Loft Conversions",
+    "trade": "Builder",
+    "location": "15, 159A Central Rd, Worcester Park KT4 8DT",
+    "website": "https://southlondonloftconversions.co.uk/",
+    "website_status": "has_website",
+    "phone": "07520 637601",
+    "queued_at": "2026-07-20T01:05:25.865984"
+  },
+  {
+    "prospect_id": 1162,
+    "business_name": "Acorn Construction",
+    "trade": "Builder",
+    "location": "1B Dunvegan Rd, London SE9 1RZ",
+    "website": "https://www.acornconstruction.co.uk/",
+    "website_status": "has_website",
+    "phone": "020 8102 9309",
+    "queued_at": "2026-07-20T01:05:26.228515"
+  },
+  {
+    "prospect_id": 1163,
+    "business_name": "WBO Builders LTD",
+    "trade": "Builder",
+    "location": "14 Queen Adelaide Rd, London SE20 7DX",
+    "website": "http://www.wbobuilders.com/",
+    "website_status": "has_website",
+    "phone": "020 3509 4518",
+    "queued_at": "2026-07-20T01:05:27.699705"
+  },
+  {
+    "prospect_id": 1165,
+    "business_name": "South Made",
+    "trade": "Carpenter",
+    "location": "57 Beauchamp Rd, London SE19 3BZ",
+    "website": "https://southmade.co.uk/",
+    "website_status": "has_website",
+    "phone": "07708 926139",
+    "queued_at": "2026-07-20T01:05:28.044350"
+  },
+  {
+    "prospect_id": 1172,
+    "business_name": "St Johns Carpenters",
+    "trade": "Carpenter",
+    "location": "Garratt Mills, Trewint St, London SW18 4HA",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07455 200145",
+    "queued_at": "2026-07-20T01:05:33.526281"
+  },
+  {
+    "prospect_id": 1174,
+    "business_name": "Nathan Wilson Joinery",
+    "trade": "Carpenter",
+    "location": "96 Pirbright Rd, London SW18 5NA",
+    "website": "https://nathanwilsonjoinery.co.uk/",
+    "website_status": "has_website",
+    "phone": "07846 780722",
+    "queued_at": "2026-07-20T01:05:41.951187"
+  },
+  {
+    "prospect_id": 1188,
+    "business_name": "Mortar Point Brickwork",
+    "trade": "Bricklayer",
+    "location": "The Grange, High St, Westerham TN16 1AH",
+    "website": "http://www.mortarpointbrickwork.co.uk/",
+    "website_status": "has_website",
+    "phone": "07885 737995",
+    "queued_at": "2026-07-20T01:05:43.102294"
+  },
+  {
+    "prospect_id": 1191,
+    "business_name": "Killitoon Brickwork",
+    "trade": "Bricklayer",
+    "location": "8A Harestone Ln, Caterham CR3 6BD",
+    "website": "http://www.killitoonbrickwork.co.uk/",
+    "website_status": "has_website",
+    "phone": "07973 151310",
+    "queued_at": "2026-07-20T01:05:43.699435"
+  },
+  {
+    "prospect_id": 1193,
+    "business_name": "Imperial Brickwork",
+    "trade": "Bricklayer",
+    "location": "147a Cromwell Rd, London SW5 0QD",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07904 246486",
+    "queued_at": "2026-07-20T01:05:44.053209"
+  },
+  {
+    "prospect_id": 1194,
+    "business_name": "Metro Scaffolding (Formerly South London Scaffolding)",
+    "trade": "Scaffolding",
+    "location": "Sidcup By-Pass, Sidcup DA14 6QH",
+    "website": "https://www.metro-scaffolding.co.uk/",
+    "website_status": "has_website",
+    "phone": "01322 683779",
+    "queued_at": "2026-07-20T01:05:44.132725"
+  },
+  {
+    "prospect_id": 1195,
+    "business_name": "LPK LONDON SCAFFOLDING LTD",
+    "trade": "Scaffolding",
+    "location": "519 Wandsworth Rd, London SW8 4PA",
+    "website": "https://lpkscaffolding.co.uk/",
+    "website_status": "has_website",
+    "phone": "07908 990666",
+    "queued_at": "2026-07-20T01:05:44.222496"
+  },
+  {
+    "prospect_id": 1196,
+    "business_name": "BALHAM SCAFFOLDING",
+    "trade": "Scaffolding",
+    "location": "Flat 23, West House, London SW12 0NF",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07711 578023",
+    "queued_at": "2026-07-20T01:05:44.233445"
+  },
+  {
+    "prospect_id": 1199,
+    "business_name": "South East London Scaffolding",
+    "trade": "Scaffolding",
+    "location": "Unit 20, 131 Cudham Ln N, Orpington BR6 6BY",
+    "website": "https://www.se-londonscaffolding.co.uk/",
+    "website_status": "has_website",
+    "phone": "07718 852456",
+    "queued_at": "2026-07-20T01:05:44.813557"
+  },
+  {
+    "prospect_id": 1201,
+    "business_name": "A2B Scaffolding Access Ltd",
+    "trade": "Scaffolding",
+    "location": "Brunel Court, Westfields Ave, London SW13 0BA",
+    "website": "https://www.a2bscaffoldingaccess.co.uk/",
+    "website_status": "has_website",
+    "phone": "07932 746826",
+    "queued_at": "2026-07-20T01:05:53.000403"
+  },
+  {
+    "prospect_id": 1202,
+    "business_name": "Wellbonds Scaffolding Ltd",
+    "trade": "Scaffolding",
+    "location": "Palace Rd, London SW2 3LB",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07984 466630",
+    "queued_at": "2026-07-20T01:05:53.012900"
+  },
+  {
+    "prospect_id": 1205,
+    "business_name": "London Scaffolding Ltd",
+    "trade": "Scaffolding",
+    "location": "116 Queen's Rd, London SE15 2JR",
+    "website": "http://www.londonscaffolding.co.uk/",
+    "website_status": "has_website",
+    "phone": "020 7118 6996",
+    "queued_at": "2026-07-20T01:05:55.551299"
+  },
+  {
+    "prospect_id": 1206,
+    "business_name": "NJW Scaffolding",
+    "trade": "Scaffolding",
+    "location": "Links Way, Beckenham, Bromley BR3 3DG",
+    "website": "http://njwscaffolding.co.uk/",
+    "website_status": "has_website",
+    "phone": "020 8226 4285",
+    "queued_at": "2026-07-20T01:05:57.091055"
+  },
+  {
+    "prospect_id": 1210,
+    "business_name": "WMB Scaffolding Rental Services",
+    "trade": "Scaffolding",
+    "location": "35 Darlaston Rd, London SW19 4LP",
+    "website": "http://wimbledonscaffolding.co.uk/",
+    "website_status": "has_website",
+    "phone": "07418 350315",
+    "queued_at": "2026-07-20T01:05:57.259619"
+  },
+  {
+    "prospect_id": 1211,
+    "business_name": "LE Basement Construction & Groundworks",
+    "trade": "Groundworks",
+    "location": "137 High St, New Malden KT3 4BH",
+    "website": "https://basementsandgroundworks.co.uk/",
+    "website_status": "has_website",
+    "phone": "07418 315692",
+    "queued_at": "2026-07-20T01:05:57.338276"
+  },
+  {
+    "prospect_id": 1212,
+    "business_name": "Hard Stone Construction",
+    "trade": "Groundworks",
+    "location": "1115 London Rd, London SW16 4XD",
+    "website": "https://hard-stone-construction.ueniweb.com/?utm_campaign=gmb",
+    "website_status": "has_website",
+    "phone": "07450 281303",
+    "queued_at": "2026-07-20T01:05:57.608827"
+  },
+  {
+    "prospect_id": 1214,
+    "business_name": "Amp Building & Groundworks Ltd",
+    "trade": "Groundworks",
+    "location": "71 Shroffold Rd, Bromley BR1 5PD",
+    "website": "https://www.ampbuildingandgroundworks.co.uk/",
+    "website_status": "has_website",
+    "phone": "07581 352631",
+    "queued_at": "2026-07-20T01:06:03.690756"
+  },
+  {
+    "prospect_id": 1216,
+    "business_name": "777 Demolition & Haulage Co Ltd",
+    "trade": "Demolition",
+    "location": "Suite 268/270, Airport House, Purley Way, Croydon CR0 0XZ",
+    "website": "http://www.777group.com/",
+    "website_status": "has_website",
+    "phone": "020 8689 6861",
+    "queued_at": "2026-07-20T01:06:06.046246"
+  },
+  {
+    "prospect_id": 1217,
+    "business_name": "Dave Mundy Strip-Out Ltd",
+    "trade": "Demolition",
+    "location": "Unit 3, 24 Willow Ln, Mitcham CR4 4NA",
+    "website": "https://www.dms-limited.com/",
+    "website_status": "has_website",
+    "phone": "07534 222275",
+    "queued_at": "2026-07-20T01:06:06.133600"
+  },
+  {
+    "prospect_id": 1219,
+    "business_name": "BibbEgan Demolition and Strip Out",
+    "trade": "Demolition",
+    "location": "Tower House, Anchor Business Park, 102 Beddington Ln, Croydon CR0 4YX",
+    "website": "http://bibbegan.co.uk/%20%20%20https://bet-enabling.com/",
+    "website_status": "has_website",
+    "phone": "020 7232 1882",
+    "queued_at": "2026-07-20T01:06:13.063835"
+  },
+  {
+    "prospect_id": 1220,
+    "business_name": "Hackney Heating Specialists",
+    "trade": "Demolition",
+    "location": "10 Dominion St, London EC2M 2EF",
+    "website": "http://hackneyheathingspec.co.uk/",
+    "website_status": "has_website",
+    "phone": "020 3670 8329",
+    "queued_at": "2026-07-20T01:06:13.130931"
+  },
+  {
+    "prospect_id": 1221,
+    "business_name": "B-Line Ltd - Construction Company london - Construction Services London",
+    "trade": "Demolition",
+    "location": "Unit 5A Lombard Rd, London SW19 3TZ",
+    "website": "https://www.b-line.co/?utm_source=Google&utm_medium=GMB",
+    "website_status": "has_website",
+    "phone": "020 8391 2701",
+    "queued_at": "2026-07-20T01:06:13.637064"
+  },
+  {
+    "prospect_id": 1222,
+    "business_name": "Syd Bishop & Sons Ltd",
+    "trade": "Demolition",
+    "location": "Waldens Depot, Waldens Rd, Orpington BR5 4EU",
+    "website": "http://www.sydbishop.co.uk/?utm_source=google&utm_medium=GMB",
+    "website_status": "has_website",
+    "phone": "0800 151 0236",
+    "queued_at": "2026-07-20T01:06:14.007327"
+  },
+  {
+    "prospect_id": 1224,
+    "business_name": "S&V DEMOLITION LTD",
+    "trade": "Demolition",
+    "location": "66 Gosterwood St, London SE8 5NY",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07710 503684",
+    "queued_at": "2026-07-20T01:06:14.584955"
   }
 ]
