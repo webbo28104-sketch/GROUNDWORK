@@ -4938,15 +4938,16 @@ def _render_kpi_strip(kpis: dict) -> str:
 
 _FUNNEL_STAGES = list(STAGE_LABELS.items())
 
-# "Opened" was greyed-out/disabled from 2026-07-20 until the tracking DNS
-# record verified in Resend and the webhook fix (opened_at no longer
-# gated behind funnel_substage == "sent") shipped. Re-enabled the same day
-# once both were in place, ahead of a genuine open-without-click actually
-# being observed — the config/code are confirmed right, but real proof
-# (a real open landing on a prospect who hasn't clicked) is still pending
-# the next send batch. If it turns out still not firing, flip this back
-# to True rather than let it quietly show 0s as if that were meaningful.
-_FUNNEL_OPENED_DISABLED = False
+# "Opened" was unreliable before 2026-07-20 (open tracking wasn't verified
+# in Resend, and a webhook bug gated opened_at behind funnel_substage ==
+# "sent" so it couldn't fire for prospects already past that substage).
+# Both fixed 2026-07-20 — that date is the real reliability cutoff, not a
+# permanent on/off switch, so admin_funnel() now computes this per-request
+# from the selected date range rather than using a single hardcoded flag:
+# disabled whenever the range includes (or is unbounded back past) any
+# date before the cutoff, enabled only when the whole selected range is
+# on/after it. See _OPENED_TRACKING_RELIABLE_FROM below.
+_OPENED_TRACKING_RELIABLE_FROM = datetime(2026, 7, 20)
 
 # Every follow-up stage's cohort is defined by prospects already AT a given
 # funnel_substage when the touch fired (STAGE_BY_SUBSTAGE) — so every column
@@ -5131,6 +5132,18 @@ def admin_funnel():
     range_from = _parse_date(from_str)
     range_to = _parse_date(to_str)
 
+    # Shadows the module-level default with a per-request value based on
+    # the selected range — see _OPENED_TRACKING_RELIABLE_FROM's comment.
+    # No "from" date at all means the range is unbounded backwards (i.e.
+    # "all time"), which necessarily includes the unreliable pre-cutoff
+    # period, so that also disables it — only an explicit from-date on or
+    # after the cutoff counts as "reliable data only."
+    _FUNNEL_OPENED_DISABLED = range_from is None or range_from < _OPENED_TRACKING_RELIABLE_FROM
+    opened_disabled_title = (
+        f"Disabled — the selected range includes dates before {_OPENED_TRACKING_RELIABLE_FROM.strftime('%d %b %Y')}, "
+        f"when open tracking wasn't yet reliable. Select a from-date on or after that to see real numbers."
+    )
+
     db = SessionLocal()
     try:
         kpi_strip = _render_kpi_strip(_compute_kpis(db))
@@ -5286,7 +5299,7 @@ def admin_funnel():
                     # bold styling or %-of-delivered rate implying it's a
                     # trusted, actionable number the way the other columns are.
                     cells += (
-                        f'<td style="text-align:center;opacity:.45;" title="Disabled — open tracking not yet verified working.">'
+                        f'<td style="text-align:center;opacity:.45;" title="{escape(opened_disabled_title)}">'
                         f'<div style="font-size:15px;font-weight:700;">{count}</div>'
                         f'<div style="font-size:10.5px;color:#9A9893;margin-top:2px;">disabled</div></td>'
                     )
@@ -5318,7 +5331,7 @@ def admin_funnel():
 
         header_cells = "".join(
             f'<th style="text-align:center;{"opacity:.45;" if s == "Opened" and _FUNNEL_OPENED_DISABLED else ""}" '
-            f'title="{"Disabled — open tracking not yet verified working." if s == "Opened" and _FUNNEL_OPENED_DISABLED else ""}">'
+            f'title="{escape(opened_disabled_title) if s == "Opened" and _FUNNEL_OPENED_DISABLED else ""}">'
             f'{s}{" (disabled)" if s == "Opened" and _FUNNEL_OPENED_DISABLED else ""}</th>'
             for s in _FUNNEL_STEPS
         )
@@ -5358,13 +5371,12 @@ caused) and is greyed out with a "cohort def." label rather than shown as real s
 Account Created and Paid are real, measurable outcomes for that row. The "Sent" column shows
 delivered count as the headline number, with attempted/bounced beneath it — a bounced send never
 reached an inbox, so every rate to its right is based on delivered, not attempted.</p>
-<p class="adm-sub" style="color:#B45309;background:#FEF3C7;padding:10px 14px;border-radius:8px;">
-⚠ "Opened" was re-enabled 2026-07-20 after the tracking DNS record verified in Resend and the
-webhook fix (opened_at no longer gated behind funnel_substage == "sent") shipped — the config and
-code are both confirmed correct, but a genuine open-without-click hasn't been directly observed yet
-to prove the pixel fires end-to-end in practice. Numbers below should be trustworthy; if this row
-still reads 0 across real sends well after the next batch has had time to be opened, that's a signal
-something's still wrong and this should go back to disabled rather than be trusted at face value.</p>
+{"" if _FUNNEL_OPENED_DISABLED else f'''<p class="adm-sub" style="color:#B45309;background:#FEF3C7;padding:10px 14px;border-radius:8px;">
+⚠ "Opened" is only reliable for data on/after {_OPENED_TRACKING_RELIABLE_FROM.strftime("%d %b %Y")} — before that,
+open tracking wasn't verified in Resend and a webhook bug gated opened_at behind funnel_substage == "sent" so it
+couldn't fire for prospects already past that substage. Both fixed on that date. The current view is within the
+reliable range, so the numbers below should be trustworthy — select an earlier from-date and this column greys
+out automatically rather than showing numbers from before the fix.</p>'''}
 
 {kpi_strip}
 
