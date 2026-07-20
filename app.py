@@ -4718,18 +4718,8 @@ def admin_followups():
         rows.sort(key=lambda r: r["due_sort"])
         due_now_n = sum(1 for r in rows if r["due_sort"] == -1)
 
-        gate_off = not EMAIL_REPLY_CAPTURE_READY and not SMS_REPLY_CAPTURE_READY
         gate_html = ""
-        if gate_off:
-            gate_html = """
-<div class="adm-card" style="padding:20px 24px;margin-bottom:20px;background:#FEF2F2;border-color:#FCA5A5;">
-  <p style="font-weight:700;margin:0 0 6px;color:#B91C1C;">Nothing below is actually being sent.</p>
-  <p class="muted" style="margin:0;">Neither <code>EMAIL_REPLY_CAPTURE_READY</code> nor <code>SMS_REPLY_CAPTURE_READY</code>
-  is set to <code>true</code> on send-job-cron — run_followups() hard-blocks and sends zero touches every night
-  until at least one is (Section 11a: reply-triggered kill-switch handling must be live and verified on a channel
-  first). This queue shows what <b>would</b> fire once that's on, not what's actually gone out.</p>
-</div>"""
-        elif not EMAIL_REPLY_CAPTURE_READY or not SMS_REPLY_CAPTURE_READY:
+        if not EMAIL_REPLY_CAPTURE_READY or not SMS_REPLY_CAPTURE_READY:
             missing = "email" if not EMAIL_REPLY_CAPTURE_READY else "SMS"
             gate_html = f"""
 <div class="adm-card" style="padding:16px 24px;margin-bottom:20px;background:#FFFBEB;border-color:#FDE68A;">
