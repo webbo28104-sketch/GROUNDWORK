@@ -8073,8 +8073,24 @@ def resend_events_webhook():
                 func.lower(Prospect.email) == to_email.strip().lower()
             ).first()
             if prospect:
-                if prospect.funnel_substage == "sent":
+                # opened_at is a factual timestamp ("this person opened the
+                # email at least once") and is independent of funnel_substage
+                # advancement — they're not the same operation. The original
+                # code gated BOTH behind funnel_substage == "sent", so anyone
+                # who clicked the magic link before the open webhook was
+                # delivered (funnel_substage already "clicked_generated" by
+                # then — webhook delivery isn't instant, and a real prospect
+                # can click within seconds of opening) never got opened_at
+                # written at all, despite genuinely having opened the email
+                # — you can't click a link inside an email without opening
+                # it first. Confirmed 2026-07-20: all 3 real clicked
+                # prospects in production had opened_at still NULL (one
+                # clicked 27 seconds after send). Substage still only
+                # advances one-way from "sent", same as before — that part
+                # wasn't wrong, only tying the timestamp write to it was.
+                if prospect.opened_at is None:
                     prospect.opened_at = datetime.utcnow()
+                if prospect.funnel_substage == "sent":
                     prospect.funnel_substage = "opened"
                     app.logger.info(
                         f"resend_events_webhook: prospect {prospect.id} ({to_email}) "
@@ -8082,8 +8098,8 @@ def resend_events_webhook():
                     )
                 else:
                     app.logger.info(
-                        f"resend_events_webhook: prospect {prospect.id} ({to_email}) opened, "
-                        f"but substage is already {prospect.funnel_substage!r} — not regressing state"
+                        f"resend_events_webhook: prospect {prospect.id} ({to_email}) opened_at recorded, "
+                        f"substage already {prospect.funnel_substage!r} — not regressing substage"
                     )
             else:
                 app.logger.info(f"resend_events_webhook: open event for {to_email} — no matching prospect")
