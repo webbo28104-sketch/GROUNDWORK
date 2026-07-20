@@ -4938,17 +4938,15 @@ def _render_kpi_strip(kpis: dict) -> str:
 
 _FUNNEL_STAGES = list(STAGE_LABELS.items())
 
-# "Opened" is shown greyed-out/disabled, not removed (2026-07-20) — it's
-# an important metric long-term, but not a trustworthy one right now:
-# open-pixel tracking's DNS record was still showing "Failed" in Resend as
-# of the last check, and no new open event has come in since the webhook
-# fix to prove the pixel actually fires end-to-end. The 3 historical
-# values were back-filled from clicked_at (a safe inference — you can't
-# click a link without opening the email), not from a real pixel event.
-# _FUNNEL_OPENED_DISABLED gates the greyed-out styling below; flip to
-# False once Resend shows the tracking domain verified AND a genuine
-# open-without-click has been observed to actually set opened_at.
-_FUNNEL_OPENED_DISABLED = True
+# "Opened" was greyed-out/disabled from 2026-07-20 until the tracking DNS
+# record verified in Resend and the webhook fix (opened_at no longer
+# gated behind funnel_substage == "sent") shipped. Re-enabled the same day
+# once both were in place, ahead of a genuine open-without-click actually
+# being observed — the config/code are confirmed right, but real proof
+# (a real open landing on a prospect who hasn't clicked) is still pending
+# the next send batch. If it turns out still not firing, flip this back
+# to True rather than let it quietly show 0s as if that were meaningful.
+_FUNNEL_OPENED_DISABLED = False
 
 # Every follow-up stage's cohort is defined by prospects already AT a given
 # funnel_substage when the touch fired (STAGE_BY_SUBSTAGE) — so every column
@@ -5361,12 +5359,12 @@ Account Created and Paid are real, measurable outcomes for that row. The "Sent" 
 delivered count as the headline number, with attempted/bounced beneath it — a bounced send never
 reached an inbox, so every rate to its right is based on delivered, not attempted.</p>
 <p class="adm-sub" style="color:#B45309;background:#FEF3C7;padding:10px 14px;border-radius:8px;">
-⚠ "Opened" is greyed out below, not removed — it's a real, important metric, just not a trustworthy
-one yet. The webhook code that would record a real open is fixed and verified correct, but the DNS
-record Resend needs for tracking was still showing "Failed" in Resend's dashboard as of the last
-check, and no genuine open-without-click has been observed since the fix to prove the pixel actually
-fires end-to-end. Re-enable (<code>_FUNNEL_OPENED_DISABLED = False</code>) once Resend shows the
-tracking domain verified <em>and</em> a real open has been confirmed to set opened_at on its own.</p>
+⚠ "Opened" was re-enabled 2026-07-20 after the tracking DNS record verified in Resend and the
+webhook fix (opened_at no longer gated behind funnel_substage == "sent") shipped — the config and
+code are both confirmed correct, but a genuine open-without-click hasn't been directly observed yet
+to prove the pixel fires end-to-end in practice. Numbers below should be trustworthy; if this row
+still reads 0 across real sends well after the next batch has had time to be opened, that's a signal
+something's still wrong and this should go back to disabled rather than be trusted at face value.</p>
 
 {kpi_strip}
 
