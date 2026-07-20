@@ -611,16 +611,33 @@ The biggest risk to this pipeline is emails landing in spam, not generation cost
 
 ### Dynamic send ramp (email)
 
-No fixed ceiling. Volume compounds weekly as long as email health metrics stay clean:
+No fixed ceiling. Volume compounds weekly as long as email health metrics stay clean. Reconciled
+2026-07-20 to match `EMAIL_RAMP_TABLE` in `outreach/ramp.py` — this table used to describe 5–10/
+15–25/30–50 ranges that the code never actually implemented (it always used flat numbers); this is
+now the real, currently-running schedule, not an aspirational one:
 
 | Period | Daily email volume |
 |---|---|
-| Week 1 | 5–10/day |
-| Week 2 | 15–25/day |
-| Week 3 | 30–50/day |
-| Week 4+ | double the prior week's volume each week |
+| Week 1 (floor) | 20/day |
+| Week 2 | 25/day |
+| Week 3 | 50/day |
+| Week 4+ | double the prior week's volume each week (100, 200, 400, ...) |
 
-**Advancement trigger:** spam rate (Postmaster Tools) stays below 0.1% for the full preceding week. If spam rate hits 0.1%, hold volume flat at the current level for another week before trying to advance. If it crosses the circuit-breaker threshold (Section 10b), pause email entirely and reset to week-1 floor on resume.
+**Advancement trigger:** evaluated nightly (`advance_or_hold()`, called at the start of every
+send-job-cron run) against the trailing-7-day `bounce_rate` and `complaint_rate` from
+`get_health_signal("email")` — not Postmaster Tools, which still isn't wired (see "Implementation
+status" above); Resend's webhook-derived `EmailEventLog` data is the real signal in use today.
+Below `MIN_EMAIL_SAMPLE_SIZE` (30 sends in the trailing window), the signal is `None` and the ramp
+holds flat rather than advancing on insufficient data. Advances to the next week's volume once a
+full 7 days have elapsed at the current week's rate with no breach. **Circuit breaker:** any single
+day where `complaint_rate >= EMAIL_SPAM_RATE_TRIGGER` (0.1%) or `bounce_rate >= EMAIL_BOUNCE_RATE_TRIGGER`
+(5%) trips immediately — no "hold flat and retry" grace period — resetting straight to the week-1
+floor (20/day) and `week_number = 1`. Recovery requires `CIRCUIT_BREAKER_RECOVERY_DAYS` (7)
+*consecutive* clean days while tripped (any breach during recovery resets the counter to 0); because
+both rates are trailing-7-day windows, a single bad day takes about a week to fully age out before
+the clean-day count can even start climbing, so real recovery end-to-end is meaningfully longer than
+7 days. See Section 10b for the split-trigger rationale and the pre-send MX/A-record mitigation that
+now runs before this ever needs to trip.
 
 **Drip, not batch.** Spread the day's send allowance across the day rather than firing all at once — a sudden burst from a new domain is itself a spam signal. Space sends at randomised intervals across the waking hours.
 
