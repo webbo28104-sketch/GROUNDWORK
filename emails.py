@@ -115,6 +115,32 @@ def send_resend_email(to_email: str, my_sites_url: str) -> None:
     _send(to_email, "Your Groundwork website(s)", html)
 
 
+def send_site_ready_email(to_email: str, business_name: str, preview_url: str, account_login_url: str) -> None:
+    """Notify a customer their generated site is ready to preview, as soon as
+    generation finishes — sent in addition to (not instead of) the loading
+    page's own poll-and-redirect, since a real share of people who click the
+    verification link don't sit through the ~3 minute build and bounce
+    before ever seeing the result. Points at /account/login rather than the
+    preview link directly, matching the existing account flow: entering this
+    email there finds the just-created Generation and goes straight to
+    "choose a password" (no re-verification needed, they already proved the
+    address by clicking the original verification link)."""
+    biz = escape(business_name) if business_name else "your website"
+    html = _wrapper(
+        preheader=f"Your Groundwork website for {business_name or 'your business'} has finished building.",
+        heading="Your website is ready to preview",
+        body_html=(
+            f"Good news — <strong>{biz}</strong> has finished building. "
+            f"Click below to preview it now, or come back any time and sign in with just this email "
+            f"address at <a href=\"{account_login_url}\" style=\"color:{ACCENT};\">{account_login_url}</a> "
+            f"to get back to your account."
+        ),
+        cta_url=preview_url,
+        cta_label="Preview my website →",
+    )
+    _send(to_email, f"Your website is ready to preview — {business_name or 'Groundwork'}", html)
+
+
 def send_password_reset_email(to_email: str, reset_url: str) -> None:
     html = _wrapper(
         preheader="You're receiving this because a password reset was requested for this Groundwork account.",

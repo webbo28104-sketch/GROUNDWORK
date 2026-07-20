@@ -35,7 +35,8 @@ from emails import (send_verification_email, send_resend_email, send_password_re
                     send_support_message_email, send_enquiry_email,
                     send_domain_order_admin_email, send_domain_order_customer_email,
                     send_domain_setup_failed_email, send_domain_live_email,
-                    send_admin_magic_link_clicked_email, send_admin_payment_received_email)
+                    send_admin_magic_link_clicked_email, send_admin_payment_received_email,
+                    send_site_ready_email)
 from outreach.reply_handling import handle_inbound_sms, handle_inbound_email, handle_forced_sms_stop
 from outreach.templates import SURVEY_DISCOUNT_PERCENT
 from outreach.ramp import (
@@ -1268,8 +1269,28 @@ def _run_and_persist(job_id, lead_id, email, business_name, prompt, logo_b64, lo
             ))
 
         db.commit()
+
+        lead_is_test = db.get(Lead, lead_id).is_test
     finally:
         db.close()
+
+    # Fired for every caller of _kickoff_generation (the public /verify/<token>
+    # funnel, the outreach magic-link claim flow, and the logged-in fast path)
+    # — a real share of people click the link and don't sit through the ~3
+    # minute build, so the loading page's own poll-and-redirect alone loses
+    # them. This is a second, independent notification once the site is
+    # actually ready; it points at /account/login (email-only — they already
+    # proved the address by clicking the original link) as well as the direct
+    # preview link, so they can get back to it later even if they close the tab.
+    # Skipped for admin test generations (/admin/generate-test) — those aren't
+    # real customers and shouldn't get a "your website is ready" email.
+    if email and not lead_is_test:
+        send_site_ready_email(
+            email,
+            business_name,
+            preview_url=f"{SITE_URL}/preview.html?id={job_id}",
+            account_login_url=f"{SITE_URL}/account/login",
+        )
 
 
 def _client_ip():
