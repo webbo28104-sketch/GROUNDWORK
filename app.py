@@ -1529,448 +1529,6 @@ a:hover{text-decoration:underline;}
 
 _GW_LOGO_SVG = '<svg viewBox="0 0 48 48" width="28" height="28" fill="none"><path d="M 37 13.1 A 17 17 0 1 0 41 24 L 27 24" stroke="#3B82F6" stroke-width="4.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M 30.9 18.2 A 9 9 0 1 0 30.9 29.8" stroke="#3B82F6" stroke-width="4.6" stroke-linecap="round"/></svg>'
 
-# Ported verbatim from the old standalone frontend/outreach-queue.html static
-# file (removed) — same Tinder-style review card, filters, and JS behavior,
-# just dropped into _admin_page()'s shared shell instead of hand-duplicating
-# a second header/nav. Page-specific CSS (the dark review card, filter tabs,
-# etc.) stays scoped in its own <style> tag rather than merging into
-# _ADMIN_STYLE, since it's a one-off component, not part of the shared design
-# system other admin pages use.
-_ADMIN_OUTREACH_CONTENT = """<style>
-  *{box-sizing:border-box;}
-  html,body{margin:0;padding:0;}
-  body{
-    font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-    background:#F5F3EE; color:#1C1C1C;
-    min-height:100vh; display:flex; flex-direction:column;
-  }
-
-  /* ── Header ─────────────────────────────────────────────────────── */
-  header{
-    background:#1C1C1C;
-    border-bottom:1px solid #2C2C2C;
-    position:sticky; top:0; z-index:100;
-  }
-  .header-inner{
-    max-width:1200px; margin:0 auto; padding:0 24px;
-    height:64px; display:flex; align-items:center; justify-content:space-between; gap:20px;
-  }
-  .logo{display:flex;align-items:center;gap:10px;text-decoration:none;}
-  .logo svg{flex-shrink:0;}
-  .logo span{color:#fff;font-weight:800;font-size:19px;letter-spacing:-.03em;}
-  .admin-badge{
-    font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;
-    background:#2C2C2C;color:#9A9893;padding:3px 7px;border-radius:5px;
-    margin-left:2px;
-  }
-  header nav{display:flex;align-items:center;gap:4px;}
-  header nav a{
-    color:#9A9893; text-decoration:none; font-size:13px; font-weight:600;
-    padding:6px 11px; border-radius:7px; transition:background .12s,color .12s;
-  }
-  header nav a:hover{background:#2C2C2C;color:#fff;}
-  header nav a.active{background:#2C2C2C;color:#fff;}
-  header nav .logout{color:#6B7280;margin-left:6px;}
-
-  /* ── Layout ──────────────────────────────────────────────────────── */
-  main{flex:1;display:flex;flex-direction:column;align-items:center;padding:32px 16px 72px;}
-
-  /* ── Stats bar ───────────────────────────────────────────────────── */
-  .statsbar{
-    font-size:13px;color:#5C5A56;font-weight:600;
-    margin-bottom:24px;text-align:center;min-height:20px;
-    display:flex;gap:16px;align-items:center;justify-content:center;flex-wrap:wrap;
-  }
-  .statsbar .stat{display:flex;align-items:center;gap:5px;}
-  .statsbar .stat b{color:#1C1C1C;font-weight:800;font-size:15px;}
-  .statsbar .dot{width:4px;height:4px;border-radius:50%;background:#D8D5CE;}
-
-  /* ── Filter tabs ─────────────────────────────────────────────────── */
-  .filters{display:flex;gap:8px;margin-bottom:20px;}
-  .filter-btn{
-    font-size:12.5px;font-weight:700;padding:7px 14px;border-radius:999px;
-    border:1.5px solid #D8D5CE;background:#fff;color:#5C5A56;cursor:pointer;
-    transition:background .12s,color .12s,border-color .12s;
-  }
-  .filter-btn:hover{border-color:#B8B5AE;}
-  .filter-btn.active{background:#1C1C1C;border-color:#1C1C1C;color:#fff;}
-
-  /* ── Review card ─────────────────────────────────────────────────── */
-  .card{
-    width:100%;max-width:540px;
-    background:#1C1C1C;color:#fff;
-    border-radius:20px;padding:30px 30px 26px;
-    border:1px solid #2E2F35;
-    box-shadow:0 20px 48px rgba(0,0,0,.16);
-    transition:transform .18s ease,opacity .18s ease;
-  }
-  .card.out-left {transform:translateX(-44px) rotate(-2.5deg);opacity:0;}
-  .card.out-right{transform:translateX(44px)  rotate( 2.5deg);opacity:0;}
-
-  .badges{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px;}
-  .badge{
-    font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;
-    padding:4px 10px;border-radius:999px;
-  }
-  .badge.tier-high  {background:rgba(59,130,246,.18);color:#93C5FD;}
-  .badge.tier-medium{background:rgba(245,158,11,.18); color:#FCD34D;}
-  .badge.tier-low   {background:rgba(156,163,175,.18);color:#D1D5DB;}
-  .badge.web-none   {background:rgba(16,185,129,.18); color:#6EE7B7;}
-  .badge.web-dated  {background:rgba(245,158,11,.18); color:#FCD34D;}
-  .badge.web-modern {background:rgba(156,163,175,.18);color:#D1D5DB;}
-
-  .biz{
-    font-family:'Plus Jakarta Sans','Inter',sans-serif;
-    font-size:26px;font-weight:900;letter-spacing:-.02em;line-height:1.15;margin:0 0 5px;
-  }
-  .loc{color:#8A8D96;font-size:13.5px;margin:0 0 18px;}
-
-  .rating{display:flex;align-items:center;gap:8px;margin-bottom:20px;font-size:13.5px;color:#E5E7EB;}
-  .rating .stars{color:#F59E0B;letter-spacing:1px;font-size:15px;}
-  .rating .rc{color:#6B7280;}
-
-  .scorewrap{display:flex;align-items:flex-end;gap:10px;margin-bottom:8px;}
-  .score{font-size:50px;font-weight:900;line-height:1;letter-spacing:-.03em;font-family:'Plus Jakarta Sans','Inter',sans-serif;}
-  .score small{font-size:19px;font-weight:700;color:#6B7280;}
-  .scorebar{height:6px;border-radius:999px;background:#2E2F35;overflow:hidden;margin-bottom:22px;}
-  .scorebar > i{display:block;height:100%;border-radius:999px;transition:width .3s ease;}
-
-  .links{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:20px;font-size:13px;}
-  .links a{color:#60A5FA;text-decoration:none;font-weight:600;}
-  .links a:hover{text-decoration:underline;}
-
-  .email{
-    font-size:13px;color:#8A8D96;margin-bottom:22px;word-break:break-all;
-    background:#242528;border-radius:8px;padding:9px 12px;
-  }
-  .email b{color:#E5E7EB;font-weight:600;}
-
-  .divider{height:1px;background:#2E2F35;margin:0 0 22px;}
-
-  .actions{display:flex;gap:10px;}
-  .btn{
-    flex:1;padding:14px 0;border-radius:11px;font-size:15px;font-weight:800;
-    cursor:pointer;border:none;font-family:inherit;transition:filter .12s,background .12s;
-  }
-  .btn.pass{background:#242528;color:#9CA3AF;border:1.5px solid #3A3B40;}
-  .btn.pass:hover{background:#2E2F35;color:#E5E7EB;filter:none;}
-  .btn.approve{background:#3B82F6;color:#fff;}
-  .btn.approve:hover{background:#2563EB;filter:none;}
-
-  .hint{
-    text-align:center;font-size:11.5px;color:#4B4D55;margin-top:13px;letter-spacing:.01em;
-  }
-  .hint kbd{
-    background:#242528;border:1px solid #3A3B40;
-    border-radius:5px;padding:1px 6px;font-family:inherit;font-size:10.5px;font-weight:700;color:#9CA3AF;
-  }
-
-  /* ── States ──────────────────────────────────────────────────────── */
-  .state{max-width:540px;text-align:center;padding:60px 20px;}
-  .state h2{
-    font-family:'Plus Jakarta Sans','Inter',sans-serif;
-    color:#1C1C1C;font-size:22px;font-weight:800;margin:0 0 10px;
-  }
-  .state p{margin:0 0 6px;font-size:14px;color:#5C5A56;}
-  .state .cmd{
-    display:inline-block;margin-top:14px;background:#1C1C1C;color:#A3E635;
-    font-family:ui-monospace,'SF Mono','Fira Code',monospace;
-    font-size:12.5px;padding:9px 16px;border-radius:8px;letter-spacing:.01em;
-  }
-
-  .spinner{
-    width:32px;height:32px;border:2.5px solid #E2E0DA;border-top-color:#3B82F6;
-    border-radius:50%;animation:spin .75s linear infinite;margin:0 auto 18px;
-  }
-  @keyframes spin{to{transform:rotate(360deg);}}
-
-  .hidden{display:none !important;}
-
-  /* Page-specific overrides layered on the shared admin shell — the
-     dark Tinder-style review card is a one-off component, not part of
-     the general admin design system, so it keeps its own scoped CSS
-     here rather than polluting _ADMIN_STYLE. */
-  .adm-main{display:flex;flex-direction:column;align-items:center;}
-</style>
-
-  <div class="statsbar" id="statsbar">
-    <span style="color:#9A9893;">Loading…</span>
-  </div>
-
-  <div class="filters">
-    <button class="filter-btn active" id="filterApproval" data-filter="awaiting_approval">To review</button>
-    <button class="filter-btn" id="filterUnreachable" data-filter="unreachable">Unreachable</button>
-  </div>
-
-  <!-- Loading -->
-  <div class="state" id="loadingState">
-    <div class="spinner"></div>
-    <p>Loading queue…</p>
-  </div>
-
-  <!-- Empty -->
-  <div class="state hidden" id="emptyState">
-    <h2 id="emptyTitle">Queue empty</h2>
-    <p id="emptyBody">All prospects have been reviewed, or none have been sourced yet.</p>
-    <p id="reviewedCount" class="hidden"></p>
-    <code class="cmd">railway run python outreach/pipeline.py --cells 25</code>
-  </div>
-
-  <!-- Review card -->
-  <div class="card hidden" id="card">
-    <div class="badges">
-      <span class="badge" id="tierBadge"></span>
-      <span class="badge" id="webBadge"></span>
-    </div>
-    <h1 class="biz" id="bizName"></h1>
-    <p class="loc" id="loc"></p>
-    <div class="rating" id="ratingRow"></div>
-    <div class="scorewrap">
-      <span class="score" id="scoreNum">—<small>/100</small></span>
-    </div>
-    <div class="scorebar"><i id="scoreBar" style="width:0%"></i></div>
-    <div class="links" id="links"></div>
-    <div class="email hidden" id="emailRow"></div>
-    <div class="divider"></div>
-    <div class="actions">
-      <button class="btn pass"    id="passBtn">✕ Pass</button>
-      <button class="btn approve" id="approveBtn">✓ Approve</button>
-    </div>
-    <p class="hint" id="actionHint">
-      <kbd>←</kbd> Pass &nbsp;·&nbsp; Approve <kbd>→</kbd>
-    </p>
-  </div>
-
-<script>
-(function(){
-  var current = null;
-  var busy = false;
-  var reviewedThisSession = 0;
-  var currentFilter = 'awaiting_approval';
-
-  var el = {
-    statsbar:     document.getElementById('statsbar'),
-    loading:      document.getElementById('loadingState'),
-    empty:        document.getElementById('emptyState'),
-    emptyTitle:   document.getElementById('emptyTitle'),
-    emptyBody:    document.getElementById('emptyBody'),
-    reviewedCount:document.getElementById('reviewedCount'),
-    card:         document.getElementById('card'),
-    tierBadge:    document.getElementById('tierBadge'),
-    webBadge:     document.getElementById('webBadge'),
-    bizName:      document.getElementById('bizName'),
-    loc:          document.getElementById('loc'),
-    ratingRow:    document.getElementById('ratingRow'),
-    scoreNum:     document.getElementById('scoreNum'),
-    scoreBar:     document.getElementById('scoreBar'),
-    links:        document.getElementById('links'),
-    emailRow:     document.getElementById('emailRow'),
-    passBtn:      document.getElementById('passBtn'),
-    approveBtn:   document.getElementById('approveBtn'),
-    actionHint:   document.getElementById('actionHint'),
-    filterApproval:   document.getElementById('filterApproval'),
-    filterUnreachable:document.getElementById('filterUnreachable')
-  };
-
-  function authGuard(res){
-    if(res.status === 401 || res.status === 403){
-      window.location = '/admin/login?next=/admin/outreach';
-      return true;
-    }
-    return false;
-  }
-
-  function esc(s){
-    return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){
-      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
-    });
-  }
-
-  function stars(rating){
-    if(rating == null) return '';
-    var full = Math.round(rating);
-    var out = '';
-    for(var i=0;i<5;i++){ out += (i < full) ? '★' : '☆'; }
-    return out;
-  }
-
-  function tierClass(t){
-    return t === 'high' ? 'tier-high' : t === 'medium' ? 'tier-medium' : 'tier-low';
-  }
-  function tierLabel(t){
-    return t === 'high' ? 'High value' : t === 'medium' ? 'Medium' : 'Low';
-  }
-
-  function webInfo(status){
-    if(status === 'no_website')         return {cls:'web-none',   label:'No website'};
-    if(status === 'has_website')        return {cls:'web-dated',  label:'Has website'};
-    if(status === 'has_website_dated')  return {cls:'web-dated',  label:'Dated site'};
-    if(status === 'has_website_modern') return {cls:'web-modern', label:'Modern site'};
-    return {cls:'web-modern', label:'Unknown'};
-  }
-
-  function scoreColor(s){
-    if(s == null) return '#4B4D55';
-    if(s > 70)  return '#10B981';
-    if(s >= 50) return '#F59E0B';
-    return '#6B7280';
-  }
-
-  function show(node){ node.classList.remove('hidden'); }
-  function hide(node){ node.classList.add('hidden'); }
-
-  function refreshStats(){
-    fetch('/api/admin/outreach/stats',{credentials:'same-origin'})
-      .then(function(r){ if(authGuard(r)) return null; return r.json(); })
-      .then(function(s){
-        if(!s) return;
-        el.statsbar.innerHTML =
-          '<span class="stat"><b>'+(s.awaiting_approval||0)+'</b> in queue</span>' +
-          '<span class="dot"></span>' +
-          '<span class="stat"><b>'+(s.approved_today||0)+'</b> approved today</span>' +
-          '<span class="dot"></span>' +
-          '<span class="stat"><b>'+(s.rejected_today||0)+'</b> passed today</span>' +
-          '<span class="dot"></span>' +
-          '<span class="stat" style="color:#9A9893;font-weight:500;">'+(s.approved||0)+' approved total · '+(s.qualified_no_email||0)+' no email · '+(s.unreachable||0)+' unreachable</span>';
-      })
-      .catch(function(){});
-  }
-
-  function renderCard(p){
-    current = p;
-
-    el.tierBadge.className = 'badge ' + tierClass(p.trade_tier);
-    el.tierBadge.textContent = esc(p.trade||'') + ' · ' + tierLabel(p.trade_tier);
-
-    var w = webInfo(p.website_status);
-    el.webBadge.className = 'badge ' + w.cls;
-    el.webBadge.textContent = w.label;
-
-    el.bizName.textContent = p.business_name || '(unnamed)';
-    el.loc.textContent = p.location || '';
-
-    if(p.rating != null){
-      el.ratingRow.innerHTML =
-        '<span class="stars">'+stars(p.rating)+'</span>' +
-        '<span>'+Number(p.rating).toFixed(1)+'</span>' +
-        '<span class="rc">('+( p.review_count||0)+' reviews)</span>';
-    } else {
-      el.ratingRow.innerHTML = '<span class="rc" style="color:#4B4D55;">No rating</span>';
-    }
-
-    var score = (p.score==null) ? 0 : Math.round(p.score);
-    el.scoreNum.innerHTML = score+'<small>/100</small>';
-    el.scoreBar.style.width  = Math.max(0,Math.min(100,score))+'%';
-    el.scoreBar.style.background = scoreColor(p.score);
-
-    var links = [];
-    if(p.google_place_id){
-      links.push('<a href="https://www.google.com/maps/place/?q=place_id:'+encodeURIComponent(p.google_place_id)+'" target="_blank" rel="noopener">Google listing ↗</a>');
-    }
-    if(p.website){
-      links.push('<a href="'+esc(p.website)+'" target="_blank" rel="noopener">Website ↗</a>');
-    }
-    if(p.phone){
-      links.push('<span style="color:#6B7280;">'+esc(p.phone)+'</span>');
-    }
-    el.links.innerHTML = links.join('');
-
-    if(p.email){
-      el.emailRow.innerHTML = 'Email: <b>'+esc(p.email)+'</b>';
-      show(el.emailRow);
-    } else {
-      hide(el.emailRow);
-    }
-
-    if(currentFilter === 'unreachable'){
-      hide(el.approveBtn);
-      el.passBtn.textContent = '✕ Dismiss';
-      el.actionHint.innerHTML = '<kbd>←</kbd> Dismiss';
-    } else {
-      show(el.approveBtn);
-      el.passBtn.textContent = '✕ Pass';
-      el.actionHint.innerHTML = '<kbd>←</kbd> Pass &nbsp;·&nbsp; Approve <kbd>→</kbd>';
-    }
-
-    el.card.classList.remove('out-left','out-right');
-    hide(el.loading); hide(el.empty); show(el.card);
-  }
-
-  function showEmpty(){
-    current = null;
-    hide(el.loading); hide(el.card); show(el.empty);
-    if(currentFilter === 'unreachable'){
-      el.emptyTitle.textContent = 'No unreachable prospects';
-      el.emptyBody.textContent = 'Nothing here right now — every sourced prospect has at least an email or phone.';
-    } else {
-      el.emptyTitle.textContent = 'Queue empty';
-      el.emptyBody.textContent = 'All prospects have been reviewed, or none have been sourced yet.';
-    }
-    if(reviewedThisSession > 0){
-      el.reviewedCount.textContent =
-        'You reviewed '+reviewedThisSession+' prospect'+(reviewedThisSession===1?'':'s')+' this session.';
-      show(el.reviewedCount);
-    }
-  }
-
-  function loadNext(){
-    show(el.loading); hide(el.card); hide(el.empty);
-    fetch('/api/admin/outreach/queue/next?filter='+encodeURIComponent(currentFilter),{credentials:'same-origin'})
-      .then(function(r){ if(authGuard(r)) return null; return r.json(); })
-      .then(function(data){
-        if(!data) return;
-        if(data.queue_empty){ showEmpty(); }
-        else { renderCard(data); }
-      })
-      .catch(function(){
-        el.loading.innerHTML = '<p style="color:#9A9893;">Could not load the queue — refresh to retry.</p>';
-      });
-  }
-
-  function setFilter(name){
-    if(busy || currentFilter === name) return;
-    currentFilter = name;
-    el.filterApproval.classList.toggle('active', name === 'awaiting_approval');
-    el.filterUnreachable.classList.toggle('active', name === 'unreachable');
-    reviewedThisSession = 0;
-    loadNext();
-    refreshStats();
-  }
-
-  function decide(kind){
-    if(busy || !current) return;
-    if(kind === 'approve' && currentFilter === 'unreachable') return;
-    busy = true;
-    var url = '/api/admin/outreach/queue/'+current.id+'/'+(kind==='approve'?'approve':'reject');
-    el.card.classList.add(kind==='approve' ? 'out-right' : 'out-left');
-    fetch(url,{method:'POST',credentials:'same-origin'})
-      .then(function(r){ if(authGuard(r)) return null; return r.json(); })
-      .then(function(){
-        reviewedThisSession++;
-        setTimeout(function(){ busy=false; loadNext(); refreshStats(); }, 200);
-      })
-      .catch(function(){
-        busy=false;
-        el.card.classList.remove('out-left','out-right');
-        alert('Action failed — please retry.');
-      });
-  }
-
-  el.approveBtn.addEventListener('click', function(){ decide('approve'); });
-  el.passBtn.addEventListener('click',    function(){ decide('reject'); });
-  el.filterApproval.addEventListener('click', function(){ setFilter('awaiting_approval'); });
-  el.filterUnreachable.addEventListener('click', function(){ setFilter('unreachable'); });
-
-  document.addEventListener('keydown', function(e){
-    if(busy || !current) return;
-    if(e.key==='ArrowRight'||e.key==='y'||e.key==='Y'){ e.preventDefault(); decide('approve'); }
-    else if(e.key==='ArrowLeft'||e.key==='n'||e.key==='N'||e.key==='x'||e.key==='X'){ e.preventDefault(); decide('reject'); }
-  });
-
-  refreshStats();
-  loadNext();
-})();
-</script>"""
 
 
 def _admin_page(title: str, content: str, active: str = "") -> str:
@@ -4442,131 +4000,189 @@ def admin_generation_form_data(gen_id):
 
 
 # ---------------------------------------------------------------------------
-# Outreach approval queue (Track A) — admin-only. Prospects reach
-# funnel_stage="awaiting_approval" once the pipeline has sourced, website-
-# checked, scored and found a genuine email for them; a human then approves or
-# passes on each one via /admin/outreach, which drives these endpoints.
+# Outreach prospect list — admin-only. Every prospect the pipeline has
+# sourced is auto-eligible for sending once qualified/scored (Section 5a —
+# approval_status is audit-only, not a send gate; see outreach/send_job.py's
+# _eligible_initial_send_query docstring), so there's nothing to actually
+# approve or reject here. This is a browse/filter view over Prospect, not a
+# queue — /admin/prospects/<id> is the click-through profile page.
 # ---------------------------------------------------------------------------
-@app.route("/api/admin/outreach/queue/next")
-@admin_required
-def admin_outreach_queue_next():
-    """?filter=awaiting_approval (default) shows the normal approval queue.
-    ?filter=unreachable shows prospects with neither a findable email nor
-    phone — surfaced here rather than dropped/silently logged, per Section
-    11a, so they stay visible and reviewable instead of vanishing."""
-    filter_name = request.args.get("filter", "awaiting_approval")
-    db = SessionLocal()
-    try:
-        if filter_name == "unreachable":
-            q = (db.query(Prospect)
-                 .filter(Prospect.approval_status == "unreachable",
-                         Prospect.funnel_stage == "unreachable"))
-        else:
-            q = (db.query(Prospect)
-                 .filter(Prospect.approval_status == "pending",
-                         Prospect.funnel_stage == "awaiting_approval"))
-        queue_size = q.count()
-        p = q.order_by(Prospect.score.desc().nullslast()).first()
-        if not p:
-            return jsonify({"queue_empty": True, "queue_size": 0})
-        return jsonify({
-            "queue_empty": False,
-            "queue_size": queue_size,
-            "id": p.id,
-            "business_name": p.business_name,
-            "trade": p.trade,
-            "trade_tier": p.trade_tier,
-            "location": p.location,
-            "rating": p.rating,
-            "review_count": p.review_count,
-            "score": p.score,
-            "website_status": p.website_status,
-            "website": p.website,
-            "google_place_id": p.google_place_id,
-            "email": p.email,
-            "funnel_stage": p.funnel_stage,
-            "created_at": p.created_at.isoformat() if p.created_at else None,
-        })
-    finally:
-        db.close()
-
-
-@app.route("/api/admin/outreach/queue/<int:prospect_id>/approve", methods=["POST"])
-@admin_required
-def admin_outreach_approve(prospect_id):
-    db = SessionLocal()
-    try:
-        p = db.get(Prospect, prospect_id)
-        if not p:
-            return jsonify({"error": "not_found"}), 404
-        p.approval_status = "yes"
-        p.approved_at = datetime.utcnow()
-        p.funnel_stage = "approved"
-        db.commit()
-        return jsonify({"status": "ok"})
-    finally:
-        db.close()
-
-
-@app.route("/api/admin/outreach/queue/<int:prospect_id>/reject", methods=["POST"])
-@admin_required
-def admin_outreach_reject(prospect_id):
-    db = SessionLocal()
-    try:
-        p = db.get(Prospect, prospect_id)
-        if not p:
-            return jsonify({"error": "not_found"}), 404
-        p.approval_status = "no"
-        p.funnel_stage = "rejected"
-        db.commit()
-        return jsonify({"status": "ok"})
-    finally:
-        db.close()
-
-
-@app.route("/api/admin/outreach/stats")
-@admin_required
-def admin_outreach_stats():
-    db = SessionLocal()
-    try:
-        today_midnight = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-        total_prospects = db.query(Prospect).count()
-        awaiting_approval = db.query(Prospect).filter(
-            Prospect.approval_status == "pending",
-            Prospect.funnel_stage == "awaiting_approval").count()
-        approved = db.query(Prospect).filter(Prospect.approval_status == "yes").count()
-        rejected = db.query(Prospect).filter(Prospect.approval_status == "no").count()
-        qualified_no_email = db.query(Prospect).filter(
-            Prospect.funnel_stage == "qualified_no_email").count()
-        unreachable = db.query(Prospect).filter(
-            Prospect.funnel_stage == "unreachable").count()
-        sourced_today = db.query(Prospect).filter(
-            Prospect.created_at >= today_midnight).count()
-        approved_today = db.query(Prospect).filter(
-            Prospect.approval_status == "yes",
-            Prospect.approved_at >= today_midnight).count()
-        rejected_today = db.query(Prospect).filter(
-            Prospect.approval_status == "no",
-            Prospect.processed_at >= today_midnight).count()
-        return jsonify({
-            "total_prospects": total_prospects,
-            "awaiting_approval": awaiting_approval,
-            "approved": approved,
-            "rejected": rejected,
-            "qualified_no_email": qualified_no_email,
-            "unreachable": unreachable,
-            "sourced_today": sourced_today,
-            "approved_today": approved_today,
-            "rejected_today": rejected_today,
-        })
-    finally:
-        db.close()
+_OUTREACH_TRADE_TIERS = [("high", "High"), ("medium", "Medium"), ("low", "Low")]
+_OUTREACH_WEBSITE_STATUSES = [("no_website", "No website"), ("has_website", "Has website")]
+_OUTREACH_WEBSITE_QUALITIES = [("modern", "Modern"), ("dated", "Dated")]
+_OUTREACH_FUNNEL_STAGES = [
+    ("sourced", "Sourced"), ("queued", "Queued"), ("gated", "Gated"),
+    ("qualified_no_email", "Qualified (no email)"), ("awaiting_approval", "Awaiting approval"),
+    ("approved", "Approved"), ("sent", "Sent"), ("rejected", "Rejected"),
+    ("unreachable", "Unreachable"), ("excluded_closed", "Excluded (closed)"),
+]
+_OUTREACH_FUNNEL_SUBSTAGES = [
+    ("sent", "Sent"), ("opened", "Opened"), ("clicked_generated", "Clicked/Generated"),
+    ("account_created", "Account created"), ("replied", "Replied"),
+    ("bounced", "Bounced"), ("cold", "Cold"),
+]
 
 
 @app.route("/admin/outreach")
 @admin_required
 def admin_outreach():
-    return render_template_string(_admin_page("Outreach queue", _ADMIN_OUTREACH_CONTENT, active="outreach"))
+    """Filterable list of prospects — every metric the pipeline actually
+    scores/tracks is a filter, and each row links straight to
+    /admin/prospects/<id>, the same profile page a magic-link click lands
+    admins on elsewhere (e.g. send_admin_magic_link_clicked_email's link).
+    Replaces the old Tinder-style approve/pass card, which had no real
+    effect on what gets sent (see module comment above)."""
+    args = request.args
+
+    def _arg(name):
+        v = (args.get(name) or "").strip()
+        return v or None
+
+    trade_tier = _arg("trade_tier")
+    website_status = _arg("website_status")
+    website_quality = _arg("website_quality")
+    funnel_stage = _arg("funnel_stage")
+    funnel_substage = _arg("funnel_substage")
+    trade = _arg("trade")
+    location = _arg("location")
+    email_filter = _arg("email")  # "yes" / "no" / None (any)
+    phone_filter = _arg("phone")
+    min_score = _arg("min_score")
+    min_rating = _arg("min_rating")
+
+    db = SessionLocal()
+    try:
+        q = db.query(Prospect)
+        if trade_tier:
+            q = q.filter(Prospect.trade_tier == trade_tier)
+        if website_status:
+            q = q.filter(Prospect.website_status == website_status)
+        if website_quality:
+            q = q.filter(Prospect.website_quality == website_quality)
+        if funnel_stage:
+            q = q.filter(Prospect.funnel_stage == funnel_stage)
+        if funnel_substage:
+            q = q.filter(Prospect.funnel_substage == funnel_substage)
+        if trade:
+            q = q.filter(Prospect.trade.ilike(f"%{trade}%"))
+        if location:
+            q = q.filter(Prospect.location.ilike(f"%{location}%"))
+        if email_filter == "yes":
+            q = q.filter(Prospect.email.isnot(None), Prospect.email != "")
+        elif email_filter == "no":
+            q = q.filter((Prospect.email.is_(None)) | (Prospect.email == ""))
+        if phone_filter == "yes":
+            q = q.filter(Prospect.phone.isnot(None), Prospect.phone != "")
+        elif phone_filter == "no":
+            q = q.filter((Prospect.phone.is_(None)) | (Prospect.phone == ""))
+        if min_score:
+            try:
+                q = q.filter(Prospect.score >= float(min_score))
+            except ValueError:
+                pass
+        if min_rating:
+            try:
+                q = q.filter(Prospect.rating >= float(min_rating))
+            except ValueError:
+                pass
+
+        total_matching = q.count()
+        prospects = q.order_by(Prospect.score.desc().nullslast(), Prospect.created_at.desc()).limit(200).all()
+
+        def opts(name, choices, current):
+            html = '<option value="">Any</option>'
+            for val, label in choices:
+                sel = " selected" if current == val else ""
+                html += f'<option value="{escape(val)}"{sel}>{escape(label)}</option>'
+            return html
+
+        def yn_opts(name, current):
+            html = '<option value="">Any</option>'
+            for val, label in [("yes", "Yes"), ("no", "No")]:
+                sel = " selected" if current == val else ""
+                html += f'<option value="{val}"{sel}>{label}</option>'
+            return html
+
+        rows_html = "".join(f"""
+<tr onclick="window.location='/admin/prospects/{p.id}'" style="cursor:pointer;">
+  <td style="padding:8px 10px;font-weight:600;">
+    <a href="/admin/prospects/{p.id}" style="color:#2257CC;text-decoration:none;">{escape(p.business_name or "—")}</a>
+  </td>
+  <td style="padding:8px 10px;">{escape(p.trade or "—")}</td>
+  <td style="padding:8px 10px;text-transform:capitalize;">{escape(p.trade_tier or "—")}</td>
+  <td style="padding:8px 10px;">{escape(p.location or "—")}</td>
+  <td style="padding:8px 10px;">{f"{p.rating:.1f} ({p.review_count or 0})" if p.rating is not None else "—"}</td>
+  <td style="padding:8px 10px;">{escape(p.website_status or "—")}{f" ({escape(p.website_quality)})" if p.website_quality else ""}</td>
+  <td style="padding:8px 10px;font-weight:700;">{round(p.score) if p.score is not None else "—"}</td>
+  <td style="padding:8px 10px;">{escape(p.funnel_stage or "—")}{f" / {escape(p.funnel_substage)}" if p.funnel_substage else ""}</td>
+  <td style="padding:8px 10px;">{"✓" if p.email else "—"}</td>
+  <td style="padding:8px 10px;">{"✓" if p.phone else "—"}</td>
+  <td style="padding:8px 10px;">{_fmt_dt(p.created_at) or "—"}</td>
+</tr>""" for p in prospects)
+
+        showing_note = (
+            f"Showing top {len(prospects)} of {total_matching} matching prospect(s), by score."
+            if total_matching > len(prospects)
+            else f"{total_matching} matching prospect(s)."
+        )
+
+        content = f"""
+<h1 class="adm-title">Outreach prospects</h1>
+<p class="adm-sub">Every sourced prospect is auto-eligible for sending once qualified and scored — there's no
+approve/pass step anymore. Filter by any metric the pipeline tracks, then click a row for the full profile
+(score breakdown, funnel timeline, touches, delivery events).</p>
+
+<form method="get" class="adm-card" style="padding:16px 20px;margin-bottom:18px;display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;">
+  <div><label style="display:block;font-size:11px;color:#9A9893;margin-bottom:4px;">Trade tier</label>
+    <select name="trade_tier">{opts("trade_tier", _OUTREACH_TRADE_TIERS, trade_tier)}</select></div>
+  <div><label style="display:block;font-size:11px;color:#9A9893;margin-bottom:4px;">Website</label>
+    <select name="website_status">{opts("website_status", _OUTREACH_WEBSITE_STATUSES, website_status)}</select></div>
+  <div><label style="display:block;font-size:11px;color:#9A9893;margin-bottom:4px;">Website quality</label>
+    <select name="website_quality">{opts("website_quality", _OUTREACH_WEBSITE_QUALITIES, website_quality)}</select></div>
+  <div><label style="display:block;font-size:11px;color:#9A9893;margin-bottom:4px;">Funnel stage</label>
+    <select name="funnel_stage">{opts("funnel_stage", _OUTREACH_FUNNEL_STAGES, funnel_stage)}</select></div>
+  <div><label style="display:block;font-size:11px;color:#9A9893;margin-bottom:4px;">Funnel substage</label>
+    <select name="funnel_substage">{opts("funnel_substage", _OUTREACH_FUNNEL_SUBSTAGES, funnel_substage)}</select></div>
+  <div><label style="display:block;font-size:11px;color:#9A9893;margin-bottom:4px;">Has email</label>
+    <select name="email">{yn_opts("email", email_filter)}</select></div>
+  <div><label style="display:block;font-size:11px;color:#9A9893;margin-bottom:4px;">Has phone</label>
+    <select name="phone">{yn_opts("phone", phone_filter)}</select></div>
+  <div><label style="display:block;font-size:11px;color:#9A9893;margin-bottom:4px;">Trade contains</label>
+    <input type="text" name="trade" value="{escape(trade or '')}" style="padding:6px 8px;border:1px solid #D8D5CE;border-radius:6px;"></div>
+  <div><label style="display:block;font-size:11px;color:#9A9893;margin-bottom:4px;">Location contains</label>
+    <input type="text" name="location" value="{escape(location or '')}" style="padding:6px 8px;border:1px solid #D8D5CE;border-radius:6px;"></div>
+  <div><label style="display:block;font-size:11px;color:#9A9893;margin-bottom:4px;">Min score</label>
+    <input type="number" name="min_score" value="{escape(min_score or '')}" min="0" max="100" style="width:70px;padding:6px 8px;border:1px solid #D8D5CE;border-radius:6px;"></div>
+  <div><label style="display:block;font-size:11px;color:#9A9893;margin-bottom:4px;">Min rating</label>
+    <input type="number" name="min_rating" value="{escape(min_rating or '')}" min="0" max="5" step="0.1" style="width:70px;padding:6px 8px;border:1px solid #D8D5CE;border-radius:6px;"></div>
+  <button type="submit" style="padding:8px 18px;background:#1C1C1C;color:#fff;border:none;border-radius:6px;font-weight:700;cursor:pointer;">Filter</button>
+  <a href="/admin/outreach" style="padding:8px 12px;color:#5C5A56;text-decoration:none;font-size:13px;">Clear</a>
+</form>
+
+<p class="adm-sub">{showing_note}</p>
+
+<div class="adm-card" style="overflow-x:auto;">
+<table style="width:100%;border-collapse:collapse;font-size:13.5px;">
+<thead><tr style="color:#9A9893;font-size:11px;text-transform:uppercase;border-bottom:1px solid #E6E3DC;">
+  <th style="text-align:left;padding:6px 10px;">Business</th>
+  <th style="text-align:left;padding:6px 10px;">Trade</th>
+  <th style="text-align:left;padding:6px 10px;">Tier</th>
+  <th style="text-align:left;padding:6px 10px;">Location</th>
+  <th style="text-align:left;padding:6px 10px;">Rating</th>
+  <th style="text-align:left;padding:6px 10px;">Website</th>
+  <th style="text-align:left;padding:6px 10px;">Score</th>
+  <th style="text-align:left;padding:6px 10px;">Funnel</th>
+  <th style="text-align:left;padding:6px 10px;">Email</th>
+  <th style="text-align:left;padding:6px 10px;">Phone</th>
+  <th style="text-align:left;padding:6px 10px;">Sourced</th>
+</tr></thead>
+<tbody>{rows_html or '<tr><td colspan="11" style="padding:16px 10px;color:#9A9893;">No prospects match these filters.</td></tr>'}</tbody>
+</table>
+</div>
+"""
+        return render_template_string(_admin_page("Outreach prospects", content, active="outreach"))
+    finally:
+        db.close()
 
 
 @app.route("/admin/discovery")
