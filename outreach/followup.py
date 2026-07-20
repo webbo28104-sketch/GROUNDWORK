@@ -232,7 +232,7 @@ def run_followups(remaining_ramp, unsubscribe_link_fn, preview_link_fn, short_co
             "must be live and tested on a channel before scheduled follow-ups can "
             "fire on it (Section 11a). No touches sent."
         )
-        return remaining_ramp
+        return remaining_ramp, 0
     if not EMAIL_REPLY_CAPTURE_READY:
         logger.warning("run_followups: EMAIL_REPLY_CAPTURE_READY is not 'true' — email follow-ups withheld this run.")
     if not SMS_REPLY_CAPTURE_READY:
