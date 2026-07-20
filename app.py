@@ -5047,34 +5047,34 @@ def _compute_kpis(db, range_from: datetime = None, range_to: datetime = None) ->
     filtering = range_from is not None or range_to is not None
     period_start = range_from or now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     period_end = range_to or now
-    # send_date on DailySendCount is a 'YYYY-MM-DD' string — compare as strings.
-    period_start_str = period_start.strftime("%Y-%m-%d")
-    period_end_str = period_end.strftime("%Y-%m-%d")
 
-    # 1. Emails sent in the period — DailySendCount, not OutreachTouch
-    # (confirmed the right source in the earlier Funnel-dashboard investigation:
-    # it has real history predating OutreachTouch's creation). DailySendCount
-    # counts send *attempts*, recorded by record_sends() at dispatch time,
-    # before Resend has any chance to report a bounce back — so it always
-    # includes addresses that immediately hard-bounced. A bounce is not a
-    # successfully sent email (the message never reached an inbox), so this
-    # KPI subtracts distinct bounced-address events (EmailEventLog) logged
-    # within the same period. Real incident that prompted this: the first
-    # production batch (2026-07-16) showed 10 attempted / 3 bounced, and the
-    # dashboard reported "10 emails sent" — overstating actual delivered
-    # volume by 43%.
-    email_rows = db.query(DailySendCount).filter(
-        DailySendCount.channel == "email",
-        DailySendCount.send_date >= period_start_str,
-        DailySendCount.send_date <= period_end_str,
-    ).all()
-    emails_attempted = sum(r.count for r in email_rows)
+    # 1. Clients reached out to (email) in the period — OutreachTouch,
+    # stage == "initial" only. This used to be DailySendCount, which counts
+    # every email send attempt (initial + follow-up combined) with no way to
+    # tell them apart — so "Emails sent / month" was silently inflated by
+    # every A/B/C/D follow-up touch on top of first contact. OutreachTouch
+    # tags each row with its stage ("initial" vs "A"/"B"/"C"/"D"), so this
+    # can now filter to first-contact sends only. Trade-off: OutreachTouch
+    # only has real data from _FUNNEL_INSTRUMENTATION_START onward (nothing
+    # before that date was logged, not because nothing was sent) — flagged
+    # to the caller via "low_data" so the tile can show the same "low data"
+    # caveat the Funnel page already uses for this exact table.
+    # Bounce exclusion unchanged: a bounce is not a successfully sent email
+    # (the message never reached an inbox), so distinct bounced-address
+    # events (EmailEventLog) logged within the same period are subtracted.
+    emails_attempted = db.query(OutreachTouch).filter(
+        OutreachTouch.channel == "email",
+        OutreachTouch.stage == "initial",
+        OutreachTouch.sent_at >= period_start,
+        OutreachTouch.sent_at <= period_end,
+    ).count()
     bounced_n = db.query(EmailEventLog.resend_email_id).filter(
         EmailEventLog.event_type.in_(["email.bounced", "bounced"]),
         EmailEventLog.created_at >= period_start,
         EmailEventLog.created_at <= period_end,
     ).distinct().count()
     emails_sent = max(0, emails_attempted - bounced_n)
+    emails_sent_low_data = period_start < _FUNNEL_INSTRUMENTATION_START
 
     # 2. Magic link click rate (aggregate, not per-stage) — Prospect.sent_at
     # vs clicked_at, both real fields with history predating today's fixes.
@@ -5188,6 +5188,7 @@ def _compute_kpis(db, range_from: datetime = None, range_to: datetime = None) ->
             "attempted": emails_attempted,
             "bounced": bounced_n,
             "month_label": period_label,
+            "low_data": emails_sent_low_data,
         },
         "click_rate": {
             "pct": _funnel_pct(clicked_n, sent_n),
@@ -5234,7 +5235,7 @@ def _render_kpi_strip(kpis: dict) -> str:
     sent_sub = e["month_label"]
     if e["bounced"]:
         sent_sub = f'{e["month_label"]} · {e["attempted"]} attempted, {e["bounced"]} bounced'
-    tiles += tile("Emails sent / month", str(e["value"]), sent_sub)
+    tiles += tile("Clients reached out to (email)", str(e["value"]), sent_sub, low_n=e.get("low_data", False))
     tiles += tile(
         "Magic link click rate",
         f'{c["pct"]}%' if c["pct"] is not None else "—",
