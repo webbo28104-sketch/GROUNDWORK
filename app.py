@@ -4938,7 +4938,7 @@ def _render_kpi_strip(kpis: dict) -> str:
 
 _FUNNEL_STAGES = list(STAGE_LABELS.items())
 
-_FUNNEL_STEPS = ["Sent", "Opened", "Clicked", "Generated", "Account Created", "Paid"]
+_FUNNEL_STEPS = ["Sent", "Opened", "Clicked/Generated", "Account Created", "Paid"]
 
 
 def _funnel_pct(numer, denom):
@@ -5204,19 +5204,20 @@ def admin_funnel():
                     if p.id in email_prospect_ids and p.email and p.email.strip().lower() in bounced_emails_in_range
                 )
                 opened_n = sum(1 for p in cohort if p.opened_at is not None)
+                # Clicked and Generated used to be separate columns, but
+                # clicking /claim/<token> synchronously kicks off generation
+                # in the same request (_kickoff_generation) — there's no
+                # persisted "clicked but not generated" state except a brief
+                # in-progress window or an outright generation failure
+                # (confirmed 2026-07-20: 0 divergence in production, 3/3
+                # clicks have a Generation row). Merged into one column
+                # rather than showing two numbers that are always identical
+                # and imply a distinction that doesn't exist yet.
                 clicked_n = sum(1 for p in cohort if p.clicked_at is not None)
-                lead_ids = [p.lead_id for p in cohort if p.lead_id is not None]
-                generated_lead_ids = set()
-                if lead_ids:
-                    generated_lead_ids = {
-                        g.lead_id for g in db.query(Generation.lead_id)
-                        .filter(Generation.lead_id.in_(lead_ids)).all()
-                    }
-                generated_n = sum(1 for p in cohort if p.lead_id in generated_lead_ids)
                 account_created_n = sum(1 for p in cohort if p.account_created_at is not None)
                 paid_n = sum(1 for p in cohort if p.paid_at is not None)
             else:
-                bounced_n = opened_n = clicked_n = generated_n = account_created_n = paid_n = 0
+                bounced_n = opened_n = clicked_n = account_created_n = paid_n = 0
 
             # delivered_n, not sent_n, is the headline number and the
             # denominator for every downstream rate — same principle as the
@@ -5226,7 +5227,7 @@ def admin_funnel():
             # shown, in the sub-caption, not hidden — this table is meant to
             # carry more detail than the single KPI tile, not less.
             delivered_n = sent_n - bounced_n
-            counts = [delivered_n, opened_n, clicked_n, generated_n, account_created_n, paid_n]
+            counts = [delivered_n, opened_n, clicked_n, account_created_n, paid_n]
             pcts = [None] + [
                 _funnel_pct(counts[i], counts[i - 1]) for i in range(1, len(counts))
             ]
