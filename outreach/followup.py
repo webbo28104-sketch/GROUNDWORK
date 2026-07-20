@@ -72,6 +72,23 @@ MIN_DAYS_BY_SUBSTAGE = {
     "account_created": 2,
 }
 
+# Stage letter -> human-readable label, describing WHO the touch actually
+# goes to (the prospect's funnel_substage at send time — see STAGE_BY_SUBSTAGE
+# above), not "1st/2nd/3rd/4th touch in sequence" like "Follow-up A/B/C/D"
+# implied. That naming was actively misleading on the admin Funnel page: a
+# "Follow-up C" row is BY DEFINITION only ever sent to prospects already at
+# clicked_generated, so its "Generated" column reads ~100% trivially — that
+# looked like a bug ("says opened=0 but generated=1") when it's just cohort
+# composition. Single source of truth so the Funnel page and the Follow-ups
+# queue page can't drift out of sync with each other or with STAGE_BY_SUBSTAGE.
+STAGE_LABELS = {
+    "initial": "Initial outreach",
+    "A": "Follow-up — hasn't opened yet",
+    "B": "Follow-up — opened, hasn't clicked",
+    "C": "Follow-up — viewed site, no account",
+    "D": "Follow-up — account made, not live",
+}
+
 CATCH_ALL_MIN_DAYS = 14
 CATCH_ALL_MAX_DAYS = 21
 

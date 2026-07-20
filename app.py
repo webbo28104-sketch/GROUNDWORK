@@ -39,6 +39,7 @@ from emails import (send_verification_email, send_resend_email, send_password_re
                     send_site_ready_email)
 from outreach.reply_handling import handle_inbound_sms, handle_inbound_email, handle_forced_sms_stop
 from outreach.templates import SURVEY_DISCOUNT_PERCENT
+from outreach.followup import STAGE_LABELS
 from outreach.ramp import (
     get_health_signal, get_remaining_ramp_today, EMAIL_SPAM_RATE_TRIGGER,
     EMAIL_BOUNCE_RATE_TRIGGER, MIN_EMAIL_SAMPLE_SIZE, CIRCUIT_BREAKER_RECOVERY_DAYS,
@@ -4369,7 +4370,7 @@ def admin_followups():
         rows_html = "".join(f"""
 <tr>
   <td style="padding:8px 10px;"><a href="/admin/prospects/{r['id']}" style="color:#2257CC;font-weight:600;text-decoration:none;">{r['name']}</a></td>
-  <td style="padding:8px 10px;">Stage {r['stage_letter']}{' (catch-all)' if r['catch_all'] else ''}</td>
+  <td style="padding:8px 10px;">{escape(STAGE_LABELS.get(r['stage_letter'], r['stage_letter']))}{' (catch-all)' if r['catch_all'] else ''}</td>
   <td style="padding:8px 10px;">{r['channel']}</td>
   <td style="padding:8px 10px;">{r['touch_count']}/{MAX_TOUCHES - 1}</td>
   <td style="padding:8px 10px;">{_fmt_dt(r['last_touch']) or '—'}</td>
@@ -4920,13 +4921,7 @@ def _render_kpi_strip(kpis: dict) -> str:
 <div class="kpi-strip">{tiles}</div>"""
 
 
-_FUNNEL_STAGES = [
-    ("initial", "Initial"),
-    ("A", "Follow-up A"),
-    ("B", "Follow-up B"),
-    ("C", "Follow-up C"),
-    ("D", "Follow-up D"),
-]
+_FUNNEL_STAGES = list(STAGE_LABELS.items())
 
 _FUNNEL_STEPS = ["Sent", "Opened", "Clicked", "Generated", "Account Created", "Paid"]
 
@@ -5038,21 +5033,37 @@ def admin_funnel():
     """
     Real per-stage, per-channel outreach funnel — built against genuinely
     tracked data only, per the 2026-07-14 instrumentation fixes:
-      - Opened is real (resend_events_webhook advances opened_at on a real
-        "email.opened" event — see that function's docstring for the
-        dashboard/webhook prerequisites this still depends on).
+      - Opened, when it fires, is real (resend_events_webhook advances
+        opened_at on a real "email.opened" event) — but it depends on two
+        things outside this codebase: open tracking enabled on the sending
+        domain in the Resend dashboard (off by default), and the
+        recipient's mail client actually loading remote images (many
+        clients block them, or Apple Mail Privacy Protection may
+        pre-fetch/inflate them — this signal is inherently noisier than
+        clicks industry-wide, not just here). A prospect can click the
+        magic link — a real, first-party navigation, tracked independent
+        of any pixel — without ever registering an "opened" event first.
+        Confirmed 2026-07-20: 62 delivered outreach emails, 0 real
+        prospect opens logged — check the Resend dashboard's domain
+        tracking settings before assuming this column is broken.
       - Paid is real (Stripe webhook now writes Prospect.paid_at directly,
         traced via client_reference_id -> Lead -> Prospect.lead_id).
       - Per-stage rows are only real from OutreachTouch's creation date
         forward — there is no historical per-stage log before that, and
         nothing here pretends otherwise (see the banner below the filters).
 
-    Each stage row is a COHORT, not a causal attribution: "Opened" for the
-    Follow-up B row means "of the prospects who received a Follow-up B
-    touch, how many have opened_at set" — not "opened because of B"
-    specifically, since opened_at/clicked_at/paid_at are single per-prospect
-    timestamps, not per-message. That's the honest framing given what the
-    schema actually stores.
+    Each stage row is a COHORT, not a causal attribution, and — per
+    STAGE_LABELS (outreach/followup.py) — each follow-up stage's cohort is
+    DEFINED by the prospect's funnel_substage at send time, not by "1st/2nd/
+    3rd/4th touch." E.g. "Follow-up — viewed site, no account" (stage C) is
+    only ever sent to prospects already at clicked_generated, so its
+    "Generated" column reads ~100% by construction — that isn't a
+    conversion this stage caused, it's the cohort definition. "Opened" for
+    that same row means "of these prospects, how many have opened_at set
+    from ANY email, ever" — not "opened because of this specific touch",
+    since opened_at/clicked_at/paid_at are single per-prospect timestamps,
+    not per-message. That's the honest framing given what the schema
+    actually stores.
     """
     from_str = request.args.get("from", "").strip()
     to_str = request.args.get("to", "").strip()
@@ -5256,12 +5267,21 @@ def admin_funnel():
 .statsbar .stat b{{color:#1C1C1C;font-weight:800;font-size:15px;margin-right:4px;}}
 </style>
 <h1 class="adm-title">Funnel</h1>
-<p class="adm-sub">Per-stage, per-channel outreach funnel — how many of each email type (Initial, Follow-up A/B/C/D)
-went out in the selected range, and what happened after. Each row is a cohort — "Opened" on the
-Follow-up B row means prospects who received a B touch and have since opened <em>an</em> email, not
-necessarily that specific one (opened_at is a single per-prospect timestamp, not per-message). The
+<p class="adm-sub">Per-stage, per-channel outreach funnel — how many of each email type went out in the
+selected range, and what happened after. Each follow-up row's cohort is defined by the prospect's
+funnel stage at send time (see row labels below), not by "1st/2nd/3rd touch" — so e.g. the "viewed
+site, no account" row's Generated column will read ~100% by construction, since that's who it's sent
+to, not a conversion it caused. "Opened" means "has an opened_at timestamp from any email, ever," not
+"opened this specific touch" (opened_at is a single per-prospect field, not per-message). The
 "Sent" column shows delivered count as the headline number, with attempted/bounced beneath it — a
 bounced send never reached an inbox, so every rate to its right is based on delivered, not attempted.</p>
+<p class="adm-sub" style="color:#B45309;background:#FEF3C7;padding:10px 14px;border-radius:8px;">
+⚠ Opened relies on Resend's tracking pixel, which is off by default per sending domain and can also be
+silently blocked by the recipient's mail client — a prospect can (and regularly does) click the real
+magic link and generate a site without ever registering an "opened" event first. If every row here
+shows 0 opens despite real sends/clicks, that's a strong signal open tracking isn't enabled on the
+sending domain in the Resend dashboard, not that this table is broken — the webhook code that would
+record a real open has been verified working.</p>
 
 {kpi_strip}
 
