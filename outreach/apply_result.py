@@ -61,11 +61,11 @@ from models import (
 
 try:
     from outreach.scorer import score_prospect
-    from outreach.email_discovery import is_valid_email, looks_like_guess
+    from outreach.email_discovery import is_valid_email, looks_like_guess, clean_email
     from outreach.email_verify import has_deliverable_domain
 except ImportError:
     from scorer import score_prospect
-    from email_discovery import is_valid_email, looks_like_guess
+    from email_discovery import is_valid_email, looks_like_guess, clean_email
     from email_verify import has_deliverable_domain
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
@@ -160,6 +160,7 @@ def cmd_email(prospect_id, email_raw, source="web_search", force=False):
             sys.exit(1)
 
         if email:
+            email = clean_email(email)
             if not is_valid_email(email):
                 print(f"ERROR: '{email}' doesn't look like a valid email address", file=sys.stderr)
                 sys.exit(1)

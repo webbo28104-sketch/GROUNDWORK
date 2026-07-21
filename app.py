@@ -6243,7 +6243,7 @@ def outreach_apply_email():
     if denied:
         return denied
 
-    from outreach.email_discovery import is_valid_email, looks_like_guess
+    from outreach.email_discovery import is_valid_email, looks_like_guess, clean_email
 
     body = request.get_json(silent=True) or {}
     prospect_id = body.get("prospect_id")
@@ -6254,7 +6254,7 @@ def outreach_apply_email():
     if not prospect_id:
         return jsonify({"error": "prospect_id is required"}), 400
 
-    email = None if not email_raw else str(email_raw).strip()
+    email = None if not email_raw else clean_email(str(email_raw).strip())
 
     db = SessionLocal()
     try:
@@ -6404,7 +6404,7 @@ def outreach_get_apply_email():
     if denied:
         return denied
 
-    from outreach.email_discovery import is_valid_email, looks_like_guess
+    from outreach.email_discovery import is_valid_email, looks_like_guess, clean_email
     from outreach.email_verify import has_deliverable_domain
 
     try:
@@ -6412,7 +6412,7 @@ def outreach_get_apply_email():
     except (ValueError, TypeError):
         return jsonify({"error": "prospect_id must be an integer"}), 400
 
-    email_raw = request.args.get("email", "").strip()
+    email_raw = clean_email(request.args.get("email", "").strip())
     email = email_raw if email_raw else None
     source = request.args.get("source", "web_search")
     force = request.args.get("force", "").lower() in ("1", "true", "yes")

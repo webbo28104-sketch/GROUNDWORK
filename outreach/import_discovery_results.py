@@ -50,11 +50,11 @@ except Exception:
 from models import SessionLocal, Prospect, PendingEmailDiscovery, DiscoveryRunLog, init_db  # noqa: E402
 
 try:
-    from outreach.email_discovery import is_valid_email, looks_like_guess
+    from outreach.email_discovery import is_valid_email, looks_like_guess, clean_email
     from outreach.email_verify import has_deliverable_domain
     from outreach.scorer import score_prospect
 except ImportError:
-    from email_discovery import is_valid_email, looks_like_guess
+    from email_discovery import is_valid_email, looks_like_guess, clean_email
     from email_verify import has_deliverable_domain
     from scorer import score_prospect
 
@@ -138,6 +138,7 @@ def import_results_from_data(results, dry_run=False):
                 counts["website_rediscovered"] += 1
 
             if email_raw:
+                email_raw = clean_email(email_raw)
                 if not is_valid_email(email_raw):
                     logger.warning("Rejected invalid email '%s' for prospect %s", email_raw, prospect_id)
                     counts["rejected"] += 1

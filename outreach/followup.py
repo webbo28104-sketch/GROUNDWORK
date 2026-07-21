@@ -37,6 +37,7 @@ from outreach.templates import (
 from outreach.ramp import record_sends
 from outreach.link_identity import ensure_link_identity
 from outreach.email_verify import has_bounced_before, has_delivery_confirmed
+from outreach.email_discovery import is_valid_email
 
 logger = logging.getLogger("outreach.followup")
 
@@ -130,6 +131,24 @@ def _fire_touch(db, p, stage, now, remaining_ramp, unsubscribe_link_fn, preview_
     # Defensive — should already exist from the initial send, but a legacy
     # row (or an initial send that predates link_identity) shouldn't 404.
     ensure_link_identity(db, p)
+
+    # Same belt-and-braces re-check as send_job.py's send_initial_touch —
+    # added 2026-07-21 after two production sends failed at Resend's API
+    # with "Invalid `to` field" for addresses that pre-date the tightened
+    # is_valid_email() (a URL scheme concatenated onto a scraped address,
+    # and a stray zero-width Unicode character). Without this, a prospect
+    # whose bad email survived past the initial send would keep failing
+    # this exact same way on every follow-up touch too, forever.
+    if not phone_only and p.email and not is_valid_email(p.email):
+        logger.warning("Prospect %s: email '%s' fails format validation — downgrading to phone-only for this touch",
+                        p.id, p.email)
+        p.email_found = False
+        p.error_notes = (
+            f"{(p.error_notes + ' | ') if p.error_notes else ''}"
+            f"email '{p.email}' failed pre-send format validation, downgraded to phone-only"
+        )
+        db.commit()
+        phone_only = True
 
     # Hail Mary — the last-resort survey/discount push, is a fully
     # standalone send (HAIL_MARY_EMAIL/HAIL_MARY_SMS, outreach/templates.py)

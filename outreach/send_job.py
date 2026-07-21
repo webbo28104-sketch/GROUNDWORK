@@ -43,6 +43,7 @@ from outreach.ramp import (
 from outreach.followup import run_followups
 from outreach.link_identity import ensure_link_identity
 from outreach.email_verify import has_deliverable_domain, has_bounced_before
+from outreach.email_discovery import is_valid_email
 
 logger = logging.getLogger("outreach.send_job")
 
@@ -136,6 +137,26 @@ def send_initial_touch(db, p, now, remaining_ramp=None):
         p.error_notes = (
             f"{(p.error_notes + ' | ') if p.error_notes else ''}"
             f"email '{p.email}' failed pre-send MX check (undeliverable domain), downgraded to phone-only"
+        )
+        db.commit()
+        phone_only = True
+
+    # Same belt-and-braces idea, added 2026-07-21 after two real production
+    # sends failed at Resend's API with "Invalid `to` field" (a URL scheme
+    # concatenated onto a scraped address, and a stray zero-width Unicode
+    # character surviving .strip()) — outreach/email_discovery.py's
+    # is_valid_email() was tightened to reject both going forward, but this
+    # catches any row that got a bad address stored BEFORE that fix, so it
+    # downgrades once instead of failing this exact same way every day
+    # forever (send_outreach_email returns None on failure, so nothing else
+    # here would have ever caught or fixed it).
+    if not phone_only and p.email and not is_valid_email(p.email):
+        logger.warning("Prospect %s: email '%s' fails format validation — downgrading to phone-only, skipping email send",
+                        p.id, p.email)
+        p.email_found = False
+        p.error_notes = (
+            f"{(p.error_notes + ' | ') if p.error_notes else ''}"
+            f"email '{p.email}' failed pre-send format validation, downgraded to phone-only"
         )
         db.commit()
         phone_only = True

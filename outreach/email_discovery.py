@@ -27,8 +27,29 @@ reject anything that isn't a genuinely found, plausible address. Nothing
 below calls out to any API; this file makes zero network requests.
 """
 import re
+import unicodedata
 
-EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+# Deliberately excludes ":" and "/" from the local part now (2026-07-21) —
+# the original `[^@\s]+` allowed anything but @ and whitespace, which two
+# real production sends slipped through: "http://reallyhandy@gmail.com"
+# (a URL scheme accidentally concatenated onto a scraped address somewhere
+# upstream — root cause not fully pinned down, but a real email's local
+# part never legitimately contains "://") matched this regex fine and only
+# failed at Resend's API with "Invalid `to` field." Tightening the
+# character class here, the single validator every discovery path
+# (outreach/apply_result.py, email_discovery_job.py,
+# import_discovery_results.py, app.py's admin apply-email routes) already
+# calls before persisting an email, is the one-shot fix for all of them.
+EMAIL_RE = re.compile(r"^[^@\s:/]+@[^@\s]+\.[^@\s]+$")
+
+# Invisible/zero-width Unicode characters that a scrape can pick up from
+# surrounding HTML (soft hyphens, zero-width spaces/joiners, BOM) without
+# them ever being visible in a rendered page — .strip() only removes
+# ordinary ASCII whitespace, not these, so a second real production
+# example ("info@acleansweepltd.co.uk" + a trailing U+200B) passed the old
+# is_valid_email() clean, then failed at Resend with "the email address
+# contains non-ASCII characters" since the invisible character survived.
+_ZERO_WIDTH_CHARS = "​‌‍⁠﻿­"
 
 
 def _slugify(name):
@@ -36,11 +57,33 @@ def _slugify(name):
     return re.sub(r"[^a-z0-9]", "", (name or "").lower())
 
 
+def clean_email(email):
+    """Strip ordinary whitespace AND invisible zero-width Unicode characters
+    (see _ZERO_WIDTH_CHARS above) that can survive a naive .strip() when
+    scraped from HTML. Every caller that persists a scraped/found email
+    should run it through this before storing, not just is_valid_email —
+    validation alone doesn't fix a dirty-but-technically-invalid string,
+    it just rejects it; this is what makes an address with a stray
+    invisible character actually clean and sendable instead of a
+    permanent silent-fail loop."""
+    if not email or not isinstance(email, str):
+        return email
+    for ch in _ZERO_WIDTH_CHARS:
+        email = email.replace(ch, "")
+    return email.strip()
+
+
 def is_valid_email(email):
-    """Basic sanity check: has @, has a dot in domain, no spaces."""
+    """Basic sanity check: has @, has a dot in domain, no spaces, no ":"/"/"
+    in the local part (rules out a URL fragment ending up in the `to`
+    field — see EMAIL_RE's comment), and pure ASCII (Resend rejects
+    non-ASCII `to` addresses outright, and every real business email this
+    pipeline targets is ASCII in practice)."""
     if not email or not isinstance(email, str):
         return False
-    email = email.strip()
+    email = clean_email(email)
+    if not email.isascii():
+        return False
     if not EMAIL_RE.match(email):
         return False
     _local, _, domain = email.partition("@")

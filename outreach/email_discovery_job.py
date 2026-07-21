@@ -65,12 +65,12 @@ from models import (  # noqa: E402
 )
 
 try:
-    from outreach.email_discovery import is_valid_email, looks_like_guess
+    from outreach.email_discovery import is_valid_email, looks_like_guess, clean_email
     from outreach.email_scrape import scrape_website_email
     from outreach.apply_result import _try_finalize
     from outreach.email_verify import has_deliverable_domain
 except ImportError:
-    from email_discovery import is_valid_email, looks_like_guess
+    from email_discovery import is_valid_email, looks_like_guess, clean_email
     from email_scrape import scrape_website_email
     from apply_result import _try_finalize
     from email_verify import has_deliverable_domain
@@ -102,6 +102,7 @@ def _resolve_one(db, pending, dry_run):
     email, source = scrape_website_email(prospect.website)
 
     if email:
+        email = clean_email(email)
         # Belt-and-braces: same validation apply_result.py applies to a
         # human/CLI-submitted result, run here too rather than trusting a
         # single layer.
