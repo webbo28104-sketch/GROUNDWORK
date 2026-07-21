@@ -12,6 +12,8 @@ Flow:
   upsert_prospect(db, d) -> (Prospect | None, created_bool), deduped on place_id
 """
 import logging
+import time
+from datetime import datetime, timedelta
 
 import requests
 from sqlalchemy import func
@@ -43,42 +45,74 @@ FIELD_MASK = (
 )
 
 
-def search_places(query, api_key):
-    """POST a text query to the Places API and return the list of place dicts.
+# Places API v1 caps a single response at 20 results, but supports paging
+# via nextPageToken/pageToken up to 60 total (3 pages) — added 2026-07-21
+# after real production data showed 21% of already-searched cells (22/105)
+# hit the 20-result cap exactly, meaning genuine additional results existed
+# but were never fetched. Google's docs note a next-page token can take a
+# moment to become valid; _PAGE_TOKEN_DELAY_SECONDS is the recommended
+# short wait before using it (skipped on the last page, since there's no
+# further request to make).
+MAX_PAGES = 3
+_PAGE_TOKEN_DELAY_SECONDS = 2
 
-    Returns [] on any failure (HTTP error, network error, malformed response)
-    rather than raising, so one bad cell never kills a pipeline run.
-    """
-    if not api_key:
-        logger.error("search_places called with no API key; returning []")
-        return []
 
+def _search_places_one_page(query, api_key, page_token=None):
+    """One page of results. Returns (places, next_page_token) — next_page_token
+    is None if there's no further page. Returns ([], None) on any failure
+    (HTTP error, network error, malformed response) rather than raising, so
+    one bad cell/page never kills a pipeline run."""
     headers = {
         "Content-Type": "application/json",
         "X-Goog-Api-Key": api_key,
-        "X-Goog-FieldMask": FIELD_MASK,
+        "X-Goog-FieldMask": FIELD_MASK + ",nextPageToken",
     }
     body = {"textQuery": query, "regionCode": "GB", "maxResultCount": 20}
+    if page_token:
+        body["pageToken"] = page_token
 
     try:
         resp = requests.post(PLACES_SEARCH_URL, headers=headers, json=body, timeout=30)
     except requests.RequestException as e:
         logger.error("search_places network error for '%s': %s", query, e)
-        return []
+        return [], None
 
     if resp.status_code != 200:
         logger.error("search_places HTTP %s for '%s': %s", resp.status_code, query, resp.text[:300])
-        return []
+        return [], None
 
     try:
         data = resp.json()
     except ValueError as e:
         logger.error("search_places bad JSON for '%s': %s", query, e)
+        return [], None
+
+    return data.get("places", []) or [], data.get("nextPageToken")
+
+
+def search_places(query, api_key):
+    """POST a text query to the Places API and return the list of place
+    dicts, following pagination up to MAX_PAGES (60 results total) whenever
+    Google reports more are available. Returns [] on any failure (HTTP
+    error, network error, malformed response) rather than raising, so one
+    bad cell never kills a pipeline run.
+    """
+    if not api_key:
+        logger.error("search_places called with no API key; returning []")
         return []
 
-    places = data.get("places", []) or []
-    logger.info("search_places '%s' -> %d results", query, len(places))
-    return places
+    all_places = []
+    page_token = None
+    for page_num in range(1, MAX_PAGES + 1):
+        places, next_page_token = _search_places_one_page(query, api_key, page_token)
+        all_places.extend(places)
+        if not next_page_token or page_num == MAX_PAGES:
+            break
+        time.sleep(_PAGE_TOKEN_DELAY_SECONDS)
+        page_token = next_page_token
+
+    logger.info("search_places '%s' -> %d results (%d page(s))", query, len(all_places), page_num)
+    return all_places
 
 
 def _ensure_all_cells(db):
@@ -100,11 +134,24 @@ def _ensure_all_cells(db):
         logger.info("Lazily created %d missing search cells", created)
 
 
+# Minimum days a cell must sit since its last search before it's eligible to
+# be searched again — added 2026-07-21 so the pool keeps replenishing on a
+# real, deliberate cadence rather than an emergent one. Before this, a cell
+# became re-searchable the instant the never-searched pool ran dry, which
+# happened to be fine ONLY because the grid (10,590 cells pre-expansion) was
+# large relative to daily volume — at 25 cells/day a full first pass alone
+# takes ~14 months, so the interval was never actually binding in practice.
+# Explicit now so it stays correct if daily volume ever increases enough to
+# make that emergent spacing too short.
+MIN_RESEARCH_INTERVAL_DAYS = 75
+
+
 def get_pending_cells(db, limit=25):
     """Return up to `limit` SearchCell rows to search next, never-searched
-    first, then oldest-searched. If the total number of cells on disk is
-    smaller than the full grid, backfill the missing combinations first so
-    coverage can grow over time.
+    first, then oldest-searched (but not sooner than
+    MIN_RESEARCH_INTERVAL_DAYS since its last search — see that constant).
+    If the total number of cells on disk is smaller than the full grid,
+    backfill the missing combinations first so coverage can grow over time.
 
     Never-searched cells are shuffled (func.random()), not taken in
     insertion order. _ensure_all_cells() inserts the full (area x trade)
@@ -116,7 +163,12 @@ def get_pending_cells(db, limit=25):
     reaching anywhere else, at 25 cells/day). A random draw from the full
     never-searched pool spans regions/income tiers from day one instead,
     without needing to hand-interleave the area list. Already-searched
-    cells keep oldest-first ordering — no reason to shuffle re-searches."""
+    cells keep oldest-first ordering — no reason to shuffle re-searches.
+
+    Can return fewer than `limit` rows if both the never-searched pool is
+    empty AND every already-searched cell is still within its cooldown
+    window — that's expected/correct, not a bug, once the whole grid has
+    been touched more recently than MIN_RESEARCH_INTERVAL_DAYS."""
     total = db.query(SearchCell).count()
     if total < len(UK_AREAS) * len(TRADE_CATEGORIES):
         _ensure_all_cells(db)
@@ -132,9 +184,10 @@ def get_pending_cells(db, limit=25):
         return unsearched
 
     remaining = limit - len(unsearched)
+    cooldown_cutoff = datetime.utcnow() - timedelta(days=MIN_RESEARCH_INTERVAL_DAYS)
     research = (
         db.query(SearchCell)
-        .filter(SearchCell.last_searched_at.isnot(None))
+        .filter(SearchCell.last_searched_at.isnot(None), SearchCell.last_searched_at <= cooldown_cutoff)
         .order_by(SearchCell.last_searched_at.asc())
         .limit(remaining)
         .all()

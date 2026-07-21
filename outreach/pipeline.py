@@ -49,9 +49,11 @@ from models import (  # noqa: E402
 try:
     from outreach.sourcer import search_places, get_pending_cells, parse_place, upsert_prospect
     from outreach.email_scrape import fetch_and_assess_quality
+    from outreach.trade_categories import AREA_SEARCH_QUALIFIER
 except ImportError:
     from sourcer import search_places, get_pending_cells, parse_place, upsert_prospect
     from email_scrape import fetch_and_assess_quality
+    from trade_categories import AREA_SEARCH_QUALIFIER
 
 logging.basicConfig(
     level=logging.INFO,
@@ -76,7 +78,17 @@ def _source_cells(n_cells, dry_run):
         logger.info("Loaded %d pending search cells", len(cells))
 
         for cell in cells:
-            query = f"{cell.trade_search_term} in {cell.postcode_area}"
+            # postcode_area is a bare district code (e.g. "M1", "SW1A") since
+            # 2026-07-21 — AREA_SEARCH_QUALIFIER supplies the real town/
+            # borough name a live Places API test proved necessary for
+            # reliable resolution ("plumber in M1" alone returned Brighton,
+            # not Manchester; "plumber in M1, Manchester" resolved
+            # correctly). See trade_categories.py's module docstring. Falls
+            # back to the bare code for the handful of districts with no
+            # clean qualifier available.
+            qualifier = AREA_SEARCH_QUALIFIER.get(cell.postcode_area)
+            area_text = f"{cell.postcode_area}, {qualifier}" if qualifier else cell.postcode_area
+            query = f"{cell.trade_search_term} in {area_text}"
             if dry_run:
                 logger.info("[dry-run] would search: %s", query)
                 cells_searched += 1
