@@ -80,11 +80,19 @@ EMAIL_FLOOR = EMAIL_RAMP_TABLE[1]
 SMS_FLOOR = SMS_RAMP_TABLE[1]
 
 # Email send window — no sends (initial or follow-up) fire on the email
-# channel outside these hours, UTC. 19 is exclusive, so this is 08:00
-# through 19:00 inclusive-start: 12 hourly slots, matching "5 on the hour
-# every hour for 12 hours" exactly at the week-1 floor.
-EMAIL_SEND_WINDOW_START_HOUR = 8
-EMAIL_SEND_WINDOW_END_HOUR_EXCLUSIVE = 20
+# channel outside these hours, UTC. Widened 03:00-19:00 UTC/BST business-
+# hours only) -> 03:00-22:00 UTC (04:00-23:00 BST) on 2026-07-21, by
+# request, after two real clicks landed ~9-10pm BST — the point is
+# specifically to gather real peak/trough click data across a much wider
+# span of the day rather than assume a 9-5 business-hours pattern; 20
+# hourly slots now instead of 12. send-job-cron's Railway cron schedule
+# was updated to match ("0 3-22 * * *" UTC) — the window check here is a
+# second, code-level belt-and-braces guard, not the only enforcement, but
+# both need to agree or the cron simply won't invoke this code in the
+# newly-added hours at all. 22 is exclusive, so this is 03:00 through
+# 22:00 UTC inclusive-start.
+EMAIL_SEND_WINDOW_START_HOUR = 3
+EMAIL_SEND_WINDOW_END_HOUR_EXCLUSIVE = 23
 
 EMAIL_SPAM_RATE_TRIGGER = 0.001  # 0.1% — genuine spam complaints only, per Section 15.
 # Bounces are tracked and trip the breaker separately from complaints (added
