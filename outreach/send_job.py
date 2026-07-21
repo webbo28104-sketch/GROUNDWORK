@@ -36,7 +36,10 @@ from models import SessionLocal, Prospect, SmsDeliveryEvent, OutreachTouch, init
 from emails import send_outreach_email
 from outreach.sms import send_outreach_sms
 from outreach.templates import render_email, render_sms
-from outreach.ramp import advance_or_hold, get_remaining_ramp_today, record_sends
+from outreach.ramp import (
+    advance_or_hold, get_remaining_ramp_today, get_remaining_ramp_this_hour,
+    is_within_email_send_window, record_sends,
+)
 from outreach.followup import run_followups
 from outreach.link_identity import ensure_link_identity
 from outreach.email_verify import has_deliverable_domain, has_bounced_before
@@ -231,18 +234,32 @@ def fill_initial_sends(remaining_ramp, now):
 
 
 def run_daily_send(now=None):
+    """Despite the name (kept for the existing send-job-cron entry point),
+    this now runs hourly, not daily — Railway Cron needs its schedule
+    updated to fire every hour, e.g. "0 8-19 * * *" (UTC), not once a day.
+    Email sends (initial + follow-up) only happen inside the 08:00-19:00
+    UTC window (outreach/ramp.py's EMAIL_SEND_WINDOW_*), evenly capped per
+    hour via get_remaining_ramp_this_hour rather than one lump daily
+    budget — the point is to spread sends across the day so we build real
+    data on which hours perform best, with sourcing-cron (free to run as
+    often as we like) as the actual volume limiter, not an artificially
+    low per-hour cap. SMS is untouched: still one daily budget, no window."""
     now = now or datetime.utcnow()
     init_db()
 
     email_volume = advance_or_hold("email", now)
     sms_volume = advance_or_hold("sms", now)
 
+    in_window = is_within_email_send_window(now)
     remaining = {
-        "email": get_remaining_ramp_today("email", now),
+        "email": get_remaining_ramp_this_hour("email", now),
         "sms": get_remaining_ramp_today("sms", now),
     }
-    logger.info("Today's ramp — email: %d/day (%d remaining), sms: %d/day (%d remaining)",
-                email_volume, remaining["email"], sms_volume, remaining["sms"])
+    logger.info(
+        "This hour's ramp — email: %d/hour (%d remaining, %s), sms: %d/day (%d remaining)",
+        email_volume, remaining["email"], "in window" if in_window else "OUTSIDE 08:00-19:00 UTC window",
+        sms_volume, remaining["sms"],
+    )
 
     # Manual kill switch for the SMS channel only — set SMS_SENDS_PAUSED=true
     # on this service to hold every SMS send (phone-only initial sends, the
@@ -274,8 +291,11 @@ def run_daily_send(now=None):
     # complaint-rate monitoring still sees them) and still gated per-send
     # on has_bounced_before/has_delivery_confirmed — this change is purely
     # about not competing with initial sends for the day's volume cap.
+    # Email follow-ups are additionally held to 0 outside the 08:00-19:00
+    # UTC window (2026-07-21) — "unlimited" budget still shouldn't mean
+    # "any hour of the day" now that email sending has a deliberate window.
     followup_budget = {
-        "email": float("inf"),
+        "email": float("inf") if in_window else 0,
         "sms": 0 if os.environ.get("SMS_SENDS_PAUSED", "").lower() == "true" else float("inf"),
     }
     _, n_followups = run_followups(followup_budget, _unsubscribe_link, _preview_link, _short_code, _survey_link, now)

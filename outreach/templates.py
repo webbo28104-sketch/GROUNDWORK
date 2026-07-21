@@ -3,8 +3,9 @@ Groundwork outreach — initial + follow-up template copy.
 
 Placeholders substituted by the caller: {business_name}, {preview_link},
 {short_code}, {unsubscribe_link}, {branding_ps} (stages C/D only — see
-branding_ps_line() below), {survey_ps} (stages C/D only — see
-survey_ps_line() below).
+branding_ps_line() below). The hail-mary discount offer is its own
+standalone template (HAIL_MARY_EMAIL/HAIL_MARY_SMS below), not a
+placeholder row on these.
 
 Content accuracy rule (docs/outreach-pipeline-spec.md Section 10c): templates
 for the "sent" and "opened" substages (pre-click) must never claim the site
@@ -401,7 +402,6 @@ FOLLOWUP_EMAIL = {
         Any questions, just reply to this email.
       </td></tr>
       {branding_ps}
-      {survey_ps}
       <tr><td style="padding:6px 0 26px;">
         <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;font-family:Arial,Helvetica,sans-serif;">
         <tbody><tr>
@@ -504,7 +504,6 @@ FOLLOWUP_EMAIL = {
         Any questions, just reply to this email.
       </td></tr>
       {branding_ps}
-      {survey_ps}
       <tr><td style="padding:6px 0 26px;">
         <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;font-family:Arial,Helvetica,sans-serif;">
         <tbody><tr>
@@ -545,6 +544,126 @@ FOLLOWUP_EMAIL = {
 </td></tr></tbody></table></body></html>""",
     },
 }
+
+SURVEY_DISCOUNT_PERCENT = 50
+
+# Hail Mary — the final, standalone send to a prospect about to go cold
+# (14-21 days since the original send, still unpaid, real site already
+# clicked/generated). Added 2026-07-21: previously this was just a P.S.
+# row (_SURVEY_PS_ROW below) tacked onto whichever regular C/D copy
+# happened to be due — easy to skim past, and invisible as its own step
+# anywhere in the funnel/admin views (buried inside stage C/D's numbers).
+# Now it's a fully separate template, logged as its own
+# OutreachTouch.stage="hail_mary" (outreach/followup.py), with the offer
+# as the actual headline rather than a postscript.
+HAIL_MARY_EMAIL = {
+    "subject": "Last chance: {pct}% off your setup, {{business_name}}".format(pct=SURVEY_DISCOUNT_PERCENT),
+    "body": """<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<title>Last chance: {pct}% off your setup, {{business_name}}</title>
+
+</head>
+<body style="margin:0;padding:0;background:#EDEAE2;font-family:Arial,Helvetica,sans-serif;">
+<!-- Preheader (hidden, shows in inbox preview text) -->
+<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;">Last chance — {pct}% off your setup fee, no obligation.</div>
+
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#EDEAE2;">
+<tbody><tr><td align="center" style="padding:40px 16px;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;background:#FFFFFF;">
+
+  <!-- HEADER -->
+  <tbody><tr><td style="padding:28px 32px 18px;border-bottom:2px solid #3B82F6;">
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+      <tbody><tr>
+        <td style="padding:0 9px 0 0;vertical-align:middle;">
+          <img src="https://groundworkbuild.com/assets/email/groundwork-mark-22.png" width="22" height="22" alt="" style="display:block;border-radius:5px;">
+        </td>
+        <td style="vertical-align:middle;">
+          <span style="font-family:Arial,Helvetica,sans-serif;font-size:17px;font-weight:bold;color:#1C1C1C;letter-spacing:-.01em;">Groundwork</span>
+        </td>
+      </tr>
+    </tbody></table>
+  </td></tr>
+
+  <!-- BODY -->
+  <tr><td style="padding:32px 32px 8px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+      <tbody>
+      <!-- Headline IS the offer — the whole point of this send, not a P.S. -->
+      <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:22px;font-weight:800;letter-spacing:-.01em;line-height:1.3;color:#1C1C1C;padding:0 0 14px;">
+        Last chance: {pct}% off your setup, {{business_name}}
+      </td></tr>
+      <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:15.5px;line-height:1.65;color:#2A2A28;padding:0 0 18px;">
+        We built you a free website preview a while back and haven't heard from you since — so this is genuinely the last email you'll get about it.
+      </td></tr>
+      <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:15.5px;line-height:1.65;color:#2A2A28;padding:0 0 30px;">
+        Answer 6 quick questions about why now isn't the right time and we'll knock {pct}% off your £99 setup fee — a real code, no obligation, no strings.
+      </td></tr>
+
+      <!-- CTA -->
+      <tr><td style="padding:0 0 20px;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+          <tbody><tr><td bgcolor="#3B82F6" style="border-radius:8px;">
+            <a href="{{survey_link}}" target="_blank" style="display:inline-block;padding:13px 24px;font-family:Arial,Helvetica,sans-serif;font-size:15px;font-weight:bold;color:#FFFFFF;text-decoration:none;border-radius:8px;">Answer & claim {pct}% off</a>
+          </td></tr>
+        </tbody></table>
+      </td></tr>
+
+      <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:13.5px;line-height:1.6;color:#9A9893;padding:0 0 30px;">
+        Takes about 2 minutes. We read every response ourselves.
+      </td></tr>
+
+      <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:15.5px;line-height:1.65;color:#2A2A28;padding:0 0 8px;">
+        Any questions, just reply to this email.
+      </td></tr>
+      <tr><td style="padding:6px 0 26px;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;font-family:Arial,Helvetica,sans-serif;">
+        <tbody><tr>
+          <td valign="middle" style="padding:0 18px 0 0;vertical-align:middle;">
+            <img src="https://groundworkbuild.com/assets/email/groundwork-mark-48.png" width="48" height="48" alt="Groundwork" style="display:block;border-radius:10px;">
+          </td>
+          <td valign="middle" style="border-left:2px solid #3B82F6;padding:0 0 0 18px;vertical-align:middle;">
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
+              <tbody><tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:16px;font-weight:bold;color:#1C1C1C;padding:0 0 2px;line-height:1.3;">Charlie</td></tr>
+              <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5C5A56;padding:0 0 10px;line-height:1.3;">Founder, Groundwork</td></tr>
+              <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:1.3;padding:0;">
+                <a href="https://groundworkbuild.com" style="color:#2257CC;text-decoration:none;">groundworkbuild.com</a><span style="color:#D9D7D0;padding:0 8px;">|</span><a href="mailto:reply@groundworkbuild.com" style="color:#2257CC;text-decoration:none;">reply@groundworkbuild.com</a>
+              </td></tr>
+            </tbody></table>
+      </td></tr>
+    </tbody></table>
+  </td></tr>
+
+  <!-- FOOTER -->
+  <tr><td style="padding:26px 32px 28px;border-top:1px solid #E2E0DA;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+      <tbody><tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:11.5px;font-weight:bold;letter-spacing:.06em;text-transform:uppercase;color:#9A9893;padding:0 0 8px;">
+        Groundwork
+      </td></tr>
+      <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:12.5px;line-height:1.65;color:#9A9893;">
+                <a href="{{unsubscribe_link}}" style="color:#9A9893;text-decoration:underline;">Unsubscribe</a> or reply and let me know and I won't email again.
+      </td></tr>
+    </tbody></table>
+  </td></tr>
+
+</tbody></table>
+</td></tr>
+</tbody></table>
+
+
+
+</td></tr></tbody></table></body></html>""".format(pct=SURVEY_DISCOUNT_PERCENT),
+}
+
+HAIL_MARY_SMS = (
+    "Hi {{business_name}}, last chance: {pct}% off your Groundwork setup if you tell us why "
+    "now isn't the right time: {{survey_link}}\n"
+    "Reply STOP to opt out."
+).format(pct=SURVEY_DISCOUNT_PERCENT)
+
 
 FOLLOWUP_SMS = {
     # Also used as the single collapsed pre-click follow-up for phone-only
@@ -594,34 +713,13 @@ _BRANDING_PS_TEXT = {
 }
 
 
-# Single source of truth for the survey/discount offer's percentage — used
-# here, in outreach/followup.py's SMS last-contact line, and in app.py's
-# survey form/confirmation pages and checkout discount logic. Changed from
-# a full (100%) waiver to 50% on 2026-07-18, per instruction: this offer is
-# a last-resort push for MRR, not a routine incentive, so a partial discount
-# fits its actual role better than giving the setup fee away entirely.
-SURVEY_DISCOUNT_PERCENT = 50
-
-_SURVEY_PS_ROW = (
-    '<tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:14px;'
-    'line-height:1.65;color:#5C5A56;padding:0 0 18px;">P.S. — last chance: got 2 minutes? '
-    '<a href="{{link}}" style="color:#2257CC;text-decoration:none;">Tell us why you have (or haven\'t) '
-    'gone live yet</a> and we\'ll take {pct}% off your setup fee.</td></tr>'
-).format(pct=SURVEY_DISCOUNT_PERCENT)
-
-
-def survey_ps_line(survey_link):
-    """Renders the optional survey CTA row for the {survey_ps} placeholder
-    in stages C/D (added 2026-07-17, docs/outreach-pipeline-spec.md's
-    post-generation survey) — same on/off pattern as branding_ps_line().
-    Repositioned 2026-07-18 to only ever be passed non-empty on the
-    last-contact (catch-all) touch — see outreach/followup.py's
-    is_last_contact — so this is now a last-resort MRR push, not a routine
-    nudge. Returns "" if no link is given, same graceful-collapse behavior
-    as branding_ps_line for a missing asset."""
-    if not survey_link:
-        return ""
-    return _SURVEY_PS_ROW.format(link=survey_link)
+# NOTE: SURVEY_DISCOUNT_PERCENT is defined once, above, next to
+# HAIL_MARY_EMAIL/HAIL_MARY_SMS — this used to be a second definition plus
+# a _SURVEY_PS_ROW/survey_ps_line() pair rendering the offer as a P.S. row
+# tacked onto stage C/D copy. Removed 2026-07-21: the hail-mary offer is
+# now always its own standalone send (HAIL_MARY_EMAIL/HAIL_MARY_SMS,
+# fired via render_email("hail_mary", ...)/render_sms("hail_mary", ...)
+# in outreach/followup.py), never a postscript on another template.
 
 
 def branding_ps_line(extraction_quality):
@@ -643,8 +741,13 @@ def branding_ps_line(extraction_quality):
 
 
 def render_email(stage_key, **kwargs):
-    """stage_key: 'initial' or one of 'A'/'B'/'C'/'D'."""
-    template = INITIAL_EMAIL if stage_key == "initial" else FOLLOWUP_EMAIL[stage_key]
+    """stage_key: 'initial', 'hail_mary', or one of 'A'/'B'/'C'/'D'."""
+    if stage_key == "initial":
+        template = INITIAL_EMAIL
+    elif stage_key == "hail_mary":
+        template = HAIL_MARY_EMAIL
+    else:
+        template = FOLLOWUP_EMAIL[stage_key]
     return {
         "subject": template["subject"].format(**kwargs),
         "body": template["body"].format(**kwargs),
@@ -652,6 +755,11 @@ def render_email(stage_key, **kwargs):
 
 
 def render_sms(stage_key, **kwargs):
-    """stage_key: 'initial' or one of 'A'/'B'/'C'/'D'."""
-    template = INITIAL_SMS if stage_key == "initial" else FOLLOWUP_SMS[stage_key]
+    """stage_key: 'initial', 'hail_mary', or one of 'A'/'B'/'C'/'D'."""
+    if stage_key == "initial":
+        template = INITIAL_SMS
+    elif stage_key == "hail_mary":
+        template = HAIL_MARY_SMS
+    else:
+        template = FOLLOWUP_SMS[stage_key]
     return template.format(**kwargs)

@@ -2858,18 +2858,12 @@ def _survey_form_page(prospect, error=None):
   </p>
   {error_html}
   <form method="post">
-    {_survey_radio_group("decision", [
-        ("went_live", "I've already gone live"),
-        ("not_yet", "Not yet, but considering it"),
-        ("not_going_live", "I don't plan to go live"),
-    ], "Where are you at with your Groundwork site?")}
-    {_survey_radio_group("primary_reason", _SURVEY_PRIMARY_REASONS, "What's the main factor in that?")}
+    {_survey_radio_group("primary_reason", _SURVEY_PRIMARY_REASONS, "What's the main reason you haven't gone live yet?")}
     <div class="gwsvy-field">
       <span class="gwsvy-label">Anything else you'd add? <span class="gwsvy-optional">(optional)</span></span>
       <textarea class="gwsvy-text" name="reason_detail" maxlength="1000"></textarea>
     </div>
     {_survey_radio_group("decision_maker", _SURVEY_DECISION_MAKERS, "Is going live your call to make?")}
-    {_survey_radio_group("already_pays_for_website", [("yes", "Yes"), ("no", "No")], "Do you currently pay for a website or hosting elsewhere?")}
     {_survey_radio_group("how_get_customers", _SURVEY_CUSTOMER_SOURCES, "How do most of your customers find you today?")}
     {_survey_radio_group("timeline", _SURVEY_TIMELINES, "If you were to go live, what's the timeline?")}
     <div class="gwsvy-field">
@@ -2935,19 +2929,39 @@ def prospect_survey(token):
         if request.method == "GET":
             return _survey_form_page(prospect)
 
-        decision = request.form.get("decision", "")
         primary_reason = request.form.get("primary_reason", "")
-        if decision not in ("went_live", "not_yet", "not_going_live") or not primary_reason:
-            return _survey_form_page(prospect, error="Please answer the first two questions to continue.")
+        if not primary_reason:
+            return _survey_form_page(prospect, error="Please answer the first question to continue.")
 
-        already_pays_raw = request.form.get("already_pays_for_website")
+        # decision and already_pays_for_website are no longer asked — both
+        # are already known from data we already have, so asking again is
+        # pure friction with no new signal:
+        #   - decision: derivable from the prospect's own funnel timestamps
+        #     (paid_at/account_created_at/clicked_at), tracked on Prospect
+        #     already. Only unpaid prospects ever reach this survey (see
+        #     outreach/followup.py's run_followups filter), so "went_live"
+        #     only applies to the rare case Stripe-paid status and this
+        #     touch race each other.
+        #   - already_pays_for_website: this is exactly what
+        #     Prospect.website_status (has_website/no_website) already
+        #     captured at sourcing time, straight from Google Places.
+        decision = (
+            "went_live" if prospect.paid_at
+            else "not_yet" if prospect.account_created_at
+            else "not_yet"
+        )
+        already_pays = (
+            True if prospect.website_status == "has_website"
+            else False if prospect.website_status == "no_website"
+            else None
+        )
         response = SurveyResponse(
             prospect_id=prospect.id,
             decision=decision,
             primary_reason=primary_reason,
             reason_detail=(request.form.get("reason_detail") or "").strip()[:1000] or None,
             decision_maker=request.form.get("decision_maker") or None,
-            already_pays_for_website=(already_pays_raw == "yes") if already_pays_raw in ("yes", "no") else None,
+            already_pays_for_website=already_pays,
             how_get_customers=request.form.get("how_get_customers") or None,
             timeline=request.form.get("timeline") or None,
             what_would_change_mind=(request.form.get("what_would_change_mind") or "").strip()[:1000] or None,
@@ -4363,12 +4377,14 @@ def admin_followups():
                 due_label, due_sort = "—", 9999
 
             channel = "SMS only" if not p.email_found else ("Email + SMS" if p.phone else "Email only")
+            is_hail_mary = catch_all_due and p.clicked_at is not None
 
             rows.append({
                 "id": p.id, "name": p.business_name or "—", "substage": p.funnel_substage,
                 "stage_letter": stage_letter, "last_touch": p.last_touch_at,
                 "due_label": due_label, "due_sort": due_sort,
-                "touch_count": p.touch_count or 0, "channel": channel, "catch_all": catch_all_due,
+                "touch_count": p.touch_count or 0, "channel": channel,
+                "catch_all": catch_all_due, "hail_mary": is_hail_mary,
             })
 
         rows.sort(key=lambda r: r["due_sort"])
@@ -4386,7 +4402,7 @@ def admin_followups():
         rows_html = "".join(f"""
 <tr>
   <td style="padding:8px 10px;"><a href="/admin/prospects/{r['id']}" style="color:#2257CC;font-weight:600;text-decoration:none;">{r['name']}</a></td>
-  <td style="padding:8px 10px;">{escape(STAGE_LABELS.get(r['stage_letter'], r['stage_letter']))}{' (catch-all)' if r['catch_all'] else ''}</td>
+  <td style="padding:8px 10px;">{escape(STAGE_LABELS['hail_mary']) if r['hail_mary'] else escape(STAGE_LABELS.get(r['stage_letter'], r['stage_letter'])) + (' (catch-all)' if r['catch_all'] else '')}</td>
   <td style="padding:8px 10px;">{r['channel']}</td>
   <td style="padding:8px 10px;">{r['touch_count']}/{MAX_TOUCHES - 1}</td>
   <td style="padding:8px 10px;">{_fmt_dt(r['last_touch']) or '—'}</td>
@@ -4396,7 +4412,7 @@ def admin_followups():
         content = f"""
 <h1 class="adm-title">Follow-ups</h1>
 <p class="adm-sub">The live queue behind <code>run_followups()</code> — {len(rows)} prospect(s) still eligible for a follow-up touch,
-{due_now_n} due right now. Runs nightly inside send-job-cron (08:00 UTC), first-priority against that day's ramp allowance,
+{due_now_n} due right now. Runs hourly inside send-job-cron (08:00-19:00 UTC), first-priority against that hour's ramp allowance,
 before any new initial sends.</p>
 
 {gate_html}
@@ -4539,6 +4555,7 @@ def admin_prospect_detail(prospect_id):
             due_now = (substage_days is not None and substage_days >= min_days) or catch_all_due
 
             channel = "SMS only" if not p.email_found else ("Email + SMS" if p.phone else "Email only")
+            is_hail_mary = catch_all_due and p.clicked_at is not None
             reply_gate = ""
             if channel != "SMS only" and not EMAIL_REPLY_CAPTURE_READY:
                 reply_gate = ' <span style="color:#B45309;">(withheld — email reply-capture not yet live)</span>'
@@ -4546,7 +4563,7 @@ def admin_prospect_detail(prospect_id):
                 reply_gate = ' <span style="color:#B45309;">(withheld — SMS reply-capture not yet live)</span>'
 
             if due_now:
-                when_html = '<b style="color:#B91C1C;">Due now</b> — will fire on the next send-job-cron run (08:00 UTC)'
+                when_html = '<b style="color:#B91C1C;">Due now</b> — will fire on the next send-job-cron run (hourly, 08:00-19:00 UTC)'
             elif p.last_touch_at:
                 days_until = min_days - substage_days
                 eta = (now + timedelta(days=days_until)).strftime("%d %b %Y")
@@ -4554,10 +4571,14 @@ def admin_prospect_detail(prospect_id):
             else:
                 when_html = "— waiting on an initial send/state change before a due date can be projected —"
 
+            next_stage_label = (
+                escape(STAGE_LABELS["hail_mary"]) if is_hail_mary
+                else escape(STAGE_LABELS.get(stage_letter, stage_letter)) + (' (catch-all window)' if catch_all_due else '')
+            )
             schedule_html = f"""
 <table style="width:100%;border-collapse:collapse;font-size:13.5px;">
   <tr><td style="padding:6px 10px;color:#9A9893;">Next stage</td>
-      <td style="padding:6px 10px;">{escape(STAGE_LABELS.get(stage_letter, stage_letter))}{' (catch-all window)' if catch_all_due else ''}</td></tr>
+      <td style="padding:6px 10px;">{next_stage_label}</td></tr>
   <tr><td style="padding:6px 10px;color:#9A9893;">Channel</td><td style="padding:6px 10px;">{channel}{reply_gate}</td></tr>
   <tr><td style="padding:6px 10px;color:#9A9893;">Touches used</td><td style="padding:6px 10px;">{p.touch_count or 0} / {MAX_TOUCHES - 1} follow-ups</td></tr>
   <tr><td style="padding:6px 10px;color:#9A9893;">Last touch</td><td style="padding:6px 10px;">{_fmt_dt(p.last_touch_at) or '—'}</td></tr>

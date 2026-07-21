@@ -454,6 +454,25 @@ class DailySendCount(Base):
     __table_args__ = (UniqueConstraint("channel", "send_date", name="uq_daily_send_counts_channel_date"),)
 
 
+class HourlySendCount(Base):
+    """One row per (channel, hour_bucket) — added 2026-07-21 alongside the
+    hourly email ramp (Section 15's daily volume is still the 7-day health-
+    signal denominator via DailySendCount, unchanged; this is a second,
+    finer-grained counter purely for the per-hour send cap, so sending 60
+    emails in the first hour of an 08:00-19:00 window can't happen just
+    because the day's total budget hasn't been used up yet). hour_bucket is
+    "YYYY-MM-DD-HH", UTC, so it naturally resets every hour with no cron/
+    cleanup step needed — old rows are just never queried again."""
+    __tablename__ = "hourly_send_counts"
+
+    id = Column(Integer, primary_key=True)
+    channel = Column(String(10), nullable=False)  # "email" / "sms"
+    hour_bucket = Column(String(13), nullable=False)  # "YYYY-MM-DD-HH", UTC
+    count = Column(Integer, nullable=False, default=0)
+
+    __table_args__ = (UniqueConstraint("channel", "hour_bucket", name="uq_hourly_send_counts_channel_hour"),)
+
+
 class OutreachTouch(Base):
     """One row per individual outreach send — going forward only, added
     2026-07-14. Before this table existed, only cumulative current-state

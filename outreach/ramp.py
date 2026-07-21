@@ -39,19 +39,39 @@ from datetime import datetime, timedelta
 
 from sqlalchemy import func
 
-from models import SessionLocal, RampState, DailySendCount, SmsDeliveryEvent, EmailEventLog, Prospect
+from models import SessionLocal, RampState, DailySendCount, HourlySendCount, SmsDeliveryEvent, EmailEventLog, Prospect
 
 logger = logging.getLogger("outreach.ramp")
 
-# Section 15 tables — daily volume by week number for each channel.
-# Week 1 (the floor) raised 10 -> 20 for email on 2026-07-19, by request —
-# week 2/3 left as-is rather than rescaled to match, so this is a genuinely
-# higher starting point, not just a shifted curve.
-EMAIL_RAMP_TABLE = {1: 20, 2: 25, 3: 50}  # week 4+ doubles the prior week
+# Section 15 tables — SMS ramp is still a daily volume by week number,
+# unchanged. Email switched to an HOURLY volume on 2026-07-21, by request:
+# instead of one big daily batch at a fixed time, email now sends across an
+# 08:00-19:00 UTC window (EMAIL_SEND_WINDOW_START_HOUR/END_HOUR_EXCLUSIVE
+# below) in even hourly slices, so we build our own data on which sending
+# hours actually perform best rather than guessing. The genuine volume
+# limiter is meant to be sourcing-cron (free to run as often as we like),
+# NOT an artificial per-hour cap much lower than what we could safely send —
+# so this table ramps the SAME conservative way the old daily table did
+# (week 1 floor, then steady growth), just denominated per-hour instead of
+# per-day. Week 1 floor is 5/hour x 12 hourly slots = 60/day to start.
+EMAIL_HOURLY_RAMP_TABLE = {1: 5, 2: 8, 3: 12, 4: 18}  # week 5+ grows 50%/week (see _volume_for_week)
 SMS_RAMP_TABLE = {1: 20, 2: 50}  # week 3+ increases 50-75% (use 50% — the conservative end)
+
+# Back-compat alias — RampState/advance_or_hold's table lookup below is
+# channel-generic and just needs *a* dict to key week_number into; this name
+# is kept only because "EMAIL_RAMP_TABLE" is a more obvious symbol to grep
+# for than the newer, more precise EMAIL_HOURLY_RAMP_TABLE.
+EMAIL_RAMP_TABLE = EMAIL_HOURLY_RAMP_TABLE
 
 EMAIL_FLOOR = EMAIL_RAMP_TABLE[1]
 SMS_FLOOR = SMS_RAMP_TABLE[1]
+
+# Email send window — no sends (initial or follow-up) fire on the email
+# channel outside these hours, UTC. 19 is exclusive, so this is 08:00
+# through 19:00 inclusive-start: 12 hourly slots, matching "5 on the hour
+# every hour for 12 hours" exactly at the week-1 floor.
+EMAIL_SEND_WINDOW_START_HOUR = 8
+EMAIL_SEND_WINDOW_END_HOUR_EXCLUSIVE = 20
 
 EMAIL_SPAM_RATE_TRIGGER = 0.001  # 0.1% — genuine spam complaints only, per Section 15.
 # Bounces are tracked and trip the breaker separately from complaints (added
@@ -81,12 +101,17 @@ SMS_OPT_OUT_SPIKE_TRIGGER = 0.02  # 2% in a single day
 def _volume_for_week(table, week_number, floor):
     if week_number in table:
         return table[week_number]
-    # Beyond the table's last defined week: email doubles each week past
-    # week 3, SMS grows 50% each week past week 2.
+    # Beyond the table's last defined week: both channels grow 50% each
+    # week past their last defined entry. Email used to double (when the
+    # table was a per-day figure) — since it's now per-HOUR across 12
+    # hourly slots (2026-07-21), doubling would compound too fast (a
+    # doubled per-hour rate is really a 2x per-DAY jump given the same
+    # number of slots), so it uses the same conservative 50%/week growth
+    # SMS already used.
     last_defined_week = max(table.keys())
     last_volume = table[last_defined_week]
     extra_weeks = week_number - last_defined_week
-    growth = 2.0 if table is EMAIL_RAMP_TABLE else 1.5
+    growth = 1.5
     return int(last_volume * (growth ** extra_weeks))
 
 
@@ -291,7 +316,11 @@ def advance_or_hold(channel, now=None):
 
 def get_remaining_ramp_today(channel, now=None):
     """How many more sends of this channel are allowed today, i.e. today's
-    approved daily_volume minus what's already gone out today."""
+    approved daily_volume minus what's already gone out today. Still the
+    real mechanism for SMS. For email, use get_remaining_ramp_this_hour
+    instead — RampState.daily_volume for email is now a per-hour figure
+    (see EMAIL_HOURLY_RAMP_TABLE), so this function would hugely
+    overstate email's real remaining budget for the rest of the day."""
     now = now or datetime.utcnow()
     today = now.strftime("%Y-%m-%d")
 
@@ -307,10 +336,44 @@ def get_remaining_ramp_today(channel, now=None):
         db.close()
 
 
+def is_within_email_send_window(now=None):
+    """True during the 08:00-19:00 UTC hourly send window — see
+    EMAIL_SEND_WINDOW_START_HOUR/END_HOUR_EXCLUSIVE above. Outside this
+    window, email initial sends and follow-ups are held entirely (not
+    queued/delayed — the next hourly cron run inside the window picks up
+    normally, same as any other hour's due check)."""
+    now = now or datetime.utcnow()
+    return EMAIL_SEND_WINDOW_START_HOUR <= now.hour < EMAIL_SEND_WINDOW_END_HOUR_EXCLUSIVE
+
+
+def get_remaining_ramp_this_hour(channel, now=None):
+    """How many more sends of this channel are allowed in the current UTC
+    hour — RampState.daily_volume (per-hour, for email) minus what's
+    already gone out in this hour's HourlySendCount bucket. Returns 0
+    outside the email send window regardless of remaining budget."""
+    now = now or datetime.utcnow()
+    if channel == "email" and not is_within_email_send_window(now):
+        return 0
+
+    hour_bucket = now.strftime("%Y-%m-%d-%H")
+    db = SessionLocal()
+    try:
+        state = _get_or_create_state(db, channel)
+        row = db.query(HourlySendCount).filter(
+            HourlySendCount.channel == channel, HourlySendCount.hour_bucket == hour_bucket
+        ).first()
+        sent_this_hour = row.count if row else 0
+        return max(0, state.daily_volume - sent_this_hour)
+    finally:
+        db.close()
+
+
 def record_sends(channel, n, now=None, db=None):
-    """Increment today's send counter for a channel by n. Call this after
-    every actual send (follow-up or initial) so get_remaining_ramp_today
-    reflects reality.
+    """Increment today's send counter for a channel by n, AND this hour's
+    bucket (used only by get_remaining_ramp_this_hour, currently just
+    email — harmless to track for SMS too). Call this after every actual
+    send (follow-up or initial) so the remaining-ramp checks reflect
+    reality.
 
     Accepts an optional existing db session — every real caller
     (outreach/send_job.py, outreach/followup.py) already holds one open
@@ -323,6 +386,7 @@ def record_sends(channel, n, now=None, db=None):
         return
     now = now or datetime.utcnow()
     today = now.strftime("%Y-%m-%d")
+    hour_bucket = now.strftime("%Y-%m-%d-%H")
 
     owns_session = db is None
     db = db or SessionLocal()
@@ -334,6 +398,15 @@ def record_sends(channel, n, now=None, db=None):
             row = DailySendCount(channel=channel, send_date=today, count=0)
             db.add(row)
         row.count += n
+
+        hour_row = db.query(HourlySendCount).filter(
+            HourlySendCount.channel == channel, HourlySendCount.hour_bucket == hour_bucket
+        ).first()
+        if not hour_row:
+            hour_row = HourlySendCount(channel=channel, hour_bucket=hour_bucket, count=0)
+            db.add(hour_row)
+        hour_row.count += n
+
         db.commit()
     finally:
         if owns_session:
