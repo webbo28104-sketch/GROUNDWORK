@@ -30,7 +30,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 from build_prompt import build_prompt
 from outreach.site_extract import extract_site_assets
-from models import SessionLocal, Lead, Generation, Account, GenerationImage, Domain, Prospect, SearchCell, PendingEmailDiscovery, EmailEventLog, OutreachTouch, DailySendCount, RampState, SmsDeliveryEvent, SurveyResponse, DiscoveryRunLog, init_db
+from models import SessionLocal, Lead, Generation, Account, GenerationImage, Domain, Prospect, SearchCell, PendingEmailDiscovery, EmailEventLog, OutreachTouch, DailySendCount, RampState, SmsDeliveryEvent, SurveyResponse, DiscoveryRunLog, InboundReply, init_db
 from emails import (send_verification_email, send_resend_email, send_password_reset_email,
                     send_support_message_email, send_enquiry_email,
                     send_domain_order_admin_email, send_domain_order_customer_email,
@@ -4614,6 +4614,20 @@ def admin_prospect_detail(prospect_id):
             lead = db.query(Lead).filter(Lead.id == p.lead_id).first()
             generation = db.query(Generation).filter(Generation.lead_id == p.lead_id).first()
 
+        replies = db.query(InboundReply).filter(InboundReply.prospect_id == p.id).order_by(InboundReply.received_at.desc()).all()
+        if replies:
+            replies_html = "".join(
+                f'<div style="padding:10px 0;border-bottom:1px solid #EDEBE5;">'
+                f'<p style="margin:0 0 4px;font-size:12.5px;color:#9A9893;">'
+                f'{r.channel.upper()} · {_fmt_dt(r.received_at)}'
+                f'{" · <span style=\'color:#DC2626;font-weight:700;\'>STOP</span>" if r.is_stop_intent else ""}</p>'
+                f'<p style="margin:0;font-size:13.5px;white-space:pre-wrap;">{escape(r.body or "(empty message)")}</p>'
+                f'</div>'
+                for r in replies
+            )
+        else:
+            replies_html = '<p class="muted">No replies captured (only tracked from 2026-07-21 on).</p>'
+
         survey = db.query(SurveyResponse).filter(SurveyResponse.prospect_id == p.id).first()
         survey_html = '<p class="muted">No survey response yet.</p>'
         if survey:
@@ -4744,6 +4758,11 @@ def admin_prospect_detail(prospect_id):
 <div class="adm-card" style="padding:16px 20px;margin-bottom:20px;">
   <p style="font-weight:700;margin:0 0 10px;">Follow-up schedule</p>
   {schedule_html}
+</div>
+
+<div class="adm-card" style="padding:16px 20px;margin-bottom:20px;">
+  <p style="font-weight:700;margin:0 0 10px;">Replies</p>
+  {replies_html}
 </div>
 
 <div class="adm-card" style="padding:16px 20px;">
@@ -6179,52 +6198,53 @@ actually control — not by when the open/click event itself landed. Bar per buc
 def admin_replies():
     db = SessionLocal()
     try:
-        replied = db.query(Prospect).filter(Prospect.funnel_substage == "replied").order_by(
-            Prospect.id.desc()
-        ).all()
-        stopped = db.query(Prospect).filter(
-            (Prospect.email_unsubscribed == True) | (Prospect.sms_unsubscribed == True)  # noqa: E712
-        ).order_by(Prospect.id.desc()).all()
+        # InboundReply (added 2026-07-21) carries the actual message text —
+        # every real inbound webhook (email-inbound, sms-inbound's "inbound"
+        # and Esendex-classified "stop" events) now persists one row per
+        # message via outreach/reply_handling.py's _apply_reply/
+        # handle_forced_sms_stop, rather than classifying and discarding
+        # the body. Anything sent before that shipped has no row here —
+        # those older replies are only visible (if at all) via the
+        # groundwork-build@outlook.com forward, which is best-effort and
+        # not guaranteed to have actually landed (see email_forward_log).
+        reply_rows = (
+            db.query(InboundReply, Prospect)
+            .join(Prospect, InboundReply.prospect_id == Prospect.id)
+            .order_by(InboundReply.received_at.desc())
+            .all()
+        )
 
         email_unsub_n = db.query(Prospect).filter(Prospect.email_unsubscribed == True).count()  # noqa: E712
         sms_unsub_n = db.query(Prospect).filter(Prospect.sms_unsubscribed == True).count()  # noqa: E712
-        total_unsub_n = len(stopped)  # distinct prospects — a prospect stopped on both channels counts once
+        total_unsub_n = db.query(Prospect).filter(
+            (Prospect.email_unsubscribed == True) | (Prospect.sms_unsubscribed == True)  # noqa: E712
+        ).count()
 
-        rows = []
-        for p in replied:
-            rows.append((p, "Non-stop (paused for review)", None))
-        for p in stopped:
-            channel = "SMS" if p.sms_unsubscribed else "Email"
-            at = p.sms_unsubscribed_at if p.sms_unsubscribed else p.email_unsubscribed_at
-            rows.append((p, f"Stop ({channel})", at))
-
-        rows.sort(key=lambda r: r[2] or datetime.min, reverse=True)
-
-        if not rows:
-            table_html = '<div class="adm-card" style="padding:40px;text-align:center;color:#9A9893;font-size:14px;">No replies logged yet.</div>'
+        if not reply_rows:
+            table_html = '<div class="adm-card" style="padding:40px;text-align:center;color:#9A9893;font-size:14px;">No replies captured yet.</div>'
         else:
             trs = ""
-            for p, classification, at in rows:
-                badge_color = "#DC2626" if classification.startswith("Stop") else "#B45309"
-                when = at.strftime("%d %b %Y %H:%M UTC") if at else '<span class="muted">not tracked</span>'
+            for r, p in reply_rows:
+                badge_color = "#DC2626" if r.is_stop_intent else "#B45309"
+                classification = f"Stop ({r.channel.upper()})" if r.is_stop_intent else f"Reply ({r.channel.upper()})"
+                when = r.received_at.strftime("%d %b %Y %H:%M UTC")
                 trs += (
-                    f'<tr><td>{escape(p.business_name or "—")}</td>'
-                    f'<td>{escape(p.email or p.phone or "—")}</td>'
-                    f'<td><span class="status-pill" style="background:{badge_color}22;color:{badge_color};">{escape(classification)}</span></td>'
-                    f'<td>{when}</td></tr>'
+                    f'<tr><td style="vertical-align:top;"><a href="/admin/prospects/{p.id}" style="color:#2257CC;font-weight:600;text-decoration:none;">{escape(p.business_name or "—")}</a></td>'
+                    f'<td style="vertical-align:top;">{escape(r.from_address or p.email or p.phone or "—")}</td>'
+                    f'<td style="vertical-align:top;"><span class="status-pill" style="background:{badge_color}22;color:{badge_color};">{escape(classification)}</span></td>'
+                    f'<td style="vertical-align:top;white-space:nowrap;">{when}</td>'
+                    f'<td style="max-width:420px;white-space:pre-wrap;">{escape(r.body or "(empty message)")}</td></tr>'
                 )
             table_html = f"""<div class="adm-card" style="overflow-x:auto;">
-<table><thead><tr><th>Business</th><th>Contact</th><th>Classification</th><th>When</th></tr></thead>
+<table><thead><tr><th>Business</th><th>Contact</th><th>Type</th><th>When</th><th>Message</th></tr></thead>
 <tbody>{trs}</tbody></table></div>"""
 
         content = f"""
 <h1 class="adm-title">Replies</h1>
 <p class="adm-sub">
-  <b>The actual reply message text isn't stored anywhere in the app</b> — <code>handle_inbound_email()</code>
-  only classifies each reply as stop-intent or not and updates the prospect's funnel state. The real
-  message content only exists in the forwarded copy sitting in
-  <a href="mailto:groundwork-build@outlook.com">groundwork-build@outlook.com</a>. Check that inbox to
-  read what anyone actually wrote.
+  The actual message text, captured directly from the inbound webhook (email-inbound / sms-inbound) —
+  not the forwarded copy in <a href="mailto:groundwork-build@outlook.com">groundwork-build@outlook.com</a>,
+  which is best-effort and not guaranteed to arrive.
 </p>
 
 <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-bottom:16px;font-size:13px;color:#5C5A56;font-weight:600;">
@@ -6234,9 +6254,8 @@ def admin_replies():
 </div>
 
 <p class="adm-sub" style="color:#B45309;background:#FEF3C7;padding:10px 14px;border-radius:8px;">
-  ⚠ Non-stop replies (paused for human review) have no timestamp in the schema — only stop-intent
-  opt-outs record one (<code>email_unsubscribed_at</code>/<code>sms_unsubscribed_at</code>). Rows below
-  marked "not tracked" are real gaps, not a rendering bug.
+  ⚠ Only replies received after 2026-07-21 have their text captured here — anything before that only
+  exists (if at all) in the Outlook forwarding inbox.
 </p>
 
 {table_html}
@@ -8421,7 +8440,7 @@ def sms_inbound_webhook():
                 continue
 
             if event_id == "stop":
-                prospect = handle_forced_sms_stop(db, from_phone)
+                prospect = handle_forced_sms_stop(db, from_phone, body)
             elif event_id == "inbound":
                 prospect = handle_inbound_sms(db, from_phone, body)
             else:

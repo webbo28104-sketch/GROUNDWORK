@@ -486,6 +486,31 @@ class HourlySendCount(Base):
     __table_args__ = (UniqueConstraint("channel", "hour_bucket", name="uq_hourly_send_counts_channel_hour"),)
 
 
+class InboundReply(Base):
+    """One row per real inbound message (email or SMS) received from a
+    prospect — added 2026-07-21. Before this table existed,
+    outreach/reply_handling.py's handle_inbound_email/handle_inbound_sms
+    received the actual message body from the webhook payload but only
+    ever used it to classify stop-intent vs. not; the text itself was
+    discarded, so /admin/replies could show THAT someone replied but never
+    WHAT they wrote — the admin had to dig through the
+    groundwork-build@outlook.com forwarding inbox by hand, which then
+    turned out to be missing anyway (see email_forward_log's docstring —
+    the forward itself is best-effort and its failures are only logged,
+    not retried). This table is the durable, in-app copy going forward.
+    Multiple rows per prospect are expected (someone can reply more than
+    once) — order by received_at, don't assume one row per prospect."""
+    __tablename__ = "inbound_replies"
+
+    id = Column(Integer, primary_key=True)
+    prospect_id = Column(Integer, ForeignKey("prospects.id"), nullable=False, index=True)
+    channel = Column(String(10), nullable=False)  # "email" / "sms"
+    from_address = Column(String(255))
+    body = Column(Text)
+    is_stop_intent = Column(Boolean, default=False)
+    received_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+
 class OutreachTouch(Base):
     """One row per individual outreach send — going forward only, added
     2026-07-14. Before this table existed, only cumulative current-state

@@ -15,7 +15,7 @@ import re
 import logging
 from datetime import datetime
 
-from models import Prospect
+from models import Prospect, InboundReply
 
 logger = logging.getLogger("outreach.reply_handling")
 
@@ -52,9 +52,18 @@ def find_prospect_by_email(db, from_email):
     return db.query(Prospect).filter(Prospect.email == from_email.strip().lower()).first()
 
 
-def _apply_reply(prospect, body, channel):
-    """Mutates prospect in place per the kill-switch rule. Caller commits."""
-    if is_stop_intent(body):
+def _apply_reply(db, prospect, body, channel, from_address=None):
+    """Mutates prospect in place per the kill-switch rule, AND persists the
+    actual message as an InboundReply row (added 2026-07-21 — previously
+    the body was received here and then discarded once classified,
+    leaving /admin/replies unable to show what anyone actually wrote).
+    Caller commits."""
+    stop = is_stop_intent(body)
+    db.add(InboundReply(
+        prospect_id=prospect.id, channel=channel, from_address=from_address,
+        body=body, is_stop_intent=stop, received_at=datetime.utcnow(),
+    ))
+    if stop:
         now = datetime.utcnow()
         if channel == "sms":
             prospect.sms_unsubscribed = True
@@ -77,12 +86,12 @@ def handle_inbound_sms(db, from_phone, body):
     if not prospect:
         logger.warning("Inbound SMS from unmatched number %s — no prospect found", from_phone)
         return None
-    _apply_reply(prospect, body, "sms")
+    _apply_reply(db, prospect, body, "sms", from_address=from_phone)
     db.commit()
     return prospect
 
 
-def handle_forced_sms_stop(db, from_phone):
+def handle_forced_sms_stop(db, from_phone, body=None):
     """
     Esendex's webhook can classify a message as a "stop" event itself
     (its own opt-out detection, separate from ours) — when it does, honor
@@ -91,11 +100,22 @@ def handle_forced_sms_stop(db, from_phone):
     made the classification. Still needs to land in our own Prospect row
     so run_followups()/send_job.py actually respect it — Esendex opting
     someone out on its side doesn't by itself stop us from queuing a send.
+
+    body is optional (2026-07-21) — sms_inbound_webhook already extracts it
+    for every event before branching on event_id, so it's logged as an
+    InboundReply here too when present, same as the other reply paths,
+    rather than this being the one path where a real message never gets
+    persisted.
     """
     prospect = find_prospect_by_phone(db, from_phone)
     if not prospect:
         logger.warning("Forced SMS stop from unmatched number %s — no prospect found", from_phone)
         return None
+    if body:
+        db.add(InboundReply(
+            prospect_id=prospect.id, channel="sms", from_address=from_phone,
+            body=body, is_stop_intent=True, received_at=datetime.utcnow(),
+        ))
     prospect.sms_unsubscribed = True
     prospect.sms_unsubscribed_at = datetime.utcnow()
     logger.info("Prospect %s: Esendex-classified stop event — opted out permanently", prospect.id)
@@ -104,15 +124,18 @@ def handle_forced_sms_stop(db, from_phone):
 
 
 def handle_inbound_email(db, from_email, body):
-    """Not wired to any transport yet — Resend has no inbound-parsing
-    product (see docs/outreach-pipeline-spec.md Section 11a). Implemented
-    now so whichever transport gets chosen (Cloudflare Email Routing worker,
-    IMAP poll, a dedicated inbound-parsing service) only needs to call this
-    function, not duplicate the matching/decision logic."""
+    """Wired via Cloudflare Email Routing -> frontend/_worker.js's email()
+    handler -> POST /api/webhooks/email-inbound (app.py), which parses
+    {from, text} and calls this. (Docstring corrected 2026-07-21 — this
+    previously said "not wired to any transport yet", which stopped being
+    true once that Worker/route shipped; the reply-body persistence below
+    was added the same day, once it turned out the forwarded copy to
+    groundwork-build@outlook.com wasn't a reliable enough place to actually
+    read replies.)"""
     prospect = find_prospect_by_email(db, from_email)
     if not prospect:
         logger.warning("Inbound email from unmatched address %s — no prospect found", from_email)
         return None
-    _apply_reply(prospect, body, "email")
+    _apply_reply(db, prospect, body, "email", from_address=from_email)
     db.commit()
     return prospect
