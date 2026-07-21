@@ -519,14 +519,142 @@ class OutreachTouch(Base):
     was — this is what makes a real per-stage, per-channel funnel
     breakdown possible from here on. Nothing before this table's creation
     date can be backfilled; there is no historical data to reconstruct it
-    from (see docs/outreach-pipeline-spec.md's Funnel dashboard notes)."""
+    from (see docs/outreach-pipeline-spec.md's Funnel dashboard notes).
+
+    variant_id/opened_at/clicked_at/paid_at added 2026-07-21 alongside the
+    email-variant testing system (outreach/variant_optimizer_job.py, Section
+    19). variant_id is null for SMS touches (variants are email-only) and
+    for any touch predating this system. opened_at/clicked_at/paid_at mirror
+    the same-named Prospect fields but at PER-TOUCH granularity — Prospect's
+    versions are "ever happened, once, across the prospect's whole
+    lifetime" flags, which can't tell you which of several sent variants a
+    prospect actually opened/clicked/paid after. These are written by the
+    same three call sites that write the Prospect-level fields (app.py:
+    resend_events_webhook, _claim_generate_and_redirect, stripe_webhook),
+    attributed to the LATEST touch for that prospect at event time (a
+    standard last-touch attribution model — see that module's docstring for
+    the honest limitations of this)."""
     __tablename__ = "outreach_touches"
 
     id = Column(Integer, primary_key=True)
     prospect_id = Column(Integer, ForeignKey("prospects.id"), nullable=False, index=True)
-    stage = Column(String(10), nullable=False)  # "initial" / "A" / "B" / "C" / "D"
+    stage = Column(String(10), nullable=False)  # "initial" / "A" / "B" / "C" / "D" / "hail_mary"
     channel = Column(String(10), nullable=False)  # "email" / "sms"
     sent_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    variant_id = Column(String(30), nullable=True, index=True)
+    opened_at = Column(DateTime, nullable=True)
+    clicked_at = Column(DateTime, nullable=True)
+    paid_at = Column(DateTime, nullable=True)
+
+
+class EmailVariant(Base):
+    """One row per email-copy variant under test for a given outreach stage
+    (docs/cold-email-evidence-library.md, docs/outreach-pipeline-spec.md
+    Section 19). Added 2026-07-21 alongside outreach/variant_optimizer_job.py.
+
+    stage: "initial" / "A" / "B" / "C" / "D" — matches OutreachTouch.stage
+    and outreach/templates.py's stage keys. hail_mary is deliberately NOT
+    variant-tested (a single fixed last-chance offer, not iterated copy).
+
+    variant_id: human-readable, globally unique (e.g. "initial-v1",
+    "A-v3") — stage prefix bakes in which stage it belongs to, so
+    OutreachTouch.variant_id alone (without a join back to this table) is
+    enough to identify both the stage and the specific copy that was sent.
+
+    status: "active" (full rotation within its stage's weighted pool),
+    "canary" (newly admitted, small weight, same pool — the two statuses
+    differ only in weight/provenance, not in mechanism), "paused" (weight
+    forced to 0, excluded from selection — either a deliberate demotion for
+    confirmed underperformance, or a deliverability auto-pause; see `notes`
+    for which).
+
+    weight: relative selection weight within its stage's active+canary
+    pool (outreach/variant_selection.py) — NOT a 0-1 probability by itself,
+    since it's only ever compared against sibling weights in the same
+    stage. Not part of the user's original spec in the literal sense, but
+    required to make "weighted probability" and "reallocate weight
+    gradually" persistent/adjustable across job runs rather than
+    recomputed from scratch on every selection.
+
+    parent_variant_id: which variant this one was generated as a single-
+    variable change from — null for the seeded baseline (variant #1 per
+    stage), which has no parent. Lineage, not a foreign key constraint
+    (a parent may later be paused/deleted-in-spirit — paused rows are kept,
+    never deleted, so this never dangles in practice).
+
+    isolated_variable: the one element that changed vs. parent_variant_id
+    (e.g. "subject_length", "cta_wording", "personalization_depth",
+    "paragraph_structure") — null only for the baseline (nothing changed
+    from a parent it doesn't have). Never more than one axis per variant —
+    see outreach/content_safety.py's isolation heuristic check, run before
+    a candidate is admitted."""
+    __tablename__ = "email_variants"
+
+    id = Column(Integer, primary_key=True)
+    stage = Column(String(10), nullable=False, index=True)
+    variant_id = Column(String(30), unique=True, nullable=False, index=True)
+    parent_variant_id = Column(String(30), nullable=True)
+    subject = Column(Text, nullable=False)
+    body = Column(Text, nullable=False)
+    status = Column(String(10), nullable=False, default="active")  # active / canary / paused
+    weight = Column(Float, nullable=False, default=1.0)
+    rationale = Column(Text, nullable=True)
+    isolated_variable = Column(String(50), nullable=True)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class EvidenceFinding(Base):
+    """One row per Section 3 entry the optimizer job adds to the evidence
+    library (docs/cold-email-evidence-library.md) — the DURABLE store for
+    those findings. See that file's Section 3 architecture note: the
+    optimizer job runs on a Railway Cron container with no git write
+    access, so it cannot actually commit an appended line to the .md file
+    in production. This table IS Section 3 going forward; /admin/variants
+    renders it in the same Finding/Sample size/Isolated variable/Adaptation
+    tested/Rationale shape the spec calls for."""
+    __tablename__ = "evidence_findings"
+
+    id = Column(Integer, primary_key=True)
+    stage = Column(String(10), nullable=False)
+    finding = Column(Text, nullable=False)
+    sample_size = Column(Integer, nullable=False)
+    isolated_variable = Column(String(50), nullable=True)
+    adaptation_tested = Column(Text, nullable=True)
+    rationale = Column(Text, nullable=False)
+    variant_id = Column(String(30), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class OptimizerRunLog(Base):
+    """One row per outreach/variant_optimizer_job.py run — belt-and-
+    suspenders visibility per the spec ("checkable even if the dashboard
+    route ever breaks"). `details` carries the full structured breakdown
+    (per-stage sample counts, any promotions/pauses/new variants with their
+    rationale) — this table doubles as both the daily-summary log the spec
+    asked for AND the "recent actions" feed /admin/variants renders, rather
+    than keeping two separate logs of the same events."""
+    __tablename__ = "optimizer_run_logs"
+
+    id = Column(Integer, primary_key=True)
+    run_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    samples_processed = Column(Integer, nullable=False, default=0)
+    action_taken = Column(String(30), nullable=False)  # "no_action_threshold_not_met" / "action_taken" / "error"
+    details = Column(JSON, nullable=True)
+
+
+class VariantOptimizerState(Base):
+    """One row per stage — tracks the last OutreachTouch.id already counted
+    toward that stage's sample threshold, so "enough NEW samples since the
+    last action" (not "enough samples ever") is a real, incremental check
+    rather than one that keeps re-triggering on the same already-seen
+    sends."""
+    __tablename__ = "variant_optimizer_state"
+
+    id = Column(Integer, primary_key=True)
+    stage = Column(String(10), unique=True, nullable=False)
+    last_processed_touch_id = Column(Integer, nullable=False, default=0)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 def _database_url() -> str:
@@ -633,6 +761,10 @@ def init_db():
     _ensure_column(PendingVisionCheck.__tablename__, "screenshot_path", "VARCHAR(500)")
     _ensure_column(PendingEmailDiscovery.__tablename__, "website", "VARCHAR(500)")
     _ensure_column(RampState.__tablename__, "consecutive_clean_days", "INTEGER DEFAULT 0")
+    _ensure_column(OutreachTouch.__tablename__, "variant_id", "VARCHAR(30)")
+    _ensure_column(OutreachTouch.__tablename__, "opened_at", "TIMESTAMP")
+    _ensure_column(OutreachTouch.__tablename__, "clicked_at", "TIMESTAMP")
+    _ensure_column(OutreachTouch.__tablename__, "paid_at", "TIMESTAMP")
 
 
 def _ensure_column(table_name: str, column_name: str, ddl_type: str) -> None:

@@ -38,6 +38,8 @@ from outreach.ramp import record_sends
 from outreach.link_identity import ensure_link_identity
 from outreach.email_verify import has_bounced_before, has_delivery_confirmed
 from outreach.email_discovery import is_valid_email
+from outreach.variant_selection import pick_variant, render_variant
+from outreach.seed_variants import seed_baseline_variants
 
 logger = logging.getLogger("outreach.followup")
 
@@ -208,8 +210,9 @@ def _fire_touch(db, p, stage, now, remaining_ramp, unsubscribe_link_fn, preview_
             # have no extraction_quality yet) — passing "" for A/B is inert
             # since those templates have no {branding_ps} placeholder.
             branding_ps = branding_ps_line(p.extraction_quality) if stage in POST_CLICK_STAGES else ""
-            msg = render_email(
-                stage,
+            variant = pick_variant(db, stage)
+            msg = render_variant(
+                variant,
                 business_name=p.business_name,
                 preview_link=preview_link_fn(p),
                 unsubscribe_link=unsubscribe_link_fn(p),
@@ -217,7 +220,8 @@ def _fire_touch(db, p, stage, now, remaining_ramp, unsubscribe_link_fn, preview_
             )
             email_id = send_outreach_email(p.email, msg["subject"], msg["body"], unsubscribe_link_fn(p))
             if email_id:
-                db.add(OutreachTouch(prospect_id=p.id, stage=stage, channel="email", sent_at=now))
+                db.add(OutreachTouch(prospect_id=p.id, stage=stage, channel="email", sent_at=now,
+                                      variant_id=variant.variant_id if variant else None))
                 email_used = 1
         if SMS_REPLY_CAPTURE_READY and not p.sms_unsubscribed and p.phone and remaining_ramp["sms"] > 0:
             body = render_sms(stage, business_name=p.business_name, short_code=short_code_fn(p))
@@ -272,6 +276,7 @@ def run_followups(remaining_ramp, unsubscribe_link_fn, preview_link_fn, short_co
     db = SessionLocal()
     fired = 0
     try:
+        seed_baseline_variants(db)
         active = db.query(Prospect).filter(
             Prospect.funnel_substage.in_(list(STAGE_BY_SUBSTAGE.keys())),
             Prospect.paid_at.is_(None),

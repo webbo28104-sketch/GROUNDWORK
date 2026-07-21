@@ -701,6 +701,18 @@ Build the funnel dashboard and ramp status first — they're needed from day one
 | Projected MRR at month-3 volume | ~£135–£200/mo (0.475% conversion, 5% churn) |
 | Levers for faster growth | Healthy ramp (spam rate stays clean), improve conversion, reduce churn |
 
+**Internal per-stage funnel goal (target, not a current measurement):** roughly a third of prospects should clear each stage of the funnel, with one deliberate exception — Viewed is a near-100% pass-through of Generated, not a further 1/3 cut, since anyone who clicks through to a generated site should see it load:
+
+| Stage transition | Target rate |
+|---|---|
+| Sent → Opened | ~33% (1/3) |
+| Opened → Clicked/Generated | ~33% (1/3) |
+| Generated → Viewed | ~100% (near-total pass-through, not a further cut) |
+| Viewed → Account created | ~33% (1/3) |
+| Account created → Paid | ~33% (1/3) |
+
+Hitting this exactly implies an ~11.11% magic-link click rate (Sent → Generated, 1/3 × 1/3) and an ~11.11% conversion rate from Generated onward (Generated → Paid, since Viewed is pass-through: 1/3 × 1/3). This is the target the funnel/variant-optimization work is steering toward, not a claim about current real rates — see the Funnel dashboard (`/admin/funnel`) for actual measured rates per stage.
+
 ---
 
 ## 18. Manual Test Send
@@ -714,5 +726,25 @@ python -m outreach.send_test --business-name "Test Roofing Ltd" --phone "+447900
 ```
 
 A real send — costs a real Resend/Twilio send just like production. Prints the resulting `/claim/<token>` (and `/s/<short_code>`) link so you can immediately click through the full claim → generation → preview loop yourself.
+
+---
+
+## 19. Email Variant Testing (Autonomous)
+
+Automated, evidence-grounded A/B testing of the 5 stage templates (initial/A/B/C/D — `outreach/templates.py`), fully autonomous with no approval gate, per an explicit build decision (2026-07-21). Grounding source: `docs/cold-email-evidence-library.md` — Section 1 (external research), Section 2 (Groundwork-specific constraints that override Section 1 on conflict), Section 3 (internal findings, DB-backed — see below).
+
+**Schema** (`models.py`): `EmailVariant` (one row per copy variant — stage, variant_id, parent_variant_id, subject, body, status active/canary/paused, weight, rationale, isolated_variable), `EvidenceFinding` (the real, durable Section 3 — see below), `OptimizerRunLog` (one row per job run, whether or not it acted), `VariantOptimizerState` (per-stage marker of the last processed touch, for threshold gating). `OutreachTouch` gained `variant_id` plus `opened_at`/`clicked_at`/`paid_at` — the latter three are last-touch-attributed by `app.py`'s `_stamp_latest_touch_outcome`, called from the same three sites that already write `Prospect.opened_at`/`clicked_at`/`paid_at`. This is a real, honest limitation (last-touch attribution, not true causal attribution) — see that function's docstring.
+
+**Selection**: `outreach/variant_selection.py`'s `pick_variant(db, stage)` draws weighted-random from the active+canary pool; `outreach/send_job.py` and `outreach/followup.py` log the chosen `variant_id` on every `OutreachTouch` row. `outreach/seed_variants.py` seeds the 5 shipped templates as each stage's `{stage}-v1`, `status=active`, `rationale="original baseline template"` — idempotent, called at the top of every relevant job so a fresh DB never has an empty pool. `hail_mary` is deliberately NOT variant-tested (a single fixed last-chance offer).
+
+**`outreach/variant_optimizer_job.py`** — the autonomous job, same architecture as the other outreach cron jobs (standalone script, real `ANTHROPIC_API_KEY`, direct DB access; Cowork/scheduled routines are confirmed blocked from writing to production, same as the discovery routine). Threshold-gated, not calendar-gated: intended to run hourly, but only acts on a stage once `MIN_SAMPLE_SIZE` (30, Section 5b's standard) new outcome-mature touches have accumulated since that stage's `VariantOptimizerState` marker — naturally near-silent at current volume, naturally responsive once volume scales, no manual retuning.
+
+Per triggered stage: computes per-variant open/click/paid rates (click is the primary metric for pre-click stages initial/A/B; paid for post-click C/D, since those cohorts have already clicked by definition); runs `outreach/stats_utils.py`'s two-proportion z-test for each canary against the current best active variant; a confirmed winner's weight moves gradually toward the active pool (`WEIGHT_CONVERGENCE_FACTOR`, never an abrupt swap) and is promoted to `active` once it reaches parity; a confirmed loser is paused. Independent of significance testing, any variant whose own bounce/complaint rate breaches the same thresholds `outreach/ramp.py` uses channel-wide is auto-paused immediately (a deliverability safety action). Every significant result is written to `EvidenceFinding`. If there's no unresolved canary and the stage is under `MAX_VARIANTS_PER_STAGE` (6 — a proliferation safety cap, not something the original build spec numbered), it generates exactly one new candidate via the Anthropic API, citing a Section 1 principle or a Section 3/`EvidenceFinding` entry, isolating exactly one variable (`outreach/content_safety.py`'s isolation heuristic — a machine backstop on measurable axes, not a semantic proof) — every candidate passes the same module's `run_content_safety_gates` (no built-claim pre-click, own-price accuracy, spam-trigger words) before being admitted at ~10% canary weight.
+
+**Section 3 is database-backed, not committed to the .md file in production.** `outreach/variant_optimizer_job.py` runs on an ephemeral Railway Cron container with no git write access — the same constraint already documented for the nightly discovery routine (CLAUDE.md). `EvidenceFinding` rows ARE the current Section 3; `/admin/variants` renders them in the Finding/Sample size/Isolated variable/Rationale shape the file's Section 3 describes. `docs/cold-email-evidence-library.md`'s copy of Section 3 stays a static stub in git.
+
+**Admin dashboard** — `/admin/variants`: every variant per stage with real (last-touch-attributed) performance, the findings log, and the optimizer run log (belt-and-suspenders — checkable even if this route breaks, since `OptimizerRunLog` is queryable directly).
+
+**Genuinely tested** (`test_variant_system.py`, plain script against a throwaway SQLite DB, no pytest in this project yet): all 5 shipped baseline templates pass every content-safety gate; the isolation heuristic catches a multi-axis change and passes a genuinely single-axis one; the z-test distinguishes a real rate difference from noise; seeding is idempotent; weighted selection tracks weight statistically; the full `_process_stage` pipeline was run against synthetic data for all four real branches — threshold-not-met no-op, confirmed-winner promotion, confirmed-loser pause, and deliverability auto-pause — plus the full candidate-admission pipeline with a mocked LLM call (both an admitted-good and a rejected-bad-isolation candidate). **Not tested**: the real Anthropic API call itself (mocked in tests to avoid cost/network dependence) and the job's actual behavior under real production send volume.
 
 **A real bug found and fixed while building this:** `outreach/ramp.py:record_sends()` used to always open its own DB session, which caused genuine `"database is locked"` failures under SQLite when called from within a caller (`send_job.py`, `followup.py`) that already had a session open mid-transaction — reproduced directly while testing this tool, not theoretical. Fixed by having `record_sends()` accept and reuse the caller's session (`db=` parameter), with every real call site updated to pass theirs through.

@@ -35,7 +35,7 @@ for _p in (_PROJECT_ROOT, _THIS_DIR):
 from models import SessionLocal, Prospect, SmsDeliveryEvent, OutreachTouch, init_db
 from emails import send_outreach_email
 from outreach.sms import send_outreach_sms
-from outreach.templates import render_email, render_sms
+from outreach.templates import render_sms
 from outreach.ramp import (
     advance_or_hold, get_remaining_ramp_today, get_remaining_ramp_this_hour,
     is_within_email_send_window, record_sends,
@@ -44,6 +44,8 @@ from outreach.followup import run_followups
 from outreach.link_identity import ensure_link_identity
 from outreach.email_verify import has_deliverable_domain, has_bounced_before
 from outreach.email_discovery import is_valid_email
+from outreach.variant_selection import pick_variant, render_variant
+from outreach.seed_variants import seed_baseline_variants
 
 logger = logging.getLogger("outreach.send_job")
 
@@ -188,15 +190,17 @@ def send_initial_touch(db, p, now, remaining_ramp=None):
         # or two listings sharing a generic mailbox), which
         # email_unsubscribed alone (per-prospect) can't see.
         if not p.email_unsubscribed and (unlimited or remaining_ramp["email"] > 0) and not has_bounced_before(db, p.email):
-            msg = render_email(
-                "initial", business_name=p.business_name,
+            variant = pick_variant(db, "initial")
+            msg = render_variant(
+                variant, business_name=p.business_name,
                 preview_link=_preview_link(p), unsubscribe_link=_unsubscribe_link(p),
             )
             email_id = send_outreach_email(p.email, msg["subject"], msg["body"], _unsubscribe_link(p))
             # Same reasoning as the SMS branch above — send_outreach_email
             # also returns None (not an exception) on failure.
             if email_id:
-                db.add(OutreachTouch(prospect_id=p.id, stage="initial", channel="email", sent_at=now))
+                db.add(OutreachTouch(prospect_id=p.id, stage="initial", channel="email", sent_at=now,
+                                      variant_id=variant.variant_id if variant else None))
                 if not unlimited:
                     remaining_ramp["email"] -= 1
                 record_sends("email", 1, now, db=db)
@@ -267,6 +271,11 @@ def run_daily_send(now=None):
     low per-hour cap. SMS is untouched: still one daily budget, no window."""
     now = now or datetime.utcnow()
     init_db()
+    _seed_db = SessionLocal()
+    try:
+        seed_baseline_variants(_seed_db)
+    finally:
+        _seed_db.close()
 
     email_volume = advance_or_hold("email", now)
     sms_volume = advance_or_hold("sms", now)

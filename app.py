@@ -30,7 +30,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 from build_prompt import build_prompt
 from outreach.site_extract import extract_site_assets
-from models import SessionLocal, Lead, Generation, Account, GenerationImage, Domain, Prospect, SearchCell, PendingEmailDiscovery, EmailEventLog, OutreachTouch, DailySendCount, RampState, SmsDeliveryEvent, SurveyResponse, DiscoveryRunLog, InboundReply, init_db
+from models import SessionLocal, Lead, Generation, Account, GenerationImage, Domain, Prospect, SearchCell, PendingEmailDiscovery, EmailEventLog, OutreachTouch, DailySendCount, RampState, SmsDeliveryEvent, SurveyResponse, DiscoveryRunLog, InboundReply, EmailVariant, EvidenceFinding, OptimizerRunLog, init_db
 from emails import (send_verification_email, send_resend_email, send_password_reset_email,
                     send_support_message_email, send_enquiry_email,
                     send_domain_order_admin_email, send_domain_order_customer_email,
@@ -1548,6 +1548,7 @@ def _admin_page(title: str, content: str, active: str = "") -> str:
         ("Pipeline", "/admin/pipeline", "pipeline"),
         ("Funnel", "/admin/funnel", "funnel"),
         ("Deliverability", "/admin/deliverability", "deliverability"),
+        ("Variants", "/admin/variants", "variants"),
     ]
     nav_html = "".join(
         f'<a href="{href}" class="{"active" if active == key else ""}">{label}</a>'
@@ -2606,6 +2607,32 @@ def _claim_email_form(prospect, error=None):
     return render_template_string(_account_page(inner, "See your website"))
 
 
+def _stamp_latest_touch_outcome(db, prospect_id, field, channel=None):
+    """Attribute an opened/clicked/paid event to the specific OutreachTouch
+    row it most likely belongs to — a last-touch attribution model (added
+    2026-07-21 alongside the email-variant testing system, Section 19).
+
+    Prospect.opened_at/clicked_at/paid_at are "ever happened, once" flags
+    across the prospect's whole lifetime; they can't say WHICH of several
+    sent variants a prospect actually acted on. This finds the most recent
+    OutreachTouch for this prospect (optionally restricted to one channel —
+    "opened" only makes sense for channel='email', since SMS has no open
+    tracking) at or before now, and stamps `field` on it if not already
+    set — same "guarded by is-None" idiom as the Prospect-level fields this
+    mirrors. Honest limitation: this is last-touch attribution, not
+    true causal attribution — if a prospect received touch N and later acts
+    after also having seen touch N+1, the action is credited to N+1 even if
+    N was the one that actually drove it. Standard tradeoff for this kind
+    of tracking; no per-click-through-a-specific-email signal exists to do
+    better without adding per-touch tracking links, which isn't built."""
+    q = db.query(OutreachTouch).filter(OutreachTouch.prospect_id == prospect_id)
+    if channel:
+        q = q.filter(OutreachTouch.channel == channel)
+    touch = q.order_by(OutreachTouch.sent_at.desc()).first()
+    if touch and getattr(touch, field) is None:
+        setattr(touch, field, datetime.utcnow())
+
+
 def _claim_generate_and_redirect(db, prospect):
     """
     Shared by /claim/<token> and /claim/<token>/email — the actual
@@ -2619,6 +2646,7 @@ def _claim_generate_and_redirect(db, prospect):
     """
     if prospect.clicked_at is None:
         prospect.clicked_at = datetime.utcnow()
+        _stamp_latest_touch_outcome(db, prospect.id, "clicked_at")
         # Admin notification (2026-07-19) — backgrounded so a slow Resend
         # call never adds latency to this redirect. Fires exactly once per
         # prospect, guarded by the same clicked_at-is-None check that gates
@@ -6029,6 +6057,149 @@ def admin_deliverability():
         db.close()
 
 
+def _variant_rate_cell(numerator, denominator):
+    if not denominator:
+        return '<span class="muted">—</span>'
+    rate = numerator / denominator
+    color = "#059669" if rate >= 0.10 else ("#D97706" if rate >= 0.03 else "#5C5A56")
+    return f'<span style="color:{color};font-weight:700;">{rate * 100:.1f}%</span> <span class="muted">({numerator}/{denominator})</span>'
+
+
+def _variant_status_pill(status):
+    colors = {"active": "#059669", "canary": "#3B82F6", "paused": "#9A9893"}
+    color = colors.get(status, "#5C5A56")
+    return f'<span class="status-pill" style="background:{color}22;color:{color};">{escape(status)}</span>'
+
+
+@app.route("/admin/variants")
+@admin_required
+def admin_variants():
+    """Email-variant testing dashboard — docs/outreach-pipeline-spec.md
+    Section 19. Shows every variant per stage with real performance (last-
+    touch-attributed open/click/paid rates, see _stamp_latest_touch_outcome),
+    the internal findings log (EvidenceFinding — the DB-backed Section 3;
+    see docs/cold-email-evidence-library.md's architecture note), and the
+    optimizer job's recent run history (OptimizerRunLog) so this page stays
+    checkable even if the job itself is misbehaving."""
+    db = SessionLocal()
+    try:
+        stages = ["initial", "A", "B", "C", "D"]
+        variants = db.query(EmailVariant).order_by(EmailVariant.stage.asc(), EmailVariant.created_at.asc()).all()
+        by_stage = {}
+        for v in variants:
+            by_stage.setdefault(v.stage, []).append(v)
+
+        touch_rows = db.query(
+            OutreachTouch.variant_id, OutreachTouch.opened_at, OutreachTouch.clicked_at, OutreachTouch.paid_at
+        ).filter(OutreachTouch.variant_id.isnot(None)).all()
+        perf = {}
+        for variant_id, opened_at, clicked_at, paid_at in touch_rows:
+            p = perf.setdefault(variant_id, {"sent": 0, "opened": 0, "clicked": 0, "paid": 0})
+            p["sent"] += 1
+            if opened_at:
+                p["opened"] += 1
+            if clicked_at:
+                p["clicked"] += 1
+            if paid_at:
+                p["paid"] += 1
+
+        stage_sections = []
+        for stage in stages:
+            vs = by_stage.get(stage, [])
+            rows = []
+            for v in vs:
+                p = perf.get(v.variant_id, {"sent": 0, "opened": 0, "clicked": 0, "paid": 0})
+                rows.append(f"""<tr>
+                  <td>{escape(v.variant_id)}{' <span class="muted">(baseline)</span>' if v.parent_variant_id is None else ''}</td>
+                  <td>{_variant_status_pill(v.status)}</td>
+                  <td style="text-align:right;">{v.weight:.2f}</td>
+                  <td>{escape(v.isolated_variable or '—')}</td>
+                  <td style="text-align:right;">{p['sent']}</td>
+                  <td style="text-align:right;">{_variant_rate_cell(p['opened'], p['sent'])}</td>
+                  <td style="text-align:right;">{_variant_rate_cell(p['clicked'], p['sent'])}</td>
+                  <td style="text-align:right;">{_variant_rate_cell(p['paid'], p['sent'])}</td>
+                  <td class="muted" style="max-width:260px;font-size:12px;">{escape((v.rationale or '')[:200])}</td>
+                </tr>""")
+            stage_sections.append(f"""
+            <div class="adm-card" style="padding:16px 20px;margin-top:14px;">
+              <p style="font-weight:700;margin:0 0 8px;">{escape(STAGE_LABELS.get(stage, stage))} <span class="muted" style="font-weight:400;">(stage {escape(stage)})</span></p>
+              <table>
+                <thead><tr>
+                  <th>Variant</th><th>Status</th><th style="text-align:right;">Weight</th><th>Isolated variable</th>
+                  <th style="text-align:right;">Sent</th><th style="text-align:right;">Opened</th>
+                  <th style="text-align:right;">Clicked</th><th style="text-align:right;">Paid</th><th>Rationale</th>
+                </tr></thead>
+                <tbody>{''.join(rows) or '<tr><td colspan="9" class="muted" style="padding:14px;">No variants seeded yet for this stage.</td></tr>'}</tbody>
+              </table>
+            </div>""")
+
+        findings = db.query(EvidenceFinding).order_by(EvidenceFinding.created_at.desc()).limit(30).all()
+        findings_rows = "".join(
+            f"""<tr>
+              <td class="muted" style="white-space:nowrap;">{f.created_at.strftime('%d %b %Y')}</td>
+              <td>{escape(f.stage)}</td>
+              <td>{escape(f.finding)}</td>
+              <td style="text-align:right;">{f.sample_size}</td>
+              <td>{escape(f.isolated_variable or '—')}</td>
+              <td class="muted">{escape(f.rationale)}</td>
+            </tr>"""
+            for f in findings
+        )
+        findings_html = f"""
+        <div class="adm-card" style="padding:16px 20px;margin-top:22px;">
+          <p style="font-weight:700;margin:0 0 4px;">Internal findings log (Section 3)</p>
+          <p class="muted" style="margin:0 0 10px;font-size:12.5px;">
+            The database-backed version of docs/cold-email-evidence-library.md's Section 3 — see that file's
+            architecture note for why entries live here rather than being committed to the .md file
+            (the optimizer job runs on a Railway Cron container with no git write access).</p>
+          <table>
+            <thead><tr><th>Date</th><th>Stage</th><th>Finding</th><th style="text-align:right;">Sample size</th><th>Isolated variable</th><th>Rationale</th></tr></thead>
+            <tbody>{findings_rows or '<tr><td colspan="6" class="muted" style="padding:14px;">No findings yet — accumulates once a stage crosses the sample threshold.</td></tr>'}</tbody>
+          </table>
+        </div>"""
+
+        run_logs = db.query(OptimizerRunLog).order_by(OptimizerRunLog.run_at.desc()).limit(40).all()
+        run_rows = []
+        for r in run_logs:
+            details = r.details or {}
+            actions = details.get("actions", []) if isinstance(details, dict) else []
+            action_summary = "; ".join(
+                f"{a.get('type', '?')} {a.get('variant_id', '')} ({a.get('reason', '')})" for a in actions
+            ) if actions else ("no action — threshold not met" if r.action_taken == "no_action_threshold_not_met" else r.action_taken)
+            run_rows.append(f"""<tr>
+              <td class="muted" style="white-space:nowrap;">{r.run_at.strftime('%d %b %H:%M UTC')}</td>
+              <td style="text-align:right;">{r.samples_processed}</td>
+              <td>{escape(action_summary[:300])}</td>
+            </tr>""")
+        _no_runs_row = (
+            '<tr><td colspan="3" class="muted" style="padding:14px;">'
+            "No runs logged yet — outreach/variant_optimizer_job.py hasn't run, or its cron isn't scheduled yet.</td></tr>"
+        )
+        run_log_html = f"""
+        <div class="adm-card" style="padding:16px 20px;margin-top:16px;">
+          <p style="font-weight:700;margin:0 0 4px;">Optimizer run log</p>
+          <p class="muted" style="margin:0 0 10px;font-size:12.5px;">Every hourly run of outreach/variant_optimizer_job.py, whether or not it took action — belt-and-suspenders visibility if this page ever breaks.</p>
+          <table>
+            <thead><tr><th>Run</th><th style="text-align:right;">New samples</th><th>Actions</th></tr></thead>
+            <tbody>{''.join(run_rows) or _no_runs_row}</tbody>
+          </table>
+        </div>"""
+
+        content = f"""
+<h1 class="adm-title">Email variant testing</h1>
+<p class="adm-sub muted" style="font-size:12.5px;">Autonomous, evidence-grounded variant testing per outreach stage — no approval gate. See
+docs/cold-email-evidence-library.md and docs/outreach-pipeline-spec.md Section 19.
+Rates below are last-touch-attributed (see app.py's _stamp_latest_touch_outcome) — a real, honest limitation, not a bug, if a number here looks
+slightly off vs. the Funnel page's prospect-level rates.</p>
+{''.join(stage_sections)}
+{findings_html}
+{run_log_html}
+"""
+        return render_template_string(_admin_page("Variants", content, active="variants"))
+    finally:
+        db.close()
+
+
 def _render_dual_rate_chart(buckets, opened_disabled):
     """Inline SVG grouped-bar chart (no external library, same convention as
     _render_rate_chart above) — buckets is a list of (label, sent, opened,
@@ -8182,6 +8353,7 @@ def stripe_webhook():
                         prospect = db.query(Prospect).filter(Prospect.lead_id == gen.lead_id).first()
                         if prospect and prospect.paid_at is None:
                             prospect.paid_at = datetime.utcnow()
+                            _stamp_latest_touch_outcome(db, prospect.id, "paid_at")
                             app.logger.info(
                                 f"Stripe webhook: prospect {prospect.id} marked paid_at (job_id={job_id})"
                             )
@@ -8641,6 +8813,7 @@ def resend_events_webhook():
                 # wasn't wrong, only tying the timestamp write to it was.
                 if prospect.opened_at is None:
                     prospect.opened_at = datetime.utcnow()
+                    _stamp_latest_touch_outcome(db, prospect.id, "opened_at", channel="email")
                 if prospect.funnel_substage == "sent":
                     prospect.funnel_substage = "opened"
                     app.logger.info(
