@@ -236,6 +236,19 @@ def advance_or_hold(channel, now=None):
         signal = get_health_signal(channel, now)
         state.last_checked_at = now
 
+        # Re-clamped to `floor` on every check while tripped, BEFORE the
+        # signal==None early return below — see the long comment further
+        # down at "if state.circuit_breaker_tripped" for why this exists
+        # (a row tripped before floor's meaning changed, per-day -> per-
+        # hour for email, stayed frozen at its old, much larger value
+        # forever). Doing it here too, not just in that later branch,
+        # matters because a quiet/no-data day hits the `signal is None`
+        # early return below and would otherwise skip the clamp entirely —
+        # exactly the case that let a stale 150 "per-hour" cap survive
+        # past this fix's first version and send ~140 emails in one hour.
+        if state.circuit_breaker_tripped:
+            state.daily_volume = floor
+
         if signal is None:
             logger.warning(
                 "ramp[%s]: health signal unknown (not enough real send/event data yet in the "
@@ -264,11 +277,15 @@ def advance_or_hold(channel, now=None):
 
         if state.circuit_breaker_tripped:
             # Already tripped — evaluate today's signal toward recovery
-            # rather than re-tripping (it's already at the floor). A clean
-            # day advances the consecutive-day counter; a breach resets it;
-            # unknown/insufficient data neither advances nor resets it
-            # (matches the existing "hold flat on missing data" principle —
-            # a quiet week shouldn't either fast-track or penalize recovery).
+            # rather than re-tripping (it's already at the floor — clamped
+            # unconditionally near the top of this function, before this
+            # point, on every check including the signal==None early
+            # return; see that comment for the incident this fixed). A
+            # clean day advances the consecutive-day counter; a breach
+            # resets it; unknown/insufficient data neither advances nor
+            # resets it (matches the existing "hold flat on missing data"
+            # principle — a quiet week shouldn't either fast-track or
+            # penalize recovery).
             if breached:
                 state.consecutive_clean_days = 0
                 logger.error("ramp[%s]: still breached while tripped (%s) — consecutive clean days reset to 0",
