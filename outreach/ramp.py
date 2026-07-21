@@ -53,8 +53,21 @@ logger = logging.getLogger("outreach.ramp")
 # NOT an artificial per-hour cap much lower than what we could safely send —
 # so this table ramps the SAME conservative way the old daily table did
 # (week 1 floor, then steady growth), just denominated per-hour instead of
-# per-day. Week 1 floor is 5/hour x 12 hourly slots = 60/day to start.
-EMAIL_HOURLY_RAMP_TABLE = {1: 5, 2: 8, 3: 12, 4: 18}  # week 5+ grows 50%/week (see _volume_for_week)
+# per-day. Week 1 floor is 42/hour x 12 hourly slots = 504/day to start.
+#
+# Floor raised 5 -> 42 on 2026-07-21, an explicit override to clear the
+# ~464-prospect awaiting_approval backlog in one day ("500 spread over each
+# hour tomorrow"), made WHILE the email circuit breaker was tripped
+# (bounce_rate ~7.2% over the trailing 7 days vs. the 5% trigger, tripped
+# 2026-07-19, not yet recovered). Flagging this explicitly because of how
+# advance_or_hold() works while tripped: daily_volume is unconditionally
+# re-clamped to EMAIL_FLOOR (this table's week-1 value) on every check, so
+# there is no clean "just for one day" lever here — raising the floor is
+# the only way to get above-floor volume while tripped, which means this
+# is a real, persisting floor change (not a one-off), same as the earlier
+# 10->20 floor raise this session. It stays in effect until the breaker
+# clears (7 consecutive clean days) or someone lowers it back down.
+EMAIL_HOURLY_RAMP_TABLE = {1: 42, 2: 67, 3: 101, 4: 151}  # week 5+ grows 50%/week (see _volume_for_week)
 SMS_RAMP_TABLE = {1: 20, 2: 50}  # week 3+ increases 50-75% (use 50% — the conservative end)
 
 # Back-compat alias — RampState/advance_or_hold's table lookup below is
