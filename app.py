@@ -4514,6 +4514,56 @@ def admin_prospect_detail(prospect_id):
             for t in touches
         ) or '<tr><td colspan="3" style="padding:10px;color:#9A9893;">No logged touches.</td></tr>'
 
+        # Follow-up schedule — re-derives due/not-due the same way
+        # admin_followups() and _due_stage() do, rather than hand-rolling
+        # separate logic that could silently drift.
+        from outreach.followup import (
+            MIN_DAYS_BY_SUBSTAGE, CATCH_ALL_MIN_DAYS, CATCH_ALL_MAX_DAYS,
+            MAX_TOUCHES, EMAIL_REPLY_CAPTURE_READY, SMS_REPLY_CAPTURE_READY,
+        )
+        now = datetime.utcnow()
+        if p.paid_at:
+            schedule_html = '<p class="muted">No further follow-ups — prospect has paid.</p>'
+        elif p.email_unsubscribed and p.sms_unsubscribed:
+            schedule_html = '<p class="muted">No further follow-ups — unsubscribed on both email and SMS.</p>'
+        elif (p.touch_count or 0) >= MAX_TOUCHES:
+            schedule_html = f'<p class="muted">No further follow-ups — reached the {MAX_TOUCHES}-touch cap ({MAX_TOUCHES - 1} follow-ups after the initial send).</p>'
+        elif p.funnel_substage not in STAGE_BY_SUBSTAGE:
+            schedule_html = f'<p class="muted">No follow-up scheduled — funnel substage <code>{escape(str(p.funnel_substage))}</code> isn\'t one of the follow-up-eligible substages.</p>'
+        else:
+            stage_letter = STAGE_BY_SUBSTAGE[p.funnel_substage]
+            min_days = MIN_DAYS_BY_SUBSTAGE[p.funnel_substage]
+            substage_days = (now - p.last_touch_at).days if p.last_touch_at else None
+            first_send_days = (now - p.sent_at).days if p.sent_at else None
+            catch_all_due = first_send_days is not None and CATCH_ALL_MIN_DAYS <= first_send_days <= CATCH_ALL_MAX_DAYS
+            due_now = (substage_days is not None and substage_days >= min_days) or catch_all_due
+
+            channel = "SMS only" if not p.email_found else ("Email + SMS" if p.phone else "Email only")
+            reply_gate = ""
+            if channel != "SMS only" and not EMAIL_REPLY_CAPTURE_READY:
+                reply_gate = ' <span style="color:#B45309;">(withheld — email reply-capture not yet live)</span>'
+            elif channel == "SMS only" and not SMS_REPLY_CAPTURE_READY:
+                reply_gate = ' <span style="color:#B45309;">(withheld — SMS reply-capture not yet live)</span>'
+
+            if due_now:
+                when_html = '<b style="color:#B91C1C;">Due now</b> — will fire on the next send-job-cron run (08:00 UTC)'
+            elif p.last_touch_at:
+                days_until = min_days - substage_days
+                eta = (now + timedelta(days=days_until)).strftime("%d %b %Y")
+                when_html = f'<b>{eta}</b> (in {days_until}d, {min_days}d after last touch)'
+            else:
+                when_html = "— waiting on an initial send/state change before a due date can be projected —"
+
+            schedule_html = f"""
+<table style="width:100%;border-collapse:collapse;font-size:13.5px;">
+  <tr><td style="padding:6px 10px;color:#9A9893;">Next stage</td>
+      <td style="padding:6px 10px;">{escape(STAGE_LABELS.get(stage_letter, stage_letter))}{' (catch-all window)' if catch_all_due else ''}</td></tr>
+  <tr><td style="padding:6px 10px;color:#9A9893;">Channel</td><td style="padding:6px 10px;">{channel}{reply_gate}</td></tr>
+  <tr><td style="padding:6px 10px;color:#9A9893;">Touches used</td><td style="padding:6px 10px;">{p.touch_count or 0} / {MAX_TOUCHES - 1} follow-ups</td></tr>
+  <tr><td style="padding:6px 10px;color:#9A9893;">Last touch</td><td style="padding:6px 10px;">{_fmt_dt(p.last_touch_at) or '—'}</td></tr>
+  <tr><td style="padding:6px 10px;color:#9A9893;">Due</td><td style="padding:6px 10px;">{when_html}</td></tr>
+</table>"""
+
         email_events_html = ""
         if p.email:
             events = db.query(EmailEventLog).filter(
@@ -4667,6 +4717,11 @@ def admin_prospect_detail(prospect_id):
 <div class="adm-card" style="padding:16px 20px;margin-bottom:20px;">
   <p style="font-weight:700;margin:0 0 10px;">Generated site</p>
   {generation_html}
+</div>
+
+<div class="adm-card" style="padding:16px 20px;margin-bottom:20px;">
+  <p style="font-weight:700;margin:0 0 10px;">Follow-up schedule</p>
+  {schedule_html}
 </div>
 
 <div class="adm-card" style="padding:16px 20px;">
