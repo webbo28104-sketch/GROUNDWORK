@@ -2,9 +2,10 @@
 Real, runnable checks for the email-variant testing system (Section 19) —
 content-safety gates, the isolation heuristic, the significance test, the
 seeding/weighted-selection mechanism, and outreach/variant_optimizer_job.py's
-threshold gating, promotion/pause/deliverability-pause logic, and candidate-
-admission pipeline (with a mocked LLM call, so this never hits the real
-Anthropic API or spends money).
+threshold gating, promotion/pause/deliverability-pause logic, and the
+Drive-based candidate request/pickup pipeline (with push_file_to_github and
+the Drive download both monkeypatched, so this never makes a real GitHub
+API call, Drive API call, or LLM call — no network, no cost).
 
 Plain script, not pytest (no test framework in this project yet — see
 test_caching.py for the same convention). Runs entirely against a throwaway
@@ -14,6 +15,7 @@ temp-file SQLite DB, never the real DATABASE_URL — safe to run anytime.
 """
 import os
 import sys
+import json
 import tempfile
 from datetime import datetime, timedelta
 
@@ -24,6 +26,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from models import (  # noqa: E402
     Base, engine, SessionLocal, Prospect, OutreachTouch, EmailVariant,
     EvidenceFinding, OptimizerRunLog, VariantOptimizerState, EmailEventLog,
+    VariantCandidatePickupState,
 )
 
 Base.metadata.create_all(engine)
@@ -276,55 +279,129 @@ pause_underperf = [a for a in actions4 if a["type"] == "pause_underperformer"]
 check("confirmed underperformer is paused, not promoted", len(pause_underperf) == 1, str(actions4))
 c_v2_after = db.query(EmailVariant).filter(EmailVariant.variant_id == "C-v2").first()
 check("underperformer's status is paused", c_v2_after.status == "paused")
+voj.MAX_VARIANTS_PER_STAGE = orig_max
 
 
-# ── 8. Full candidate-admission pipeline (mocked Anthropic call) ──
-def _fake_generate_good(db_, stage_, parent_, isolated_variable_, findings_):
-    return {
-        "subject": parent_.subject + " really?",
-        "body": parent_.body,
-        "rationale": "testing a slightly more urgent subject per Section 1's question-format finding",
-        "cites": "Section 1: question-format subject lines lift open rates ~21%",
-    }
+# ── 8. Drive-based candidate request/pickup pipeline (no network calls —
+# push_file_to_github and the Drive download are both monkeypatched) ──
+pushed_files = {}
 
 
-def _fake_generate_bad_isolation(db_, stage_, parent_, isolated_variable_, findings_):
-    return {
-        "subject": parent_.subject + " really?",
-        "body": parent_.body.replace("Any questions, just reply to this email.", "Any questions, just reply!"),
-        "rationale": "test",
-        "cites": "Section 1",
-    }
+def _fake_push(path, content_bytes, message, branch="main"):
+    pushed_files[path] = json.loads(content_bytes.decode("utf-8"))
+    return True
 
 
-orig_generate = voj._generate_candidate
-voj._generate_candidate = _fake_generate_good
+orig_push = voj.push_file_to_github
+voj.push_file_to_github = _fake_push
 try:
-    b_variants_before = db.query(EmailVariant).filter(EmailVariant.stage == "B").count()
+    b_pending_before = db.query(EmailVariant).filter(EmailVariant.stage == "B", EmailVariant.status == "pending_generation").count()
     parent_b = db.query(EmailVariant).filter(EmailVariant.variant_id == "B-v1").first()
     actions5 = []
-    voj._try_admit_candidate(db, "B", parent_b, "subject_length", now, actions5)
-    check("valid mocked candidate is admitted as a new canary",
-          any(a["type"] == "new_variant" for a in actions5), str(actions5))
-    b_variants_after = db.query(EmailVariant).filter(EmailVariant.stage == "B").count()
-    check("admitted candidate actually inserted a new EmailVariant row", b_variants_after == b_variants_before + 1)
-    new_row = db.query(EmailVariant).filter(EmailVariant.variant_id == "B-v2").first()
-    check("admitted candidate starts at status=canary with ~10% relative weight",
-          new_row is not None and new_row.status == "canary" and 0.05 < new_row.weight < 0.2,
-          str(new_row.weight if new_row else None))
-finally:
-    voj._generate_candidate = orig_generate
+    voj._queue_generation_request(db, "B", parent_b, "subject_length", now, actions5)
+    check("queuing a request creates a pending_generation placeholder row",
+          any(a["type"] == "generation_requested" for a in actions5), str(actions5))
+    b_pending_after = db.query(EmailVariant).filter(EmailVariant.stage == "B", EmailVariant.status == "pending_generation").count()
+    check("pending_generation row count increased by 1", b_pending_after == b_pending_before + 1)
 
-voj._generate_candidate = _fake_generate_bad_isolation
-try:
-    parent_d = db.query(EmailVariant).filter(EmailVariant.variant_id == "D-v1").first()
-    actions6 = []
-    voj._try_admit_candidate(db, "D", parent_d, "subject_length", now, actions6)
-    check("isolation-violating mocked candidate is rejected, not admitted",
-          all(a["type"] != "new_variant" for a in actions6) and any(a["type"] == "generation_rejected" for a in actions6),
-          str(actions6))
+    check("the request was pushed (via the mocked push) with a real payload",
+          voj.REQUEST_FILE_REPO_PATH in pushed_files and len(pushed_files[voj.REQUEST_FILE_REPO_PATH]) >= 1,
+          str(pushed_files.get(voj.REQUEST_FILE_REPO_PATH)))
+    req_entry = next((r for r in pushed_files[voj.REQUEST_FILE_REPO_PATH] if r["stage"] == "B"), None)
+    check("the pushed request includes parent subject/body and isolated_variable",
+          req_entry is not None and req_entry["parent_subject"] == parent_b.subject and req_entry["isolated_variable"] == "subject_length",
+          str(req_entry))
+
+    # A second attempt on the same stage must not queue a duplicate — B now
+    # has an unresolved pending_generation row.
+    actions_dup = []
+    b_variants_for_process = db.query(EmailVariant).filter(EmailVariant.stage == "B").all()
+    unresolved = any(v.status in ("canary", "pending_generation") for v in b_variants_for_process)
+    check("stage with a pending_generation row is correctly seen as 'unresolved'", unresolved)
 finally:
-    voj._generate_candidate = orig_generate
+    voj.push_file_to_github = orig_push
+
+# Admit a good mocked routine result for the B-v2 request just queued.
+reserved_id = db.query(EmailVariant).filter(EmailVariant.stage == "B", EmailVariant.status == "pending_generation").first().variant_id
+good_result = {
+    "reserved_variant_id": reserved_id,
+    "subject": parent_b.subject + " really?",
+    "body": parent_b.body,
+    "rationale": "testing a slightly more urgent subject per Section 1's question-format finding",
+    "cites": "Section 1: question-format subject lines lift open rates ~21%",
+}
+actions7 = []
+voj._admit_or_reject_result(db, good_result, now, actions7)
+check("valid mocked routine result is admitted as a new canary",
+      any(a["type"] == "new_variant" for a in actions7), str(actions7))
+admitted_row = db.query(EmailVariant).filter(EmailVariant.variant_id == reserved_id).first()
+check("admitted row is now status=canary with ~10% relative weight",
+      admitted_row.status == "canary" and 0.05 < admitted_row.weight < 0.2, str(admitted_row.weight))
+
+# Queue and reject a bad (isolation-violating) result for D.
+parent_d = db.query(EmailVariant).filter(EmailVariant.variant_id == "D-v1").first()
+voj.push_file_to_github = _fake_push
+try:
+    voj._queue_generation_request(db, "D", parent_d, "subject_length", now, [])
+finally:
+    voj.push_file_to_github = orig_push
+reserved_id_d = db.query(EmailVariant).filter(EmailVariant.stage == "D", EmailVariant.status == "pending_generation").first().variant_id
+bad_result = {
+    "reserved_variant_id": reserved_id_d,
+    "subject": parent_d.subject + " really?",
+    "body": parent_d.body.replace("Any questions, just reply to this email.", "Any questions, just reply!"),
+    "rationale": "test",
+    "cites": "Section 1",
+}
+actions8 = []
+voj._admit_or_reject_result(db, bad_result, now, actions8)
+check("isolation-violating mocked result is rejected, not admitted",
+      all(a["type"] != "new_variant" for a in actions8) and any(a["type"] == "generation_rejected" for a in actions8),
+      str(actions8))
+check("rejected candidate's placeholder row is deleted (frees the stage for a fresh attempt)",
+      db.query(EmailVariant).filter(EmailVariant.variant_id == reserved_id_d).first() is None)
+
+# Full pickup pipeline via a mocked Drive download.
+def _fake_find_latest(api_key, folder_id):
+    return {"id": "fake-drive-file-1", "name": voj.CANDIDATE_RESULTS_FILENAME, "createdTime": "2026-07-22T00:00:00Z"}
+
+
+def _fake_download(api_key, file_id):
+    return json.dumps([{
+        "reserved_variant_id": "C-pickup-test",
+        "subject": "x", "body": "x", "rationale": "x", "cites": "x",
+    }])
+
+
+# Set up a pending_generation row for C matching the fake Drive payload.
+parent_c = db.query(EmailVariant).filter(EmailVariant.variant_id == "C-v1").first()
+db.add(EmailVariant(stage="C", variant_id="C-pickup-test", parent_variant_id="C-v1",
+                     subject="", body="", status="pending_generation", weight=0.0,
+                     isolated_variable="tone", rationale="awaiting routine-generated candidate"))
+db.commit()
+
+os.environ["GOOGLE_DRIVE_API_KEY"] = "fake-key"
+os.environ["GOOGLE_DRIVE_FOLDER_ID"] = "fake-folder"
+orig_find, orig_download = voj._find_latest_drive_file, voj._download_drive_file
+voj._find_latest_drive_file, voj._download_drive_file = _fake_find_latest, _fake_download
+try:
+    actions9 = []
+    voj._pickup_candidate_results(db, now, actions9)
+    # "x" as a body will fail placeholder-matching against the real parent's
+    # placeholders, so this should be rejected, not admitted — still proves
+    # the pickup pipeline runs end-to-end (find -> download -> parse -> apply).
+    check("pickup pipeline runs end-to-end and rejects an invalid mocked payload",
+          any(a["type"] == "generation_rejected" for a in actions9), str(actions9))
+    state_row = db.query(VariantCandidatePickupState).first()
+    check("pickup state records the processed Drive file id", state_row is not None and state_row.last_drive_file_id == "fake-drive-file-1")
+
+    # Re-running immediately with the same "latest file" must be a no-op
+    # (idempotency) — nothing new to process.
+    actions10 = []
+    voj._pickup_candidate_results(db, now, actions10)
+    check("re-running pickup against the same Drive file is a no-op", actions10 == [], str(actions10))
+finally:
+    voj._find_latest_drive_file, voj._download_drive_file = orig_find, orig_download
 
 
 db.close()

@@ -6066,9 +6066,10 @@ def _variant_rate_cell(numerator, denominator):
 
 
 def _variant_status_pill(status):
-    colors = {"active": "#059669", "canary": "#3B82F6", "paused": "#9A9893"}
+    colors = {"active": "#059669", "canary": "#3B82F6", "paused": "#9A9893", "pending_generation": "#D97706"}
     color = colors.get(status, "#5C5A56")
-    return f'<span class="status-pill" style="background:{color}22;color:{color};">{escape(status)}</span>'
+    label = "awaiting routine" if status == "pending_generation" else status
+    return f'<span class="status-pill" style="background:{color}22;color:{color};">{escape(label)}</span>'
 
 
 @app.route("/admin/variants")

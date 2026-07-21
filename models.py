@@ -566,7 +566,16 @@ class EmailVariant(Base):
     differ only in weight/provenance, not in mechanism), "paused" (weight
     forced to 0, excluded from selection — either a deliberate demotion for
     confirmed underperformance, or a deliverability auto-pause; see `notes`
-    for which).
+    for which), "pending_generation" (a placeholder row reserving this
+    variant_id while a candidate has been requested from the daily
+    generation routine but not yet written back — subject/body are empty
+    strings until then; excluded from selection same as paused, via
+    outreach/variant_selection.py's status.in_(["active","canary"])
+    filter). Generation moved off a direct, metered Anthropic API call to
+    this request/pickup flow 2026-07-21 — see
+    outreach/variant_optimizer_job.py's module docstring for the full
+    Drive-based mechanism, same pattern as the nightly email-discovery
+    routine.
 
     weight: relative selection weight within its stage's active+canary
     pool (outreach/variant_selection.py) — NOT a 0-1 probability by itself,
@@ -596,7 +605,7 @@ class EmailVariant(Base):
     parent_variant_id = Column(String(30), nullable=True)
     subject = Column(Text, nullable=False)
     body = Column(Text, nullable=False)
-    status = Column(String(10), nullable=False, default="active")  # active / canary / paused
+    status = Column(String(20), nullable=False, default="active")  # active / canary / paused / pending_generation
     weight = Column(Float, nullable=False, default=1.0)
     rationale = Column(Text, nullable=True)
     isolated_variable = Column(String(50), nullable=True)
@@ -657,6 +666,21 @@ class VariantOptimizerState(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class VariantCandidatePickupState(Base):
+    """Single-row table tracking the last Google Drive candidate-results
+    file outreach/variant_optimizer_job.py has already imported — same
+    idempotency purpose and shape as DiscoveryImportState, for the
+    equivalent Drive-based handoff on the variant-generation side (added
+    2026-07-21, replacing a direct Anthropic API call with a daily Claude
+    Code routine — avoids metered API cost, mirrors the nightly email-
+    discovery routine's architecture exactly)."""
+    __tablename__ = "variant_candidate_pickup_state"
+
+    id = Column(Integer, primary_key=True)
+    last_drive_file_id = Column(String(100), nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 def _database_url() -> str:
     url = os.environ.get("DATABASE_URL", "")
     # Railway/Heroku-style URLs use the postgres:// scheme; SQLAlchemy 2.x requires postgresql://
@@ -672,6 +696,14 @@ SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
 
 def init_db():
     Base.metadata.create_all(engine)
+    # Widen email_variants.status from its original VARCHAR(10) to fit
+    # "pending_generation" (19 chars) — added 2026-07-21 alongside the
+    # generation-request/pickup flow. _ensure_column only ADDS missing
+    # columns, it can't widen an existing one, so this needs its own call;
+    # done explicitly (not left to silently truncate) after the exact
+    # StringDataRightTruncation incident this session already hit once on
+    # search_cells.postcode_area for the same underlying reason.
+    _ensure_column_width(EmailVariant.__tablename__, "status", 20)
     _ensure_column(Lead.__tablename__, "is_test", "BOOLEAN NOT NULL DEFAULT FALSE")
     _ensure_column(Generation.__tablename__, "stripe_customer_id", "VARCHAR(255)")
     _ensure_column(Generation.__tablename__, "stripe_setup_invoice_id", "VARCHAR(255)")
@@ -782,3 +814,27 @@ def _ensure_column(table_name: str, column_name: str, ddl_type: str) -> None:
         return
     with engine.begin() as conn:
         conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {ddl_type}"))
+
+
+def _ensure_column_width(table_name: str, column_name: str, min_length: int) -> None:
+    """Widens an existing VARCHAR(N) column to VARCHAR(min_length) if N is
+    smaller — a companion to _ensure_column for the "column exists but is
+    now too narrow for a new value" case (widening a VARCHAR is always a
+    safe, instant metadata-only change in Postgres, no table rewrite/data
+    loss risk, unlike narrowing). SQLite has no fixed-width VARCHAR
+    enforcement at all, so this is a no-op there (local dev never hits the
+    truncation error this exists to prevent in Postgres)."""
+    if engine.dialect.name != "postgresql":
+        return
+    inspector = inspect(engine)
+    if table_name not in inspector.get_table_names():
+        return
+    for col in inspector.get_columns(table_name):
+        if col["name"] == column_name:
+            current_length = getattr(col["type"], "length", None)
+            if current_length is not None and current_length < min_length:
+                with engine.begin() as conn:
+                    conn.execute(text(
+                        f"ALTER TABLE {table_name} ALTER COLUMN {column_name} TYPE VARCHAR({min_length})"
+                    ))
+            return

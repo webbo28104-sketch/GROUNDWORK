@@ -8,11 +8,36 @@ Runnable as a module or script from the project root:
 
 Same architecture as the other outreach cron jobs (send_job.py,
 domain_billing.py, email_discovery_job.py, pipeline.py) — a standalone
-Python script pointed at by its own Railway Cron service, real
-ANTHROPIC_API_KEY, direct DB access. Cowork and scheduled Claude Code
-routines are both confirmed blocked from writing to production (see
-CLAUDE.md's outreach-pipeline pointer section) — this cannot be either of
-those.
+Python script pointed at by its own Railway Cron service, direct DB access.
+All the DB-side work here (performance stats, promotion/pause, safety
+checks, threshold gating) is plain code, zero API cost, so it stays hourly.
+
+CANDIDATE GENERATION IS A DAILY CLAUDE CODE ROUTINE, NOT A DIRECT API CALL
+(changed 2026-07-21, by request — avoids metered Anthropic API cost).
+Cowork and scheduled Claude Code routines are both confirmed blocked from
+writing to production (CLAUDE.md's outreach-pipeline pointer section), so
+this job still can't hand DB writes to a routine directly — instead it
+mirrors the nightly email-discovery routine's proven Drive-based handoff
+exactly:
+  1. When a stage needs a new candidate, this job reserves a variant_id as
+     a status="pending_generation" placeholder row, then exports EVERY
+     currently-pending request (across all stages) to
+     outreach/discovery_batches/variant_candidate_request.json and pushes
+     it via the GitHub REST Contents API (outreach/github_push.py) — a
+     plain HTTPS PUT with a token, not a local git push (this container
+     has no git remote configured).
+  2. A separate Claude Code routine (daily — see docs/outreach-pipeline-
+     spec.md Section 19 for its trigger id/schedule) reads that file plus
+     docs/cold-email-evidence-library.md from its own git checkout, and
+     writes one candidate per pending request to a Google Drive file
+     (groundwork-variant-candidates.json) — it cannot reach the DB or push
+     git either, same platform restriction as the discovery routine.
+  3. This job's own next run picks up that Drive file (a plain read-only
+     Drive API key, same as outreach/pickup_drive_results.py), runs every
+     candidate through the placeholder/content-safety/isolation checks,
+     and either fills in the reserved row (admitting it as a canary) or
+     deletes it (so a fresh attempt can be queued, possibly with a
+     different isolated variable).
 
 THRESHOLD-GATED, NOT CALENDAR-GATED: intended to run hourly, but does
 nothing meaningful until a stage has accumulated MIN_SAMPLE_SIZE new,
@@ -22,41 +47,50 @@ naturally no-ops almost every run; at ~8,000/month it naturally becomes
 responsive within a run or two — no manual retuning of the schedule as
 volume scales.
 
-GIT WRITE LIMITATION (important, read before assuming Section 3 entries land
-in docs/cold-email-evidence-library.md): this job runs on an ephemeral
-Railway Cron container with no git credentials wired — it cannot commit an
-appended finding to that file in production, the same constraint already
-documented for the nightly discovery routine. Findings are written to the
-EvidenceFinding table instead (the real, current Section 3 — see that
-file's architecture note and /admin/variants).
+EYES-BEFORE-JUDGMENT THRESHOLD: MIN_SAMPLE_SIZE (30, Section 5b's existing
+standard) gates not just "enough new samples to re-evaluate a stage at
+all," but also, independently, "enough sends a SPECIFIC variant has had
+before its own performance or deliverability is judged" — see the
+`v_perf["sent"] < MIN_SAMPLE_SIZE` and `sample_size < MIN_SAMPLE_SIZE`
+guards inside _process_stage below. A variant with 3 sends and 1 click
+is not "33% click rate," it's noise; nothing acts on it either way until
+it has real exposure.
+
+GIT WRITE LIMITATION FOR SECTION 3 (unchanged from before this rework):
+findings are written to the EvidenceFinding table, not appended to
+docs/cold-email-evidence-library.md's Section 3 directly — see that
+file's architecture note and /admin/variants. (Note: this job COULD now
+push via the same GitHub Contents API mechanism used for the request
+file above, since that turned out to work fine from a Railway container —
+unlike the earlier assumption that no git write path existed at all. Not
+done here to keep Section 3 as one clean, queryable table rather than
+also parsing/appending markdown; revisit if you'd rather see it land in
+the actual file.)
 
 Per-run sequence, per stage (initial/A/B/C/D — hail_mary is not variant-
 tested, see outreach/seed_variants.py):
-  1. Count new, outcome-mature touches (sent_at at least OUTCOME_MATURITY_DAYS
-     ago, so opens/clicks/payments have had time to happen) since this
-     stage's last-processed marker. Below MIN_SAMPLE_SIZE: no-op, log why.
-  2. Otherwise: compute per-variant open/click/paid rates, run a two-
-     proportion z-test for each canary against the current best active
-     variant on that stage's primary metric (click for initial/A/B — the
-     magic-link click IS the conversion event pre-payment; paid for C/D,
-     since those cohorts have already clicked by definition).
-  3. Confirmed winners get weight moved gradually toward the active pool
-     (not an abrupt swap) and are promoted to "active" once they reach
-     parity. Confirmed losers are paused. Any variant (regardless of
-     significance testing) whose own bounce/complaint rate breaches the
-     same thresholds outreach/ramp.py uses for the whole channel is
-     auto-paused immediately — a deliverability safety action, independent
-     of performance.
-  4. Every significant result gets an EvidenceFinding row.
-  5. If there's no existing unresolved canary for the stage and it's under
-     MAX_VARIANTS_PER_STAGE, generate exactly one new candidate — citing
-     either a Section 1 principle or a Section 3/EvidenceFinding entry,
-     isolating exactly one variable (outreach/content_safety.py's isolation
-     heuristic + all three content-safety gates must pass) — admitted at a
-     weight equivalent to ~10% allocation, never a full swap.
-  6. Always writes one OptimizerRunLog row, whether or not anything happened.
+  1. Pick up any new Drive candidate results from the daily routine first
+     (independent of any single stage's threshold).
+  2. Count new, outcome-mature touches since this stage's last-processed
+     marker. Below MIN_SAMPLE_SIZE: no-op, log why.
+  3. Otherwise: compute per-variant open/click/paid rates, run a two-
+     proportion z-test for each canary (with its own real sample — see
+     "eyes-before-judgment" above) against the current best active variant
+     on that stage's primary metric (click for initial/A/B; paid for C/D).
+  4. Confirmed winners get weight moved gradually toward the active pool
+     (never an abrupt swap) and are promoted to "active" once they reach
+     parity. Confirmed losers are paused. Any variant with a real sample
+     whose own bounce/complaint rate breaches the same thresholds
+     outreach/ramp.py uses channel-wide is auto-paused immediately,
+     independent of performance.
+  5. Every significant result gets an EvidenceFinding row.
+  6. If there's no unresolved request/canary for the stage and it's under
+     MAX_VARIANTS_PER_STAGE, reserve and queue exactly one new candidate
+     request (see the Drive handoff above).
+  7. Always writes one OptimizerRunLog row, whether or not anything happened.
 
-Environment: DATABASE_URL, ANTHROPIC_API_KEY.
+Environment: DATABASE_URL, GITHUB_PUSH_TOKEN, GOOGLE_DRIVE_API_KEY,
+GOOGLE_DRIVE_FOLDER_ID. No ANTHROPIC_API_KEY needed anymore.
 """
 import os
 import sys
@@ -77,17 +111,19 @@ try:
 except Exception:
     pass
 
-import anthropic
+import requests
 from sqlalchemy import func
 
 from models import (  # noqa: E402
     SessionLocal, OutreachTouch, Prospect, EmailEventLog, EmailVariant,
-    EvidenceFinding, OptimizerRunLog, VariantOptimizerState, init_db,
+    EvidenceFinding, OptimizerRunLog, VariantOptimizerState,
+    VariantCandidatePickupState, init_db,
 )
 from outreach.seed_variants import seed_baseline_variants
 from outreach.stats_utils import two_proportion_z_test, is_significant
 from outreach.content_safety import run_content_safety_gates, check_isolation
 from outreach.ramp import EMAIL_BOUNCE_RATE_TRIGGER, EMAIL_SPAM_RATE_TRIGGER
+from outreach.github_push import push_file_to_github
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("outreach.variant_optimizer_job")
@@ -101,7 +137,8 @@ STAGES = ["initial", "A", "B", "C", "D"]
 # STAGE_BY_SUBSTAGE), so their meaningful event is "paid" instead.
 PRIMARY_METRIC_BY_STAGE = {"initial": "clicked", "A": "clicked", "B": "clicked", "C": "paid", "D": "paid"}
 
-# Section 5b's existing standard, reused here per the build spec.
+# Section 5b's existing standard, reused here per the build spec — also
+# the "eyes before judgment" threshold (see module docstring).
 MIN_SAMPLE_SIZE = 30
 # A touch needs to sit for a few days before "did it convert" is a fair
 # question — a touch sent yesterday hasn't had time to be opened/clicked/
@@ -129,7 +166,13 @@ ISOLATED_VARIABLE_CANDIDATES = [
     "cta_wording", "personalization_depth", "paragraph_structure", "tone",
 ]
 
-_MODEL = "claude-sonnet-4-6"
+# ── Drive-based generation handoff (see module docstring) ──────────────
+REQUEST_FILE_REPO_PATH = "outreach/discovery_batches/variant_candidate_request.json"
+CANDIDATE_RESULTS_FILENAME = "groundwork-variant-candidates.json"
+# Same shared folder the discovery routine already writes into.
+DRIVE_FOLDER_ID_ENV = "GOOGLE_DRIVE_FOLDER_ID"
+DRIVE_API_BASE = "https://www.googleapis.com/drive/v3"
+DRIVE_REQUEST_TIMEOUT = 30
 
 
 def _get_or_create_state(db, stage):
@@ -206,16 +249,6 @@ def _variant_deliverability(db, variant_id):
     return bounced / sample_size, complained / sample_size, sample_size
 
 
-def _read_evidence_library():
-    path = os.path.join(_PROJECT_ROOT, "docs", "cold-email-evidence-library.md")
-    try:
-        with open(path, "r") as f:
-            return f.read()
-    except OSError:
-        logger.error("Could not read %s — candidate generation cannot cite the evidence library", path)
-        return ""
-
-
 def _least_explored_isolated_variable(db, stage):
     used = db.query(EmailVariant.isolated_variable).filter(
         EmailVariant.stage == stage, EmailVariant.isolated_variable.isnot(None)
@@ -232,131 +265,193 @@ def _placeholders(text):
     return set(re.findall(r"\{(\w+)\}", text))
 
 
-def _generate_candidate(db, stage, parent, isolated_variable, recent_findings):
-    """Calls the Anthropic API for exactly one candidate variant. Returns
-    dict {subject, body, rationale, cites} or None on any failure (API
-    error, malformed response) — a failure here just means "try again next
-    run," never a crash of the whole job."""
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
-        logger.error("ANTHROPIC_API_KEY not set — cannot generate a new candidate variant this run")
-        return None
+# ── Outbound: queue a candidate request for the daily routine ──────────
 
-    evidence_md = _read_evidence_library()
-    findings_text = "\n".join(
-        f"- [{f.stage}] {f.finding} (sample size {f.sample_size}, isolated variable: {f.isolated_variable})"
-        for f in recent_findings
-    ) or "(no internal findings logged yet for this stage)"
-
-    prompt = f"""You are generating exactly ONE new cold-outreach email copy variant for Groundwork, a UK company that builds websites for trade businesses.
-
-Below is the full evidence library that must ground every change you make. Section 2 OVERRIDES Section 1 on any conflict.
-
-{evidence_md}
-
-Recent internal findings already logged for stage '{stage}':
-{findings_text}
-
-The PARENT variant you must change (stage '{stage}', variant_id '{parent.variant_id}') is this exact subject and HTML body:
-
-SUBJECT:
-{parent.subject}
-
-BODY:
-{parent.body}
-
-Your task: produce ONE new candidate that changes EXACTLY ONE thing vs. the parent above — the isolated variable you must change is: '{isolated_variable}'. Do not change anything else — not the CTA wording, not the paragraph structure, not the personalization depth, not the tone — unless '{isolated_variable}' IS that thing. Cite either a Section 1 principle or one of the internal findings above in your rationale.
-
-Hard requirements, non-negotiable:
-- Preserve every {{placeholder}} token exactly as it appears in the parent (e.g. {{business_name}}, {{preview_link}}, {{unsubscribe_link}}{', {{branding_ps}}' if '{branding_ps}' in parent.body else ''}) — same set, same names, no new ones, none removed. Do not introduce any other literal curly brace {{ or }} character anywhere.
-- Preserve the exact HTML table-based scaffold (this is an email client compatibility requirement, not a style choice) — only edit the specific text/structural element named by the isolated variable.
-- Stage '{stage}' is {'pre-click — the site has NOT been generated yet, so the copy must never claim it already is (no "is built", "site is ready", etc.)' if stage in ('initial', 'A', 'B') else 'post-click — a real site has already been generated for this prospect, so it is accurate to say so'}.
-- The only real prices are £99 (one-time setup) and £24.99 (monthly) — never invent a different figure.
-- No spam-trigger phrases (bare "FREE" in caps, "act now", "100% free", excessive exclamation marks, etc).
-
-Call the propose_variant tool with your answer."""
-
-    client = anthropic.Anthropic(api_key=api_key)
-    try:
-        resp = client.messages.create(
-            model=_MODEL,
-            max_tokens=4096,
-            tools=[{
-                "name": "propose_variant",
-                "description": "Propose one new email copy variant isolating exactly one changed element from its parent.",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {
-                        "subject": {"type": "string", "description": "The new subject line"},
-                        "body": {"type": "string", "description": "The new full HTML body"},
-                        "rationale": {"type": "string", "description": "Why this change, citing Section 1 or an internal finding"},
-                        "cites": {"type": "string", "description": "The specific Section 1 principle or internal finding cited"},
-                    },
-                    "required": ["subject", "body", "rationale", "cites"],
-                },
-            }],
-            tool_choice={"type": "tool", "name": "propose_variant"},
-            messages=[{"role": "user", "content": prompt}],
-        )
-        tool_use = next((b for b in resp.content if b.type == "tool_use"), None)
-        if not tool_use:
-            logger.error("Anthropic response had no tool_use block for stage %r", stage)
-            return None
-        return dict(tool_use.input)
-    except Exception:
-        logger.exception("Anthropic API call failed while generating a candidate for stage %r", stage)
-        return None
+def _queue_generation_request(db, stage, parent, isolated_variable, now, actions):
+    """Reserves a variant_id as a pending_generation placeholder, then
+    re-exports and pushes the FULL current set of pending requests (across
+    every stage, not just this one) — the export is idempotent/self-
+    cleaning: once a request is resolved (admitted or rejected), it's no
+    longer a pending_generation row, so the next export naturally omits
+    it, with no separate "mark as consumed" step needed on the request
+    file itself."""
+    existing_count = db.query(EmailVariant).filter(EmailVariant.stage == stage).count()
+    reserved_variant_id = f"{stage}-v{existing_count + 1}"
+    db.add(EmailVariant(
+        stage=stage, variant_id=reserved_variant_id, parent_variant_id=parent.variant_id,
+        subject="", body="", status="pending_generation", weight=0.0,
+        rationale="awaiting routine-generated candidate", isolated_variable=isolated_variable,
+    ))
+    db.commit()
+    logger.info("Reserved %s for stage %r (isolated_variable=%s) — queuing generation request",
+                reserved_variant_id, stage, isolated_variable)
+    actions.append({
+        "type": "generation_requested", "stage": stage, "variant_id": reserved_variant_id,
+        "reason": f"isolated_variable={isolated_variable}",
+    })
+    _export_and_push_requests(db)
 
 
-def _try_admit_candidate(db, stage, parent, isolated_variable, now, actions):
-    findings = db.query(EvidenceFinding).filter(EvidenceFinding.stage == stage).order_by(
-        EvidenceFinding.created_at.desc()
-    ).limit(10).all()
-    candidate = _generate_candidate(db, stage, parent, isolated_variable, findings)
-    if not candidate:
-        actions.append({"type": "generation_failed", "stage": stage, "reason": "API call failed or returned nothing usable"})
+def _export_and_push_requests(db):
+    pending = db.query(EmailVariant).filter(EmailVariant.status == "pending_generation").all()
+    requests_payload = []
+    for p in pending:
+        parent = db.query(EmailVariant).filter(EmailVariant.variant_id == p.parent_variant_id).first()
+        if not parent:
+            logger.error("Pending request %s has no resolvable parent %r — skipping in export",
+                         p.variant_id, p.parent_variant_id)
+            continue
+        recent_findings = db.query(EvidenceFinding).filter(EvidenceFinding.stage == p.stage).order_by(
+            EvidenceFinding.created_at.desc()
+        ).limit(10).all()
+        requests_payload.append({
+            "reserved_variant_id": p.variant_id,
+            "stage": p.stage,
+            "parent_variant_id": parent.variant_id,
+            "parent_subject": parent.subject,
+            "parent_body": parent.body,
+            "isolated_variable": p.isolated_variable,
+            "recent_findings": [
+                f"{f.finding} (sample size {f.sample_size}, isolated variable: {f.isolated_variable})"
+                for f in recent_findings
+            ],
+            "requested_at": p.created_at.isoformat(),
+        })
+
+    content = json.dumps(requests_payload, indent=2).encode("utf-8")
+    ok = push_file_to_github(
+        REQUEST_FILE_REPO_PATH, content,
+        f"Variant candidate request export ({datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}) [Railway Cron]",
+    )
+    if not ok:
+        logger.error("Failed to push %s — the daily routine will see a stale/missing request file until this succeeds",
+                     REQUEST_FILE_REPO_PATH)
+    return ok
+
+
+# ── Inbound: pick up the daily routine's Drive results ──────────────────
+
+def _find_latest_drive_file(api_key, folder_id):
+    query = f"'{folder_id}' in parents and name = '{CANDIDATE_RESULTS_FILENAME}' and trashed = false"
+    resp = requests.get(
+        f"{DRIVE_API_BASE}/files",
+        params={"q": query, "key": api_key, "fields": "files(id,name,createdTime)",
+                "orderBy": "createdTime desc", "pageSize": 1},
+        timeout=DRIVE_REQUEST_TIMEOUT,
+    )
+    resp.raise_for_status()
+    files = resp.json().get("files", [])
+    return files[0] if files else None
+
+
+def _download_drive_file(api_key, file_id):
+    resp = requests.get(
+        f"{DRIVE_API_BASE}/files/{file_id}", params={"alt": "media", "key": api_key}, timeout=DRIVE_REQUEST_TIMEOUT,
+    )
+    resp.raise_for_status()
+    return resp.text
+
+
+def _admit_or_reject_result(db, result, now, actions):
+    reserved_variant_id = result.get("reserved_variant_id")
+    row = db.query(EmailVariant).filter(
+        EmailVariant.variant_id == reserved_variant_id, EmailVariant.status == "pending_generation"
+    ).first()
+    if not row:
+        logger.warning("Drive result references %r, but no matching pending_generation row exists (already resolved, or stale) — skipping",
+                        reserved_variant_id)
         return
 
-    subject, body = candidate.get("subject", ""), candidate.get("body", "")
+    parent = db.query(EmailVariant).filter(EmailVariant.variant_id == row.parent_variant_id).first()
+    subject, body = result.get("subject", ""), result.get("body", "")
+
+    def _reject(reason):
+        logger.warning("Rejecting candidate %s: %s", reserved_variant_id, reason)
+        actions.append({"type": "generation_rejected", "stage": row.stage, "variant_id": reserved_variant_id, "reason": reason})
+        db.delete(row)
+        db.commit()
+
+    if not parent:
+        _reject(f"parent {row.parent_variant_id!r} no longer resolvable")
+        return
     if not subject or not body:
-        actions.append({"type": "generation_rejected", "stage": stage, "reason": "empty subject or body"})
+        _reject("empty subject or body from the routine")
         return
-
     if _placeholders(subject) != _placeholders(parent.subject) or _placeholders(body) != _placeholders(parent.body):
-        actions.append({"type": "generation_rejected", "stage": stage, "reason": "placeholder mismatch vs. parent — would crash at send time"})
+        _reject("placeholder mismatch vs. parent — would crash at send time")
         return
-
-    passed, violations = run_content_safety_gates(stage, subject, body)
+    passed, violations = run_content_safety_gates(row.stage, subject, body)
     if not passed:
-        actions.append({"type": "generation_rejected", "stage": stage, "reason": f"content-safety gate failed: {violations}"})
+        _reject(f"content-safety gate failed: {violations}")
         return
-
-    iso_ok, iso_reason = check_isolation(isolated_variable, parent.subject, parent.body, subject, body)
+    iso_ok, iso_reason = check_isolation(row.isolated_variable, parent.subject, parent.body, subject, body)
     if not iso_ok:
-        actions.append({"type": "generation_rejected", "stage": stage, "reason": f"isolation check failed: {iso_reason}"})
+        _reject(f"isolation check failed: {iso_reason}")
         return
 
     active_total_weight = sum(
         v.weight for v in db.query(EmailVariant).filter(
-            EmailVariant.stage == stage, EmailVariant.status == "active"
+            EmailVariant.stage == row.stage, EmailVariant.status == "active"
         ).all()
     ) or 1.0
     canary_weight = active_total_weight * (CANARY_ALLOCATION_PCT / (1 - CANARY_ALLOCATION_PCT))
 
-    existing_count = db.query(EmailVariant).filter(EmailVariant.stage == stage).count()
-    new_variant_id = f"{stage}-v{existing_count + 1}"
-    rationale = f"{candidate.get('rationale', '')} | cites: {candidate.get('cites', '')}"
-    db.add(EmailVariant(
-        stage=stage, variant_id=new_variant_id, parent_variant_id=parent.variant_id,
-        subject=subject, body=body, status="canary", weight=canary_weight,
-        rationale=rationale, isolated_variable=isolated_variable,
-    ))
+    row.subject = subject
+    row.body = body
+    row.status = "canary"
+    row.weight = canary_weight
+    row.rationale = f"{result.get('rationale', '')} | cites: {result.get('cites', '')}"
     db.commit()
     actions.append({
-        "type": "new_variant", "stage": stage, "variant_id": new_variant_id,
-        "reason": f"isolated_variable={isolated_variable}", "rationale": rationale,
+        "type": "new_variant", "stage": row.stage, "variant_id": reserved_variant_id,
+        "reason": f"isolated_variable={row.isolated_variable}", "rationale": row.rationale,
     })
-    logger.info("Admitted new candidate %s for stage %r (isolated_variable=%s)", new_variant_id, stage, isolated_variable)
+    logger.info("Admitted candidate %s for stage %r (isolated_variable=%s)", reserved_variant_id, row.stage, row.isolated_variable)
+
+
+def _pickup_candidate_results(db, now, actions):
+    """Checks Google Drive for a new candidate-results file from the daily
+    routine and applies every entry in it. Safe to call every hourly run —
+    logs and returns quietly if there's nothing new (same idempotent
+    pattern as outreach/pickup_drive_results.py)."""
+    api_key = os.environ.get("GOOGLE_DRIVE_API_KEY")
+    folder_id = os.environ.get(DRIVE_FOLDER_ID_ENV)
+    if not api_key or not folder_id:
+        logger.warning("GOOGLE_DRIVE_API_KEY/%s not set — cannot check for routine-generated candidates this run",
+                        DRIVE_FOLDER_ID_ENV)
+        return
+
+    try:
+        latest = _find_latest_drive_file(api_key, folder_id)
+    except Exception:
+        logger.exception("Drive lookup failed — will retry next run")
+        return
+    if not latest:
+        return
+
+    state = db.query(VariantCandidatePickupState).first()
+    if state and state.last_drive_file_id == latest["id"]:
+        return
+
+    logger.info("Found new variant-candidate results file: %s (created %s)", latest["id"], latest["createdTime"])
+    try:
+        text = _download_drive_file(api_key, latest["id"])
+        results = json.loads(text)
+    except Exception:
+        logger.exception("Failed to download/parse %s — will retry next run", latest["id"])
+        return
+
+    for result in results:
+        try:
+            _admit_or_reject_result(db, result, now, actions)
+        except Exception:
+            logger.exception("Error applying candidate result %s", result.get("reserved_variant_id"))
+
+    if not state:
+        state = VariantCandidatePickupState()
+        db.add(state)
+    state.last_drive_file_id = latest["id"]
+    db.commit()
 
 
 def _process_stage(db, stage, now, actions):
@@ -374,7 +469,6 @@ def _process_stage(db, stage, now, actions):
     metric = PRIMARY_METRIC_BY_STAGE[stage]
     perf = _variant_performance(db, stage, now)
     variants = db.query(EmailVariant).filter(EmailVariant.stage == stage).all()
-    by_id = {v.variant_id: v for v in variants}
 
     active_variants = [v for v in variants if v.status == "active"]
     best_active = None
@@ -385,9 +479,11 @@ def _process_stage(db, stage, now, actions):
             if perf.get(v.variant_id, {}).get("sent", 0) else 0,
         )
 
-    # ── Deliverability auto-pause — independent of performance testing ──
+    # ── Deliverability auto-pause — independent of performance testing.
+    # Requires MIN_SAMPLE_SIZE real sends of THIS variant first (eyes-
+    # before-judgment) — a single bounce out of 3 sends is not a signal. ──
     for v in variants:
-        if v.status == "paused":
+        if v.status in ("paused", "pending_generation"):
             continue
         bounce_rate, complaint_rate, sample_size = _variant_deliverability(db, v.variant_id)
         if sample_size < MIN_SAMPLE_SIZE:
@@ -410,7 +506,8 @@ def _process_stage(db, stage, now, actions):
             if v is best_active:
                 best_active = None
 
-    # ── Performance-based promotion / demotion of canaries ──
+    # ── Performance-based promotion / demotion of canaries — both sides
+    # of the comparison need MIN_SAMPLE_SIZE real sends first. ──
     if best_active:
         best_perf = perf.get(best_active.variant_id, {"sent": 0})
         for v in [x for x in variants if x.status == "canary"]:
@@ -461,20 +558,22 @@ def _process_stage(db, stage, now, actions):
                 ))
                 db.commit()
 
-    # ── Generate one new candidate, if there's room and nothing unresolved ──
+    # ── Queue one new candidate request, if there's room and nothing
+    # already in flight (canary awaiting judgment, or a request already
+    # sent to the daily routine and not yet resolved). ──
     variants = db.query(EmailVariant).filter(EmailVariant.stage == stage).all()
-    unresolved_canary = any(v.status == "canary" for v in variants)
-    if not unresolved_canary and len(variants) < MAX_VARIANTS_PER_STAGE:
+    unresolved = any(v.status in ("canary", "pending_generation") for v in variants)
+    if not unresolved and len(variants) < MAX_VARIANTS_PER_STAGE:
         parent = max(
             [v for v in variants if v.status == "active"], key=lambda v: v.weight, default=None
         )
         if parent:
             isolated_variable = _least_explored_isolated_variable(db, stage)
-            _try_admit_candidate(db, stage, parent, isolated_variable, now, actions)
-    elif unresolved_canary:
-        logger.info("Stage %r: an unresolved canary already exists — not generating another this run", stage)
+            _queue_generation_request(db, stage, parent, isolated_variable, now, actions)
+    elif unresolved:
+        logger.info("Stage %r: a canary or pending generation request already exists — not queuing another this run", stage)
     else:
-        logger.info("Stage %r: at MAX_VARIANTS_PER_STAGE (%d) — not generating another", stage, MAX_VARIANTS_PER_STAGE)
+        logger.info("Stage %r: at MAX_VARIANTS_PER_STAGE (%d) — not queuing another", stage, MAX_VARIANTS_PER_STAGE)
 
     state.last_processed_touch_id = max_id_seen
     state.updated_at = now
@@ -491,8 +590,10 @@ def run_variant_optimizer(now=None, dry_run=False):
     try:
         seed_baseline_variants(db)
         if dry_run:
-            logger.info("[dry-run] would evaluate stages: %s", STAGES)
+            logger.info("[dry-run] would check for Drive results and evaluate stages: %s", STAGES)
             return {"dry_run": True}
+
+        _pickup_candidate_results(db, now, all_actions)
 
         for stage in STAGES:
             try:
