@@ -1542,6 +1542,7 @@ def _admin_page(title: str, content: str, active: str = "") -> str:
         ("Discovery", "/admin/discovery", "discovery"),
         ("Follow-ups", "/admin/followups", "followups"),
         ("Funnel", "/admin/funnel", "funnel"),
+        ("Send timing", "/admin/send-timing", "send-timing"),
         ("Deliverability", "/admin/deliverability", "deliverability"),
         ("Replies", "/admin/replies", "replies"),
     ]
@@ -5878,6 +5879,193 @@ def admin_deliverability():
 </div>
 """
         return render_template_string(_admin_page("Deliverability", content, active="deliverability"))
+    finally:
+        db.close()
+
+
+def _render_dual_rate_chart(buckets, opened_disabled):
+    """Inline SVG grouped-bar chart (no external library, same convention as
+    _render_rate_chart above) — buckets is a list of (label, sent, opened,
+    generated) tuples in display order. Two bars per bucket: opened rate
+    (blue) and generated/clicked rate (green), against a shared 0-100%
+    y-axis. Buckets with sent=0 are still labeled on the x-axis but draw no
+    bars, same "no data isn't 0%" principle as the deliverability chart.
+    opened_disabled greys out the opened series (with a tooltip) the same
+    way admin_funnel's _FUNNEL_OPENED_DISABLED does, for the same reason —
+    open tracking wasn't reliable before 2026-07-20 (see
+    _OPENED_TRACKING_RELIABLE_FROM)."""
+    if not buckets:
+        return '<div class="muted" style="padding:20px;">No data.</div>'
+
+    w, h, pad_l, pad_b, pad_t = 900, 220, 40, 34, 14
+    chart_w, chart_h = w - pad_l - 10, h - pad_b - pad_t
+    n = len(buckets)
+    bucket_w = chart_w / n
+
+    def y_of(pct):
+        return pad_t + chart_h - (pct / 100.0) * chart_h
+
+    bars = ""
+    x_labels = ""
+    for i, (label, sent, opened, generated) in enumerate(buckets):
+        x = pad_l + i * bucket_w
+        x_labels += (
+            f'<text x="{x + bucket_w / 2:.1f}" y="{h - 6}" text-anchor="middle" '
+            f'font-size="10.5" fill="#9A9893">{escape(label)}</text>'
+        )
+        if not sent:
+            continue
+        opened_pct = (opened / sent) * 100
+        generated_pct = (generated / sent) * 100
+        sub_w = bucket_w * 0.32
+        gap = bucket_w * 0.06
+        x1 = x + bucket_w * 0.5 - sub_w - gap / 2
+        x2 = x + bucket_w * 0.5 + gap / 2
+        opened_fill = "#B9C4D6" if opened_disabled else "#3B82F6"
+        opened_title = (
+            f"{label}: opened tracking not reliable before {_OPENED_TRACKING_RELIABLE_FROM.strftime('%d %b %Y')}"
+            if opened_disabled else f"{label}: {opened}/{sent} opened = {opened_pct:.0f}%"
+        )
+        bars += (
+            f'<rect x="{x1:.1f}" y="{y_of(opened_pct):.1f}" width="{sub_w:.1f}" '
+            f'height="{chart_h - (y_of(opened_pct) - pad_t):.1f}" fill="{opened_fill}" rx="1.5">'
+            f'<title>{escape(opened_title)}</title></rect>'
+            f'<rect x="{x2:.1f}" y="{y_of(generated_pct):.1f}" width="{sub_w:.1f}" '
+            f'height="{chart_h - (y_of(generated_pct) - pad_t):.1f}" fill="#10B981" rx="1.5">'
+            f'<title>{label}: {generated}/{sent} generated = {generated_pct:.0f}%</title></rect>'
+        )
+
+    gridlines = ""
+    for pct in (0, 25, 50, 75, 100):
+        gy = y_of(pct)
+        gridlines += (
+            f'<line x1="{pad_l}" y1="{gy:.1f}" x2="{w - 10}" y2="{gy:.1f}" stroke="#EDEBE5"/>'
+            f'<text x="{pad_l - 6}" y="{gy + 3:.1f}" text-anchor="end" font-size="10" fill="#9A9893">{pct}%</text>'
+        )
+
+    return f"""<svg viewBox="0 0 {w} {h}" style="width:100%;height:auto;display:block;">
+      {gridlines}
+      {bars}
+      {x_labels}
+    </svg>"""
+
+
+def _timing_buckets(db, window_start, now, group_by):
+    """Shared aggregation behind admin_send_timing — group_by is "hour" (0-23,
+    from Prospect.sent_at_hour) or "dow" (0-6 Monday-first, from
+    Prospect.sent_at_dow), both stamped at send time already (see
+    send_initial_touch in outreach/send_job.py) rather than recomputed here,
+    so this always matches what the rest of the admin already shows for a
+    given prospect. Returns a list of (label, sent, opened, generated)
+    tuples in display order, one per bucket, covering every bucket even if
+    empty (0 sent) so the chart's x-axis doesn't silently skip quiet
+    hours/days."""
+    prospects = db.query(Prospect).filter(
+        Prospect.sent_at.isnot(None), Prospect.sent_at >= window_start, Prospect.sent_at <= now,
+    ).all()
+
+    n_buckets = 24 if group_by == "hour" else 7
+    counts = [{"sent": 0, "opened": 0, "generated": 0} for _ in range(n_buckets)]
+    for p in prospects:
+        key = p.sent_at_hour if group_by == "hour" else p.sent_at_dow
+        if key is None:
+            continue
+        counts[key]["sent"] += 1
+        if p.opened_at is not None:
+            counts[key]["opened"] += 1
+        if p.clicked_at is not None:
+            counts[key]["generated"] += 1
+
+    if group_by == "hour":
+        labels = [f"{h:02d}" for h in range(24)]
+    else:
+        labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+    return [(labels[i], c["sent"], c["opened"], c["generated"]) for i, c in enumerate(counts)]
+
+
+@app.route("/admin/send-timing")
+@admin_required
+def admin_send_timing():
+    """Optics on when to actually send — open rate and generated (real
+    click, see _FUNNEL_STEPS's "Clicked/Generated") rate broken out by the
+    hour of day and day of week the ORIGINAL send happened, not by when the
+    open/click event itself landed — the hour/day you control is when you
+    send, so that's the actionable lever for moving these KPIs, not what
+    hour prospects happen to check their inbox. Two windows, matching what
+    was asked for: a trailing-7-day view broken out by hour (do certain
+    send hours convert better this week?) and a trailing-30-day view broken
+    out by day of week (do certain send days convert better this month?).
+    Both use Prospect.sent_at_hour/sent_at_dow, stamped once at send time —
+    same fields already shown on the per-prospect profile page."""
+    now = datetime.utcnow()
+    db = SessionLocal()
+    try:
+        week_start = now - timedelta(days=7)
+        month_start = now - timedelta(days=30)
+
+        hourly_buckets = _timing_buckets(db, week_start, now, "hour")
+        weekday_buckets = _timing_buckets(db, month_start, now, "dow")
+
+        hourly_opened_disabled = week_start < _OPENED_TRACKING_RELIABLE_FROM
+        weekday_opened_disabled = month_start < _OPENED_TRACKING_RELIABLE_FROM
+
+        def _best_worst(buckets, min_n=10):
+            """Best/worst bucket by generated rate, real sample size only —
+            same 10+ convention as elsewhere for not calling a 1/1 hour a
+            trend."""
+            real = [(label, sent, opened, gen) for label, sent, opened, gen in buckets if sent >= min_n]
+            if not real:
+                return None, None
+            best = max(real, key=lambda r: r[3] / r[1])
+            worst = min(real, key=lambda r: r[3] / r[1])
+            return best, worst
+
+        hourly_best, hourly_worst = _best_worst(hourly_buckets)
+        weekday_best, weekday_worst = _best_worst(weekday_buckets, min_n=5)
+
+        def _callout(best, worst, unit):
+            if not best:
+                return f'<p class="muted" style="margin:0 0 12px;">Not enough send volume per {unit} yet (10+ sends needed) to call out a best/worst {unit}.</p>'
+            best_label, best_sent, _, best_gen = best
+            worst_label, worst_sent, _, worst_gen = worst
+            if best_label == worst_label:
+                return f'<p class="muted" style="margin:0 0 12px;">Only one {unit} has enough volume so far (<b style="color:#1C1C1C;">{escape(best_label)}</b>, {best_gen}/{best_sent} generated = {best_gen / best_sent * 100:.0f}%) — need more spread before a real best/worst comparison means anything.</p>'
+            return (
+                f'<p style="margin:0 0 12px;font-size:13.5px;">Best {unit} so far: '
+                f'<b style="color:#059669;">{escape(best_label)}</b> ({best_gen}/{best_sent} generated = {best_gen / best_sent * 100:.0f}%) · '
+                f'Worst: <b style="color:#DC2626;">{escape(worst_label)}</b> ({worst_gen}/{worst_sent} generated = {worst_gen / worst_sent * 100:.0f}%)</p>'
+            )
+
+        hourly_callout = _callout(hourly_best, hourly_worst, "hour")
+        weekday_callout = _callout(weekday_best, weekday_worst, "day")
+
+        hourly_chart = _render_dual_rate_chart(hourly_buckets, hourly_opened_disabled)
+        weekday_chart = _render_dual_rate_chart(weekday_buckets, weekday_opened_disabled)
+
+        opened_note = lambda disabled: (
+            '<p class="muted" style="margin:8px 0 0;font-size:12px;">Opened rate greyed out — '
+            f'this window includes dates before {_OPENED_TRACKING_RELIABLE_FROM.strftime("%d %b %Y")}, '
+            'when open tracking wasn\'t yet reliable.</p>' if disabled else ""
+        )
+
+        content = f"""
+<h1 class="adm-title">Send timing</h1>
+<p class="adm-sub">Open rate and generated (real click) rate broken out by WHEN THE SEND HAPPENED — the lever you
+actually control — not by when the open/click event itself landed. Bar per bucket: <span style="color:#3B82F6;">■</span> opened,
+<span style="color:#10B981;">■</span> generated. Hover a bar for the exact count.</p>
+
+<h2 style="font-size:16px;font-weight:800;margin:24px 0 4px;">By hour of day — trailing 7 days</h2>
+{hourly_callout}
+<div class="adm-card" style="padding:20px 20px 8px;">{hourly_chart}</div>
+{opened_note(hourly_opened_disabled)}
+
+<h2 style="font-size:16px;font-weight:800;margin:28px 0 4px;">By day of week — trailing 30 days</h2>
+{weekday_callout}
+<div class="adm-card" style="padding:20px 20px 8px;">{weekday_chart}</div>
+{opened_note(weekday_opened_disabled)}
+"""
+        return render_template_string(_admin_page("Send timing", content, active="send-timing"))
     finally:
         db.close()
 
