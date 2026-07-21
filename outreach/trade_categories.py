@@ -141,13 +141,13 @@ _AREAS_BY_REGION = {
         "Scarborough", "Whitby", "Ripon", "Skipton", "Keighley", "Barnsley",
         "Pontefract", "Castleford", "Selby", "Goole", "Beverley", "Bridlington",
         "Halifax", "Dewsbury", "Batley", "Pudsey", "Otley", "Ilkley", "Malton",
-        "Northallerton", "Thirsk", "Richmond, North Yorkshire",
+        "Northallerton", "Thirsk", "Richmond (Yorks)",
     ],
     ("North East", "low"): [
         "Newcastle", "Sunderland", "Middlesbrough", "Durham", "Gateshead",
         "Hexham", "Berwick-upon-Tweed", "Alnwick", "Morpeth", "Blyth",
         "Ashington", "Consett", "Bishop Auckland", "Darlington", "Hartlepool",
-        "Stockton-on-Tees", "Peterlee", "Chester-le-Street", "Washington, Tyne and Wear",
+        "Stockton-on-Tees", "Peterlee", "Chester-le-Street", "Washington (T&W)",
     ],
     ("Scotland", "medium"): [
         "Glasgow", "Edinburgh", "Aberdeen", "Dundee", "Inverness", "Stirling",
@@ -165,7 +165,7 @@ _AREAS_BY_REGION = {
     ],
     ("Northern Ireland", "low"): [
         "Belfast",
-        "Derry", "Lisburn", "Newry", "Bangor, Northern Ireland", "Craigavon",
+        "Derry", "Lisburn", "Newry", "Bangor (NI)", "Craigavon",
         "Ballymena", "Newtownabbey", "Coleraine", "Omagh", "Enniskillen", "Armagh",
     ],
 }
