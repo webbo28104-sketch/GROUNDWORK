@@ -415,6 +415,19 @@ class EmailEventLog(Base):
     to_email = Column(String(255))
     event_type = Column(String(30))  # delivered/bounced/complained/opened/clicked
     created_at = Column(DateTime, default=datetime.utcnow)
+    # Raw Resend webhook `data` payload for this event — added 2026-07-21
+    # so bounce/complaint reasons are actually visible (previously only
+    # event_type/to_email were kept, so a bounce told you THAT it bounced
+    # but never WHY). Stored as-is rather than parsed into named columns
+    # up front, since Resend's exact bounce-detail key names aren't
+    # something this codebase has verified against a real payload yet —
+    # keeping the raw dict means nothing is lost/guessed-wrong regardless
+    # of which keys it turns out to actually use; app.py's
+    # _extract_bounce_reason() does the best-effort parsing for display.
+    # Only populated going forward — events logged before this column
+    # existed have detail=None, same "no historical backfill" convention
+    # as OutreachTouch.
+    detail = Column(JSON, nullable=True)
 
 
 class RampState(Base):

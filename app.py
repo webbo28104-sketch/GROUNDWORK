@@ -5582,6 +5582,36 @@ _GMAIL_HARD_CEILING = 0.003  # 0.3% — not a circuit-breaker value in code (onl
 # begins well before this" reference ceiling docs/outreach-pipeline-spec.md
 # Section 15 cites Gmail as using. Plotted for context only.
 
+_BOUNCE_DETAIL_MISSING = "no detail captured (before 2026-07-21)"
+
+
+def _extract_bounce_reason(detail):
+    """Best-effort human string for a bounce/complaint EmailEventLog row's
+    raw `detail` payload — see that column's comment in models.py for why
+    this is parsed defensively rather than assuming one exact Resend
+    schema. Tries the nested `bounce` object's message/type first (the
+    shape Resend's docs describe), then a couple of flatter fallback keys
+    other providers/versions have used, and only falls back to a generic
+    string if nothing usable is found — never raises on an unexpected
+    shape."""
+    if not detail or not isinstance(detail, dict):
+        return _BOUNCE_DETAIL_MISSING
+    bounce = detail.get("bounce")
+    if isinstance(bounce, dict):
+        for key in ("message", "type", "subType"):
+            val = bounce.get(key)
+            if isinstance(val, str) and val.strip():
+                return val.strip()
+    for key in ("reason", "message"):
+        val = detail.get(key)
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+    return "reason not present in payload"
+
+
+def _email_domain(addr):
+    return (addr or "").rsplit("@", 1)[-1].strip().lower() or "unknown"
+
 
 def _render_rate_chart(daily_points, trigger, ceiling):
     """Inline SVG bar chart, no external chart library (none is used anywhere
@@ -5814,6 +5844,79 @@ def admin_deliverability():
           </table>
         </div>"""
 
+        # ---- Bounce reasons, daily + by domain (added 2026-07-21) ----
+        # Requested after a real bounce spike tripped the circuit breaker:
+        # up to now a bounce told you THAT an address bounced, never WHY —
+        # EmailEventLog.detail (models.py) now carries Resend's raw event
+        # payload going forward, and _extract_bounce_reason parses out a
+        # human string from it defensively. Events logged before this
+        # column existed show _BOUNCE_DETAIL_MISSING instead of guessing.
+        bounce_window_start = now - timedelta(days=14)
+        recent_bounce_events = db.query(EmailEventLog).filter(
+            EmailEventLog.event_type.in_(["email.bounced", "bounced"]),
+            EmailEventLog.created_at >= bounce_window_start,
+        ).order_by(EmailEventLog.created_at.desc()).all()
+
+        by_day = {}
+        by_domain = Counter()
+        domain_reason_samples = {}
+        for e in recent_bounce_events:
+            addr = email_utils.parseaddr(e.to_email)[1] or e.to_email or "unknown"
+            reason = _extract_bounce_reason(e.detail)
+            day_key = e.created_at.strftime("%d %b")
+            by_day.setdefault(day_key, []).append((addr, reason))
+            domain = _email_domain(addr)
+            by_domain[domain] += 1
+            domain_reason_samples.setdefault(domain, reason)
+
+        if recent_bounce_events:
+            daily_rows_html = "".join(
+                f'<tr><td style="padding:6px 10px;vertical-align:top;white-space:nowrap;">{escape(day)}</td>'
+                f'<td style="padding:6px 10px;vertical-align:top;text-align:right;">{len(items)}</td>'
+                f'<td style="padding:6px 10px;">'
+                + "<br>".join(f'<code>{escape(addr)}</code> — <span class="muted">{escape(reason)}</span>' for addr, reason in items)
+                + '</td></tr>'
+                for day, items in by_day.items()
+            )
+            domain_rows_html = "".join(
+                f'<tr><td style="padding:6px 10px;">{escape(dom)}</td>'
+                f'<td style="padding:6px 10px;text-align:right;">{cnt}</td>'
+                f'<td style="padding:6px 10px;"><span class="muted">{escape(domain_reason_samples[dom])}</span></td></tr>'
+                for dom, cnt in by_domain.most_common()
+            )
+            bounce_reasons_html = f"""
+        <div class="adm-card" style="padding:16px 20px;margin-top:16px;">
+          <p style="font-weight:700;margin:0 0 6px;">Bounces by day — trailing 14 days ({len(recent_bounce_events)} total)</p>
+          <p class="muted" style="margin:0 0 10px;">Every bounced address and Resend's reported reason, most recent day first — this is the
+          "what are the main culprits" view. Reason shows "{escape(_BOUNCE_DETAIL_MISSING)}" for anything logged before payload capture shipped.</p>
+          <table style="width:100%;border-collapse:collapse;font-size:13px;">
+            <thead><tr style="border-bottom:1px solid #E6E3DC;">
+              <th style="text-align:left;padding:6px 10px;color:#9A9893;font-size:11px;text-transform:uppercase;">Day</th>
+              <th style="text-align:right;padding:6px 10px;color:#9A9893;font-size:11px;text-transform:uppercase;">Count</th>
+              <th style="text-align:left;padding:6px 10px;color:#9A9893;font-size:11px;text-transform:uppercase;">Address — reason</th>
+            </tr></thead>
+            <tbody>{daily_rows_html}</tbody>
+          </table>
+        </div>
+        <div class="adm-card" style="padding:16px 20px;margin-top:16px;">
+          <p style="font-weight:700;margin:0 0 6px;">Bounces by recipient domain — trailing 14 days</p>
+          <p class="muted" style="margin:0 0 10px;">Same window, grouped by domain instead of day — a repeat domain here is the clearest
+          "this specific culprit is dragging the rate up" signal.</p>
+          <table style="width:100%;border-collapse:collapse;font-size:13px;">
+            <thead><tr style="border-bottom:1px solid #E6E3DC;">
+              <th style="text-align:left;padding:6px 10px;color:#9A9893;font-size:11px;text-transform:uppercase;">Domain</th>
+              <th style="text-align:right;padding:6px 10px;color:#9A9893;font-size:11px;text-transform:uppercase;">Bounces</th>
+              <th style="text-align:left;padding:6px 10px;color:#9A9893;font-size:11px;text-transform:uppercase;">Sample reason</th>
+            </tr></thead>
+            <tbody>{domain_rows_html}</tbody>
+          </table>
+        </div>"""
+        else:
+            bounce_reasons_html = """
+        <div class="adm-card" style="padding:16px 20px;margin-top:16px;">
+          <p class="muted" style="margin:0;">No bounces in the trailing 14 days.</p>
+        </div>"""
+
         # ---- SMS: honest "is there real data" check ----
         esendex_configured = bool(os.environ.get("ESENDEX_USERNAME") and os.environ.get("ESENDEX_PASSWORD"))
         sms_event_count = db.query(func.count(SmsDeliveryEvent.id)).scalar() or 0
@@ -5864,6 +5967,7 @@ def admin_deliverability():
 {email_signal_html}
 {email_ramp_html}
 {source_breakdown_html}
+{bounce_reasons_html}
 
 <h2 style="font-size:16px;font-weight:800;margin:28px 0 4px;">SMS</h2>
 {sms_body_html}
@@ -8496,6 +8600,11 @@ def resend_events_webhook():
             resend_email_id=data.get("email_id"),
             to_email=to_email,
             event_type=event_type,
+            # Raw payload, added 2026-07-21 so a bounce/complaint row
+            # carries WHY, not just THAT — see EmailEventLog.detail's
+            # comment in models.py. Cheap to store unconditionally rather
+            # than branching on event_type.
+            detail=data,
         ))
 
         if event_type == "email.opened" and to_email:
