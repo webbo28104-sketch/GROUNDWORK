@@ -1534,17 +1534,20 @@ _GW_LOGO_SVG = '<svg viewBox="0 0 48 48" width="28" height="28" fill="none"><pat
 
 def _admin_page(title: str, content: str, active: str = "") -> str:
     """Wrap admin content in the shared dark-header shell."""
+    # Condensed 2026-07-21 (was 10 tabs) — Discovery, Follow-ups, Send
+    # timing, and Replies are now sections within Pipeline/Funnel/
+    # Deliverability rather than separate tabs (their old routes redirect
+    # to their new home). Outreach (the filterable prospect browser) stays
+    # a real page but is linked from Pipeline instead of getting its own
+    # top-level tab, since it's a drill-down tool, not a state-of-things
+    # overview like the other five.
     nav_items = [
         ("Dashboard", "/admin",    "dashboard"),
         ("Sites",    "/admin/generations",    "generations"),
         ("Domains &amp; margins", "/admin/domains", "domains"),
-        ("Outreach", "/admin/outreach",  "outreach"),
-        ("Discovery", "/admin/discovery", "discovery"),
-        ("Follow-ups", "/admin/followups", "followups"),
+        ("Pipeline", "/admin/pipeline", "pipeline"),
         ("Funnel", "/admin/funnel", "funnel"),
-        ("Send timing", "/admin/send-timing", "send-timing"),
         ("Deliverability", "/admin/deliverability", "deliverability"),
-        ("Replies", "/admin/replies", "replies"),
     ]
     nav_html = "".join(
         f'<a href="{href}" class="{"active" if active == key else ""}">{label}</a>'
@@ -4188,9 +4191,7 @@ def admin_outreach():
 
         content = f"""
 <h1 class="adm-title">Outreach prospects</h1>
-<p class="adm-sub">Every sourced prospect is auto-eligible for sending once qualified and scored — there's no
-approve/pass step anymore. Filter by any metric the pipeline tracks, then click a row for the full profile
-(score breakdown, funnel timeline, touches, delivery events).</p>
+<p class="muted" style="font-size:12.5px;margin:0 0 12px;">Filter any tracked metric, click a row for the full profile. <a href="/admin/pipeline" style="color:#2257CC;">← Pipeline</a></p>
 
 <form method="get" class="adm-card" style="padding:16px 20px;margin-bottom:18px;display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;">
   <div><label style="display:block;font-size:11px;color:#9A9893;margin-bottom:4px;">Trade tier</label>
@@ -4248,159 +4249,218 @@ approve/pass step anymore. Filter by any metric the pipeline tracks, then click 
         db.close()
 
 
-@app.route("/admin/discovery")
+@app.route("/admin/pipeline")
 @admin_required
-def admin_discovery():
-    """Overnight free email-discovery routine's results (added 2026-07-18,
-    docs/outreach-pipeline-spec.md Section 4a) — the routine itself is a
-    scheduled Claude Code cloud agent, not code in this repo, so this page
-    is the only place its results are visible without checking
-    claude.ai/code/routines directly. It writes one DiscoveryRunLog row as
-    the last step of each run; this page just displays those rows,
-    freshest first."""
+def admin_pipeline():
+    """State of the outreach machine, one page: how many emails have gone
+    out, how many are queued to go out next, and the two upstream feeder
+    queues (email discovery, follow-ups) that determine what's sendable.
+    Added 2026-07-21, folding in what were separately Discovery and
+    Follow-ups pages (see their _render_*_section helpers) — same
+    underlying data, one page instead of three tabs."""
+    from outreach.ramp import get_remaining_ramp_this_hour, is_within_email_send_window
+    now = datetime.utcnow()
     db = SessionLocal()
     try:
-        runs = db.query(DiscoveryRunLog).order_by(DiscoveryRunLog.run_at.desc()).limit(30).all()
-        pending_n = db.query(PendingEmailDiscovery).count()
+        today = now.strftime("%Y-%m-%d")
+        email_sent_today = (db.query(DailySendCount).filter(
+            DailySendCount.channel == "email", DailySendCount.send_date == today
+        ).first() or type("", (), {"count": 0})()).count
+        sms_sent_today = (db.query(DailySendCount).filter(
+            DailySendCount.channel == "sms", DailySendCount.send_date == today
+        ).first() or type("", (), {"count": 0})()).count
+        email_sent_all_time = db.query(func.coalesce(func.sum(DailySendCount.count), 0)).filter(
+            DailySendCount.channel == "email"
+        ).scalar()
+        sms_sent_all_time = db.query(func.coalesce(func.sum(DailySendCount.count), 0)).filter(
+            DailySendCount.channel == "sms"
+        ).scalar()
 
-        if not runs:
-            content = f"""
-<h1 class="adm-title">Discovery</h1>
-<p class="adm-sub">Nightly free email-discovery routine (WebSearch-based, replaces the deleted paid Tier 2 —
-see docs/outreach-pipeline-spec.md Section 4a). Runs at 03:30 UTC, after the free Tier 1 sweep and well
-before send-job-cron.</p>
-<div class="adm-card" style="padding:20px;">
-  <p style="margin:0;">No runs logged yet — {pending_n} prospect(s) currently waiting in the discovery queue.
-  First scheduled run: tomorrow 03:30 UTC. You can also trigger a run manually any time from
-  <a href="https://claude.ai/code/routines" target="_blank">claude.ai/code/routines</a>.</p>
-</div>
-"""
-            return render_template_string(_admin_page("Discovery", content, active="discovery"))
+        email_ramp = db.query(RampState).filter(RampState.channel == "email").first()
+        this_hour_cap = email_ramp.daily_volume if email_ramp else 0
+        this_hour_remaining = get_remaining_ramp_this_hour("email", now)
+        in_window = is_within_email_send_window(now)
 
-        latest = runs[0]
-        source_rows = "".join(
-            f'<tr><td style="padding:6px 10px;">{escape(str(k))}</td><td style="padding:6px 10px;text-align:right;">{v}</td></tr>'
-            for k, v in (latest.source_breakdown or {}).items()
-        ) or '<tr><td colspan="2" style="padding:10px;color:#9A9893;">No breakdown recorded.</td></tr>'
+        stage_counts = dict(
+            db.query(Prospect.funnel_stage, func.count(Prospect.id)).group_by(Prospect.funnel_stage).all()
+        )
+        pending_discovery_n = db.query(PendingEmailDiscovery).count()
+        prospects_total = db.query(func.count(Prospect.id)).scalar()
 
-        latest_html = f"""
-<div class="adm-card" style="padding:20px 22px;margin-bottom:20px;">
-  <p class="adm-sub" style="margin:0 0 10px;">Most recent run — {_fmt_dt(latest.run_at)}</p>
-  <div style="display:flex;gap:32px;flex-wrap:wrap;margin-bottom:14px;">
-    <div><div style="font-size:22px;font-weight:800;">{latest.processed_n}</div><div class="muted" style="font-size:12px;">Processed</div></div>
-    <div><div style="font-size:22px;font-weight:800;color:#059669;">{latest.found_n}</div><div class="muted" style="font-size:12px;">Emails found</div></div>
-    <div><div style="font-size:22px;font-weight:800;">{latest.website_rediscovered_n}</div><div class="muted" style="font-size:12px;">Websites re-discovered</div></div>
-    <div><div style="font-size:22px;font-weight:800;color:#9A9893;">{latest.finalized_null_n}</div><div class="muted" style="font-size:12px;">Finalized (no email found)</div></div>
-  </div>
-  <table style="width:60%;min-width:260px;border-collapse:collapse;font-size:13.5px;">
-    <thead><tr style="color:#9A9893;font-size:11px;text-transform:uppercase;"><th style="text-align:left;padding:6px 10px;">Source</th><th style="text-align:right;padding:6px 10px;">Found</th></tr></thead>
-    <tbody>{source_rows}</tbody>
-  </table>
-  {f'<p class="muted" style="margin:14px 0 0;">{escape(latest.notes)}</p>' if latest.notes else ""}
+        def stat(value, label, color="#1C1C1C"):
+            return (
+                f'<div><div style="font-size:22px;font-weight:800;color:{color};">{value}</div>'
+                f'<div class="muted" style="font-size:11.5px;">{label}</div></div>'
+            )
+
+        top_strip = f"""
+<div style="display:flex;gap:32px;flex-wrap:wrap;margin-bottom:8px;">
+  {stat(email_sent_today, "Emails sent today")}
+  {stat(f"{this_hour_remaining}/{this_hour_cap}", "Left this hour" if in_window else "Left this hour (outside window)", "#9A9893" if not in_window else "#1C1C1C")}
+  {stat(email_sent_all_time, "Emails sent (all-time)")}
+  {stat(sms_sent_today, "SMS sent today")}
+  {stat(sms_sent_all_time, "SMS sent (all-time)")}
 </div>"""
 
-        history_rows = "".join(
-            f'<tr><td style="padding:6px 10px;">{_fmt_dt(r.run_at)}</td>'
-            f'<td style="padding:6px 10px;text-align:right;">{r.processed_n}</td>'
-            f'<td style="padding:6px 10px;text-align:right;color:#059669;">{r.found_n}</td>'
-            f'<td style="padding:6px 10px;text-align:right;">{r.website_rediscovered_n}</td>'
-            f'<td style="padding:6px 10px;text-align:right;color:#9A9893;">{r.finalized_null_n}</td></tr>'
-            for r in runs
+        queue_labels = {
+            "sourced": "Sourced (not yet queued)", "queued": "Queued", "awaiting_approval": "Awaiting send (email)",
+            "qualified_no_email": "Awaiting send (SMS only)", "unreachable": "Unreachable (no email/phone)",
+            "sent": "Sent", "approved": "Approved (manual)",
+        }
+        queue_order = ["awaiting_approval", "qualified_no_email", "queued", "sourced", "approved", "unreachable", "sent"]
+        queue_strip = "".join(
+            stat(stage_counts.get(k, 0), queue_labels[k], "#9A9893" if stage_counts.get(k, 0) == 0 else "#1C1C1C")
+            for k in queue_order
         )
 
         content = f"""
-<h1 class="adm-title">Discovery</h1>
-<p class="adm-sub">Nightly free email-discovery routine (WebSearch-based, replaces the deleted paid Tier 2 —
-see docs/outreach-pipeline-spec.md Section 4a). Runs at 03:30 UTC, after the free Tier 1 sweep and well
-before send-job-cron. {pending_n} prospect(s) currently waiting in the discovery queue.</p>
+<h1 class="adm-title">Pipeline</h1>
+<p class="muted" style="font-size:12.5px;margin:0 0 16px;">{prospects_total} prospects sourced all-time · {pending_discovery_n} pending email discovery.</p>
 
-{latest_html}
+{top_strip}
 
-<h2 style="font-size:15px;font-weight:700;margin:28px 0 10px;">Run history ({len(runs)})</h2>
-<div class="adm-card" style="overflow-x:auto;">
-<table style="width:100%;border-collapse:collapse;font-size:13.5px;">
-<thead><tr style="color:#9A9893;font-size:11px;text-transform:uppercase;border-bottom:1px solid #E6E3DC;">
-  <th style="text-align:left;padding:6px 10px;">Run</th>
-  <th style="text-align:right;padding:6px 10px;">Processed</th>
-  <th style="text-align:right;padding:6px 10px;">Found</th>
-  <th style="text-align:right;padding:6px 10px;">Websites re-discovered</th>
-  <th style="text-align:right;padding:6px 10px;">Finalized (none)</th>
-</tr></thead>
-<tbody>{history_rows}</tbody>
-</table>
-</div>
+<h2 style="font-size:16px;font-weight:800;margin:24px 0 8px;">Send queue</h2>
+<div style="display:flex;gap:28px;flex-wrap:wrap;margin-bottom:8px;">{queue_strip}</div>
+<p class="muted" style="font-size:12px;margin:0 0 20px;"><a href="/admin/outreach" style="color:#2257CC;">Browse/filter all prospects →</a></p>
+
+{_render_discovery_section(db)}
+{_render_followups_section(db)}
 """
-        return render_template_string(_admin_page("Discovery", content, active="discovery"))
+        return render_template_string(_admin_page("Pipeline", content, active="pipeline"))
     finally:
         db.close()
 
 
-@app.route("/admin/followups")
-@admin_required
-def admin_followups():
-    """Shows the actual queue of upcoming/overdue follow-up touches — added
-    2026-07-19 because there was previously no way to see this outside of
-    reading outreach/followup.py directly. Deliberately imports its
-    constants and re-derives due/not-due the same way _due_stage() does,
-    rather than hand-rolling separate logic that could silently drift from
-    what run_followups() actually does."""
-    from outreach.followup import (
-        STAGE_BY_SUBSTAGE, MIN_DAYS_BY_SUBSTAGE, CATCH_ALL_MIN_DAYS, CATCH_ALL_MAX_DAYS,
-        MAX_TOUCHES, EMAIL_REPLY_CAPTURE_READY, SMS_REPLY_CAPTURE_READY,
-    )
-    db = SessionLocal()
-    try:
-        now = datetime.utcnow()
-        active = db.query(Prospect).filter(
-            Prospect.funnel_substage.in_(list(STAGE_BY_SUBSTAGE.keys())),
-            Prospect.paid_at.is_(None),
-            Prospect.touch_count < MAX_TOUCHES,
-        ).all()
+def _render_discovery_section(db, history_limit=10):
+    """Overnight free email-discovery routine's results (docs/outreach-
+    pipeline-spec.md Section 4a) — the routine itself is a scheduled
+    Claude Code cloud agent, not code in this repo, so this is the only
+    place its results are visible without checking claude.ai/code/routines
+    directly. Was its own /admin/discovery page; folded into
+    /admin/pipeline 2026-07-21 as part of condensing the admin nav."""
+    runs = db.query(DiscoveryRunLog).order_by(DiscoveryRunLog.run_at.desc()).limit(history_limit).all()
+    pending_n = db.query(PendingEmailDiscovery).count()
 
-        rows = []
-        for p in active:
-            if p.email_unsubscribed and p.sms_unsubscribed:
-                continue
-            substage_days = (now - p.last_touch_at).days if p.last_touch_at else None
-            min_days = MIN_DAYS_BY_SUBSTAGE[p.funnel_substage]
-            stage_letter = STAGE_BY_SUBSTAGE[p.funnel_substage]
-            first_send_days = (now - p.sent_at).days if p.sent_at else None
-            catch_all_due = first_send_days is not None and CATCH_ALL_MIN_DAYS <= first_send_days <= CATCH_ALL_MAX_DAYS
+    header = f'<h2 style="font-size:16px;font-weight:800;margin:28px 0 4px;">Discovery</h2>'
 
-            due_now = (substage_days is not None and substage_days >= min_days) or catch_all_due
+    if not runs:
+        return f"""{header}
+<p class="muted" style="font-size:12.5px;margin:0 0 10px;">Nightly WebSearch routine, 03:30 UTC · {pending_n} pending · no runs logged yet.</p>"""
 
-            if due_now:
-                due_label, due_sort = "Due now", -1
-            elif p.last_touch_at:
-                days_until = min_days - substage_days
-                due_label, due_sort = (now + timedelta(days=days_until)).strftime("%d %b"), days_until
-            else:
-                due_label, due_sort = "—", 9999
+    latest = runs[0]
+    source_rows = "".join(
+        f'<tr><td style="padding:6px 10px;">{escape(str(k))}</td><td style="padding:6px 10px;text-align:right;">{v}</td></tr>'
+        for k, v in (latest.source_breakdown or {}).items()
+    ) or '<tr><td colspan="2" style="padding:10px;color:#9A9893;">No breakdown recorded.</td></tr>'
 
-            channel = "SMS only" if not p.email_found else ("Email + SMS" if p.phone else "Email only")
-            is_hail_mary = catch_all_due and p.clicked_at is not None
-
-            rows.append({
-                "id": p.id, "name": p.business_name or "—", "substage": p.funnel_substage,
-                "stage_letter": stage_letter, "last_touch": p.last_touch_at,
-                "due_label": due_label, "due_sort": due_sort,
-                "touch_count": p.touch_count or 0, "channel": channel,
-                "catch_all": catch_all_due, "hail_mary": is_hail_mary,
-            })
-
-        rows.sort(key=lambda r: r["due_sort"])
-        due_now_n = sum(1 for r in rows if r["due_sort"] == -1)
-
-        gate_html = ""
-        if not EMAIL_REPLY_CAPTURE_READY or not SMS_REPLY_CAPTURE_READY:
-            missing = "email" if not EMAIL_REPLY_CAPTURE_READY else "SMS"
-            gate_html = f"""
-<div class="adm-card" style="padding:16px 24px;margin-bottom:20px;background:#FFFBEB;border-color:#FDE68A;">
-  <p class="muted" style="margin:0;"><b>{missing.title()} follow-ups are withheld</b> — <code>{missing.upper()}_REPLY_CAPTURE_READY</code>
-  isn't set to <code>true</code>. The other channel fires normally.</p>
+    latest_html = f"""
+<div class="adm-card" style="padding:16px 20px;margin-bottom:10px;">
+  <p class="muted" style="margin:0 0 10px;font-size:12px;">Latest run — {_fmt_dt(latest.run_at)}</p>
+  <div style="display:flex;gap:28px;flex-wrap:wrap;margin-bottom:12px;">
+    <div><div style="font-size:20px;font-weight:800;">{latest.processed_n}</div><div class="muted" style="font-size:11px;">Processed</div></div>
+    <div><div style="font-size:20px;font-weight:800;color:#059669;">{latest.found_n}</div><div class="muted" style="font-size:11px;">Found</div></div>
+    <div><div style="font-size:20px;font-weight:800;">{latest.website_rediscovered_n}</div><div class="muted" style="font-size:11px;">Site re-found</div></div>
+    <div><div style="font-size:20px;font-weight:800;color:#9A9893;">{latest.finalized_null_n}</div><div class="muted" style="font-size:11px;">None found</div></div>
+  </div>
+  <table style="width:60%;min-width:220px;border-collapse:collapse;font-size:13px;">
+    <tbody>{source_rows}</tbody>
+  </table>
 </div>"""
 
-        rows_html = "".join(f"""
+    history_rows = "".join(
+        f'<tr><td style="padding:6px 10px;">{_fmt_dt(r.run_at)}</td>'
+        f'<td style="padding:6px 10px;text-align:right;">{r.processed_n}</td>'
+        f'<td style="padding:6px 10px;text-align:right;color:#059669;">{r.found_n}</td></tr>'
+        for r in runs
+    )
+
+    return f"""{header}
+<p class="muted" style="font-size:12.5px;margin:0 0 10px;">Nightly WebSearch routine, 03:30 UTC · {pending_n} currently pending.</p>
+{latest_html}
+<div class="adm-card" style="overflow-x:auto;">
+<table style="width:100%;border-collapse:collapse;font-size:13px;">
+<thead><tr style="color:#9A9893;font-size:11px;text-transform:uppercase;border-bottom:1px solid #E6E3DC;">
+  <th style="text-align:left;padding:6px 10px;">Run</th>
+  <th style="text-align:right;padding:6px 10px;">Processed</th>
+  <th style="text-align:right;padding:6px 10px;">Found</th>
+</tr></thead>
+<tbody>{history_rows}</tbody>
+</table>
+</div>"""
+
+
+@app.route("/admin/discovery")
+@admin_required
+def admin_discovery():
+    """Folded into /admin/pipeline 2026-07-21 — kept as a redirect."""
+    return redirect("/admin/pipeline")
+
+
+def _followups_queue_rows(db):
+    """Shared aggregation behind the follow-ups queue — re-derives due/not-
+    due the same way outreach/followup.py's _due_stage() does, rather than
+    hand-rolling separate logic that could silently drift from what
+    run_followups() actually does. Returns (rows, due_now_n)."""
+    from outreach.followup import (
+        STAGE_BY_SUBSTAGE, MIN_DAYS_BY_SUBSTAGE, CATCH_ALL_MIN_DAYS, CATCH_ALL_MAX_DAYS, MAX_TOUCHES,
+    )
+    now = datetime.utcnow()
+    active = db.query(Prospect).filter(
+        Prospect.funnel_substage.in_(list(STAGE_BY_SUBSTAGE.keys())),
+        Prospect.paid_at.is_(None),
+        Prospect.touch_count < MAX_TOUCHES,
+    ).all()
+
+    rows = []
+    for p in active:
+        if p.email_unsubscribed and p.sms_unsubscribed:
+            continue
+        substage_days = (now - p.last_touch_at).days if p.last_touch_at else None
+        min_days = MIN_DAYS_BY_SUBSTAGE[p.funnel_substage]
+        stage_letter = STAGE_BY_SUBSTAGE[p.funnel_substage]
+        first_send_days = (now - p.sent_at).days if p.sent_at else None
+        catch_all_due = first_send_days is not None and CATCH_ALL_MIN_DAYS <= first_send_days <= CATCH_ALL_MAX_DAYS
+
+        due_now = (substage_days is not None and substage_days >= min_days) or catch_all_due
+
+        if due_now:
+            due_label, due_sort = "Due now", -1
+        elif p.last_touch_at:
+            days_until = min_days - substage_days
+            due_label, due_sort = (now + timedelta(days=days_until)).strftime("%d %b"), days_until
+        else:
+            due_label, due_sort = "—", 9999
+
+        channel = "SMS only" if not p.email_found else ("Email + SMS" if p.phone else "Email only")
+        is_hail_mary = catch_all_due and p.clicked_at is not None
+
+        rows.append({
+            "id": p.id, "name": p.business_name or "—", "substage": p.funnel_substage,
+            "stage_letter": stage_letter, "last_touch": p.last_touch_at,
+            "due_label": due_label, "due_sort": due_sort,
+            "touch_count": p.touch_count or 0, "channel": channel,
+            "catch_all": catch_all_due, "hail_mary": is_hail_mary,
+        })
+
+    rows.sort(key=lambda r: r["due_sort"])
+    due_now_n = sum(1 for r in rows if r["due_sort"] == -1)
+    return rows, due_now_n
+
+
+def _render_followups_section(db, limit=None):
+    """Was its own /admin/followups page; folded into /admin/pipeline
+    2026-07-21 as part of condensing the admin nav."""
+    from outreach.followup import MAX_TOUCHES, EMAIL_REPLY_CAPTURE_READY, SMS_REPLY_CAPTURE_READY
+
+    rows, due_now_n = _followups_queue_rows(db)
+    shown = rows[:limit] if limit else rows
+
+    gate_note = ""
+    if not EMAIL_REPLY_CAPTURE_READY or not SMS_REPLY_CAPTURE_READY:
+        missing = "email" if not EMAIL_REPLY_CAPTURE_READY else "SMS"
+        gate_note = f' · <span style="color:#B45309;">{missing} withheld (reply-capture not live)</span>'
+
+    rows_html = "".join(f"""
 <tr>
   <td style="padding:8px 10px;"><a href="/admin/prospects/{r['id']}" style="color:#2257CC;font-weight:600;text-decoration:none;">{r['name']}</a></td>
   <td style="padding:8px 10px;">{escape(STAGE_LABELS['hail_mary']) if r['hail_mary'] else escape(STAGE_LABELS.get(r['stage_letter'], r['stage_letter'])) + (' (catch-all)' if r['catch_all'] else '')}</td>
@@ -4408,15 +4468,11 @@ def admin_followups():
   <td style="padding:8px 10px;">{r['touch_count']}/{MAX_TOUCHES - 1}</td>
   <td style="padding:8px 10px;">{_fmt_dt(r['last_touch']) or '—'}</td>
   <td style="padding:8px 10px;font-weight:700;{'color:#B91C1C;' if r['due_sort'] == -1 else ''}">{r['due_label']}</td>
-</tr>""" for r in rows)
+</tr>""" for r in shown)
 
-        content = f"""
-<h1 class="adm-title">Follow-ups</h1>
-<p class="adm-sub">The live queue behind <code>run_followups()</code> — {len(rows)} prospect(s) still eligible for a follow-up touch,
-{due_now_n} due right now. Runs hourly inside send-job-cron (08:00-19:00 UTC), first-priority against that hour's ramp allowance,
-before any new initial sends.</p>
-
-{gate_html}
+    return f"""
+<h2 style="font-size:16px;font-weight:800;margin:28px 0 4px;">Follow-ups{f" (top {limit})" if limit else ""}</h2>
+<p class="muted" style="font-size:12.5px;margin:0 0 10px;">{len(rows)} eligible, {due_now_n} due now{gate_note}.</p>
 
 <div class="adm-card" style="overflow-x:auto;">
 <table style="width:100%;border-collapse:collapse;font-size:13.5px;">
@@ -4430,11 +4486,14 @@ before any new initial sends.</p>
 </tr></thead>
 <tbody>{rows_html or '<tr><td colspan="6" style="padding:16px 10px;color:#9A9893;">No prospects currently eligible for a follow-up.</td></tr>'}</tbody>
 </table>
-</div>
-"""
-        return render_template_string(_admin_page("Follow-ups", content, active="followups"))
-    finally:
-        db.close()
+</div>"""
+
+
+@app.route("/admin/followups")
+@admin_required
+def admin_followups():
+    """Folded into /admin/pipeline 2026-07-21 — kept as a redirect."""
+    return redirect("/admin/pipeline")
 
 
 def _prospect_score_breakdown(p):
@@ -5530,24 +5589,7 @@ def admin_funnel():
 .statsbar .stat b{{color:#1C1C1C;font-weight:800;font-size:15px;margin-right:4px;}}
 </style>
 <h1 class="adm-title">Funnel</h1>
-<p class="adm-sub">Per-stage, per-channel outreach funnel — how many of each email type went out in the
-selected range, and what happened after. Each follow-up row's cohort is defined by the prospect's
-funnel stage at send time (see row labels below), not by "1st/2nd/3rd touch" — so every column up to
-and including that stage is ~100% by construction (that's who it's sent to, not a conversion it
-caused) and is greyed out with a "cohort def." label rather than shown as real signal. E.g. the
-"viewed site, no account" row (stage C) greys out Opened <em>and</em> Clicked/Generated — only
-Viewed, Account Created, and Paid are real, measurable outcomes for that row. "Viewed" (a Generation
-row with view_count &gt; 0) is <em>never</em> greyed out, even on later-stage rows — reaching
-/claim/&lt;token&gt; guarantees a Generation row gets created, not that the prospect stuck around
-through the ~150-300s build to actually see it, so this stays real signal at every stage. The "Sent"
-column shows delivered count as the headline number, with attempted/bounced beneath it — a bounced
-send never reached an inbox, so every rate to its right is based on delivered, not attempted.</p>
-{"" if _FUNNEL_OPENED_DISABLED else f'''<p class="adm-sub" style="color:#B45309;background:#FEF3C7;padding:10px 14px;border-radius:8px;">
-⚠ "Opened" is only reliable for data on/after {_OPENED_TRACKING_RELIABLE_FROM.strftime("%d %b %Y")} — before that,
-open tracking wasn't verified in Resend and a webhook bug gated opened_at behind funnel_substage == "sent" so it
-couldn't fire for prospects already past that substage. Both fixed on that date. The current view is within the
-reliable range, so the numbers below should be trustworthy — select an earlier from-date and this column greys
-out automatically rather than showing numbers from before the fix.</p>'''}
+<p class="adm-sub muted" style="font-size:12.5px;">Per-stage outreach funnel. Cohort-defined columns (e.g. "viewed" on a stage that only fires post-click) are greyed — not real signal, just who it was sent to. Sent = delivered, attempted/bounced shown beneath.</p>
 
 {kpi_strip}
 
@@ -5590,6 +5632,8 @@ out automatically rather than showing numbers from before the fix.</p>'''}
 {survey_breakdown}
 
 {extraction_quality_breakdown}
+
+{_render_send_timing_section(db)}
 """
         return render_template_string(_admin_page("Funnel", content, active="funnel"))
     finally:
@@ -5837,20 +5881,14 @@ def admin_deliverability():
         actionable_callout = ""
         if actionable_bad_sources:
             names = ", ".join(f"<code>{escape(s)}</code>" for s in actionable_bad_sources)
-            actionable_callout = f"""
-          <div style="background:#FEF2F2;border:1px solid #FCA5A5;border-radius:8px;padding:12px 14px;margin-bottom:12px;">
-            <p style="margin:0;font-size:13.5px;color:#B91C1C;"><b>Past the point of "watch and see":</b> {names}
-            {"has" if len(actionable_bad_sources) == 1 else "have"} a real sample size (15+) at or above the
-            {EMAIL_BOUNCE_RATE_TRIGGER * 100:.0f}% bounce trigger. This is your system finding bad emails, not a
-            deliverability/reputation problem — but every bounce still counts against the trailing bounce rate that
-            holds the ramp at the floor. Worth downweighting or adding a stricter check for this source specifically,
-            rather than raising the ramp's tolerance overall.</p>
-          </div>"""
+            actionable_callout = (
+                f'<p class="muted" style="margin:0 0 10px;font-size:12.5px;">'
+                f'<span style="color:#B91C1C;font-weight:700;">⚠ actionable:</span> {names} at/above the '
+                f'{EMAIL_BOUNCE_RATE_TRIGGER * 100:.0f}% bounce trigger with a real sample (15+).</p>'
+            )
         source_breakdown_html = f"""
         <div class="adm-card" style="padding:16px 20px;margin-top:10px;">
           <p style="font-weight:700;margin:0 0 6px;">Bounce rate by discovery source (all-time)</p>
-          <p class="muted" style="margin:0 0 10px;">Not fed into scoring/selection yet — still monitoring-only, but sources marked
-          below have crossed a real sample size, so the rate shown is a genuine signal, not noise.</p>
           {actionable_callout}
           <table style="width:100%;border-collapse:collapse;font-size:13.5px;">
             <thead><tr style="border-bottom:1px solid #E6E3DC;">
@@ -5944,19 +5982,9 @@ def admin_deliverability():
 
         if sms_event_count == 0:
             sms_body_html = f"""
-            <div class="adm-card" style="padding:24px;">
-              <p style="font-weight:700;margin:0 0 8px;">Not yet configured — no real delivery data exists.</p>
-              <p class="muted" style="margin:0 0 6px;">
-                Esendex credentials {"are" if esendex_configured else "are <b>not</b>"} set in the environment,
-                but <code>SmsDeliveryEvent</code> has zero rows. The poll job that would create them
-                (<code>python -m outreach.sms_status_poll</code>, meant to run hourly per its own docstring)
-                is <b>not scheduled anywhere</b> — confirmed 2026-07-19 against Railway directly: sourcing-cron,
-                email-discovery-cron, send-job-cron, domain-billing-cron, and pending-edits-apply-cron all exist
-                and run on schedule, but none of them call this poll job. Until it's on a schedule of its own,
-                this section will stay empty no matter how many SMS sends go out.
-              </p>
-              <p class="muted" style="margin:0;">get_health_signal("sms") currently returns
-                <code>{"a value" if sms_signal else "None"}</code> — {"unexpected given zero events; investigate" if sms_signal else "expected, given no delivery events have ever been logged"}.</p>
+            <div class="adm-card" style="padding:16px 20px;">
+              <p class="muted" style="margin:0;">No delivery data — Esendex {"configured" if esendex_configured else "not configured"},
+              status-poll job not scheduled.</p>
             </div>"""
         else:
             rate = sms_signal["delivery_rate"] if sms_signal else None
@@ -5979,7 +6007,7 @@ def admin_deliverability():
 
         content = f"""
 <h1 class="adm-title">Deliverability</h1>
-<p class="adm-sub">Circuit-breaker health for email and SMS sending, per docs/outreach-pipeline-spec.md Section 15.</p>
+<p class="adm-sub muted" style="font-size:12.5px;">Circuit-breaker health for email and SMS.</p>
 
 <h2 style="font-size:16px;font-weight:800;margin:24px 0 4px;">Email</h2>
 <div class="adm-card" style="padding:20px 20px 8px;">{email_chart}</div>
@@ -5992,14 +6020,9 @@ def admin_deliverability():
 {sms_body_html}
 {sms_ramp_html}
 
-<h2 style="font-size:16px;font-weight:800;margin:28px 0 4px;">Google Postmaster Tools</h2>
-<div class="adm-card" style="padding:16px 20px;">
-  <p class="muted" style="margin:0;">
-    <b style="color:#1C1C1C;">Not connected.</b> Requires manual domain verification in the Postmaster
-    dashboard first (a one-time human step, not a code change) before any API access exists. Email
-    health above is computed entirely from the Resend webhook proxy in the meantime, per Section 15.
-  </p>
-</div>
+<p class="muted" style="font-size:12px;margin:28px 0 0;">Google Postmaster Tools: not connected (needs manual domain verification).</p>
+
+{_render_replies_section(db, limit=15)}
 """
         return render_template_string(_admin_page("Deliverability", content, active="deliverability"))
     finally:
@@ -6107,162 +6130,124 @@ def _timing_buckets(db, window_start, now, group_by):
     return [(labels[i], c["sent"], c["opened"], c["generated"]) for i, c in enumerate(counts)]
 
 
+def _render_send_timing_section(db):
+    """Optics on when to actually send — open rate and generated (real
+    click) rate broken out by the hour of day / day of week the ORIGINAL
+    send happened, not by when the open/click event itself landed — the
+    hour/day you control is when you send, so that's the actionable lever,
+    not what hour prospects happen to check their inbox. Trailing 7 days
+    by hour, trailing 30 days by weekday. Was its own /admin/send-timing
+    page; folded into the bottom of /admin/funnel 2026-07-21 as part of
+    condensing the admin nav — same content, one less tab."""
+    now = datetime.utcnow()
+    week_start = now - timedelta(days=7)
+    month_start = now - timedelta(days=30)
+
+    hourly_buckets = _timing_buckets(db, week_start, now, "hour")
+    weekday_buckets = _timing_buckets(db, month_start, now, "dow")
+
+    hourly_opened_disabled = week_start < _OPENED_TRACKING_RELIABLE_FROM
+    weekday_opened_disabled = month_start < _OPENED_TRACKING_RELIABLE_FROM
+
+    def _best_worst(buckets, min_n=10):
+        real = [(label, sent, opened, gen) for label, sent, opened, gen in buckets if sent >= min_n]
+        if not real:
+            return None, None
+        return max(real, key=lambda r: r[3] / r[1]), min(real, key=lambda r: r[3] / r[1])
+
+    hourly_best, hourly_worst = _best_worst(hourly_buckets)
+    weekday_best, weekday_worst = _best_worst(weekday_buckets, min_n=5)
+
+    def _callout(best, worst, unit):
+        if not best:
+            return f'<p class="muted" style="margin:0 0 12px;font-size:12.5px;">Not enough volume per {unit} yet.</p>'
+        best_label, best_sent, _, best_gen = best
+        worst_label, worst_sent, _, worst_gen = worst
+        if best_label == worst_label:
+            return f'<p class="muted" style="margin:0 0 12px;font-size:12.5px;">Only {escape(best_label)} has enough volume so far ({best_gen}/{best_sent} = {best_gen / best_sent * 100:.0f}%).</p>'
+        return (
+            f'<p style="margin:0 0 12px;font-size:13px;color:#5C5A56;">Best: '
+            f'<b style="color:#059669;">{escape(best_label)}</b> ({best_gen / best_sent * 100:.0f}%) · '
+            f'Worst: <b style="color:#DC2626;">{escape(worst_label)}</b> ({worst_gen / worst_sent * 100:.0f}%)</p>'
+        )
+
+    hourly_chart = _render_dual_rate_chart(hourly_buckets, hourly_opened_disabled)
+    weekday_chart = _render_dual_rate_chart(weekday_buckets, weekday_opened_disabled)
+
+    return f"""
+<h2 style="font-size:16px;font-weight:800;margin:28px 0 4px;">Send timing</h2>
+<p class="muted" style="font-size:12.5px;margin:0 0 10px;">By send hour (7d) / weekday (30d) — <span style="color:#3B82F6;">■</span> opened, <span style="color:#10B981;">■</span> generated.</p>
+
+<p class="muted" style="font-size:12px;margin:0 0 4px;">By hour of day — trailing 7 days</p>
+{_callout(hourly_best, hourly_worst, "hour")}
+<div class="adm-card" style="padding:20px 20px 8px;margin-bottom:18px;">{hourly_chart}</div>
+
+<p class="muted" style="font-size:12px;margin:0 0 4px;">By day of week — trailing 30 days</p>
+{_callout(weekday_best, weekday_worst, "day")}
+<div class="adm-card" style="padding:20px 20px 8px;">{weekday_chart}</div>
+"""
+
+
 @app.route("/admin/send-timing")
 @admin_required
 def admin_send_timing():
-    """Optics on when to actually send — open rate and generated (real
-    click, see _FUNNEL_STEPS's "Clicked/Generated") rate broken out by the
-    hour of day and day of week the ORIGINAL send happened, not by when the
-    open/click event itself landed — the hour/day you control is when you
-    send, so that's the actionable lever for moving these KPIs, not what
-    hour prospects happen to check their inbox. Two windows, matching what
-    was asked for: a trailing-7-day view broken out by hour (do certain
-    send hours convert better this week?) and a trailing-30-day view broken
-    out by day of week (do certain send days convert better this month?).
-    Both use Prospect.sent_at_hour/sent_at_dow, stamped once at send time —
-    same fields already shown on the per-prospect profile page."""
-    now = datetime.utcnow()
-    db = SessionLocal()
-    try:
-        week_start = now - timedelta(days=7)
-        month_start = now - timedelta(days=30)
+    """Folded into /admin/funnel 2026-07-21 — kept as a redirect so any
+    existing bookmarks/links still land somewhere real."""
+    return redirect("/admin/funnel")
 
-        hourly_buckets = _timing_buckets(db, week_start, now, "hour")
-        weekday_buckets = _timing_buckets(db, month_start, now, "dow")
 
-        hourly_opened_disabled = week_start < _OPENED_TRACKING_RELIABLE_FROM
-        weekday_opened_disabled = month_start < _OPENED_TRACKING_RELIABLE_FROM
+def _render_replies_section(db, limit=None):
+    """The actual inbound message text (InboundReply, added 2026-07-21) —
+    captured straight from the email-inbound/sms-inbound webhooks, not the
+    best-effort forward to groundwork-build@outlook.com. Was its own
+    /admin/replies page; folded into /admin/deliverability 2026-07-21 as
+    part of condensing the admin nav. Only replies received after that
+    date have text captured — greyed out rather than a warning banner."""
+    q = db.query(InboundReply, Prospect).join(Prospect, InboundReply.prospect_id == Prospect.id).order_by(
+        InboundReply.received_at.desc()
+    )
+    reply_rows = q.limit(limit).all() if limit else q.all()
 
-        def _best_worst(buckets, min_n=10):
-            """Best/worst bucket by generated rate, real sample size only —
-            same 10+ convention as elsewhere for not calling a 1/1 hour a
-            trend."""
-            real = [(label, sent, opened, gen) for label, sent, opened, gen in buckets if sent >= min_n]
-            if not real:
-                return None, None
-            best = max(real, key=lambda r: r[3] / r[1])
-            worst = min(real, key=lambda r: r[3] / r[1])
-            return best, worst
+    email_unsub_n = db.query(Prospect).filter(Prospect.email_unsubscribed == True).count()  # noqa: E712
+    sms_unsub_n = db.query(Prospect).filter(Prospect.sms_unsubscribed == True).count()  # noqa: E712
+    total_unsub_n = db.query(Prospect).filter(
+        (Prospect.email_unsubscribed == True) | (Prospect.sms_unsubscribed == True)  # noqa: E712
+    ).count()
 
-        hourly_best, hourly_worst = _best_worst(hourly_buckets)
-        weekday_best, weekday_worst = _best_worst(weekday_buckets, min_n=5)
-
-        def _callout(best, worst, unit):
-            if not best:
-                return f'<p class="muted" style="margin:0 0 12px;">Not enough send volume per {unit} yet (10+ sends needed) to call out a best/worst {unit}.</p>'
-            best_label, best_sent, _, best_gen = best
-            worst_label, worst_sent, _, worst_gen = worst
-            if best_label == worst_label:
-                return f'<p class="muted" style="margin:0 0 12px;">Only one {unit} has enough volume so far (<b style="color:#1C1C1C;">{escape(best_label)}</b>, {best_gen}/{best_sent} generated = {best_gen / best_sent * 100:.0f}%) — need more spread before a real best/worst comparison means anything.</p>'
-            return (
-                f'<p style="margin:0 0 12px;font-size:13.5px;">Best {unit} so far: '
-                f'<b style="color:#059669;">{escape(best_label)}</b> ({best_gen}/{best_sent} generated = {best_gen / best_sent * 100:.0f}%) · '
-                f'Worst: <b style="color:#DC2626;">{escape(worst_label)}</b> ({worst_gen}/{worst_sent} generated = {worst_gen / worst_sent * 100:.0f}%)</p>'
+    if not reply_rows:
+        table_html = '<div class="adm-card" style="padding:24px;text-align:center;color:#9A9893;font-size:13.5px;">No replies captured yet.</div>'
+    else:
+        trs = ""
+        for r, p in reply_rows:
+            badge_color = "#DC2626" if r.is_stop_intent else "#B45309"
+            classification = f"Stop ({r.channel.upper()})" if r.is_stop_intent else f"Reply ({r.channel.upper()})"
+            when = r.received_at.strftime("%d %b %Y %H:%M UTC")
+            trs += (
+                f'<tr><td style="vertical-align:top;"><a href="/admin/prospects/{p.id}" style="color:#2257CC;font-weight:600;text-decoration:none;">{escape(p.business_name or "—")}</a></td>'
+                f'<td style="vertical-align:top;">{escape(r.from_address or p.email or p.phone or "—")}</td>'
+                f'<td style="vertical-align:top;"><span class="status-pill" style="background:{badge_color}22;color:{badge_color};">{escape(classification)}</span></td>'
+                f'<td style="vertical-align:top;white-space:nowrap;">{when}</td>'
+                f'<td style="max-width:420px;white-space:pre-wrap;">{escape(r.body or "(empty message)")}</td></tr>'
             )
+        table_html = f"""<div class="adm-card" style="overflow-x:auto;">
+<table><thead><tr><th>Business</th><th>Contact</th><th>Type</th><th>When</th><th>Message</th></tr></thead>
+<tbody>{trs}</tbody></table></div>"""
 
-        hourly_callout = _callout(hourly_best, hourly_worst, "hour")
-        weekday_callout = _callout(weekday_best, weekday_worst, "day")
-
-        hourly_chart = _render_dual_rate_chart(hourly_buckets, hourly_opened_disabled)
-        weekday_chart = _render_dual_rate_chart(weekday_buckets, weekday_opened_disabled)
-
-        opened_note = lambda disabled: (
-            '<p class="muted" style="margin:8px 0 0;font-size:12px;">Opened rate greyed out — '
-            f'this window includes dates before {_OPENED_TRACKING_RELIABLE_FROM.strftime("%d %b %Y")}, '
-            'when open tracking wasn\'t yet reliable.</p>' if disabled else ""
-        )
-
-        content = f"""
-<h1 class="adm-title">Send timing</h1>
-<p class="adm-sub">Open rate and generated (real click) rate broken out by WHEN THE SEND HAPPENED — the lever you
-actually control — not by when the open/click event itself landed. Bar per bucket: <span style="color:#3B82F6;">■</span> opened,
-<span style="color:#10B981;">■</span> generated. Hover a bar for the exact count.</p>
-
-<h2 style="font-size:16px;font-weight:800;margin:24px 0 4px;">By hour of day — trailing 7 days</h2>
-{hourly_callout}
-<div class="adm-card" style="padding:20px 20px 8px;">{hourly_chart}</div>
-{opened_note(hourly_opened_disabled)}
-
-<h2 style="font-size:16px;font-weight:800;margin:28px 0 4px;">By day of week — trailing 30 days</h2>
-{weekday_callout}
-<div class="adm-card" style="padding:20px 20px 8px;">{weekday_chart}</div>
-{opened_note(weekday_opened_disabled)}
+    return f"""
+<h2 style="font-size:16px;font-weight:800;margin:28px 0 4px;">Replies{f" (last {limit})" if limit else ""}</h2>
+<p class="muted" style="font-size:12.5px;margin:0 0 10px;">
+  {total_unsub_n} unsubscribed ({email_unsub_n} email, {sms_unsub_n} SMS) ·
+  <span style="color:#9A9893;">only replies after 2026-07-21 have text captured</span>
+</p>
+{table_html}
 """
-        return render_template_string(_admin_page("Send timing", content, active="send-timing"))
-    finally:
-        db.close()
 
 
 @app.route("/admin/replies")
 @admin_required
 def admin_replies():
-    db = SessionLocal()
-    try:
-        # InboundReply (added 2026-07-21) carries the actual message text —
-        # every real inbound webhook (email-inbound, sms-inbound's "inbound"
-        # and Esendex-classified "stop" events) now persists one row per
-        # message via outreach/reply_handling.py's _apply_reply/
-        # handle_forced_sms_stop, rather than classifying and discarding
-        # the body. Anything sent before that shipped has no row here —
-        # those older replies are only visible (if at all) via the
-        # groundwork-build@outlook.com forward, which is best-effort and
-        # not guaranteed to have actually landed (see email_forward_log).
-        reply_rows = (
-            db.query(InboundReply, Prospect)
-            .join(Prospect, InboundReply.prospect_id == Prospect.id)
-            .order_by(InboundReply.received_at.desc())
-            .all()
-        )
-
-        email_unsub_n = db.query(Prospect).filter(Prospect.email_unsubscribed == True).count()  # noqa: E712
-        sms_unsub_n = db.query(Prospect).filter(Prospect.sms_unsubscribed == True).count()  # noqa: E712
-        total_unsub_n = db.query(Prospect).filter(
-            (Prospect.email_unsubscribed == True) | (Prospect.sms_unsubscribed == True)  # noqa: E712
-        ).count()
-
-        if not reply_rows:
-            table_html = '<div class="adm-card" style="padding:40px;text-align:center;color:#9A9893;font-size:14px;">No replies captured yet.</div>'
-        else:
-            trs = ""
-            for r, p in reply_rows:
-                badge_color = "#DC2626" if r.is_stop_intent else "#B45309"
-                classification = f"Stop ({r.channel.upper()})" if r.is_stop_intent else f"Reply ({r.channel.upper()})"
-                when = r.received_at.strftime("%d %b %Y %H:%M UTC")
-                trs += (
-                    f'<tr><td style="vertical-align:top;"><a href="/admin/prospects/{p.id}" style="color:#2257CC;font-weight:600;text-decoration:none;">{escape(p.business_name or "—")}</a></td>'
-                    f'<td style="vertical-align:top;">{escape(r.from_address or p.email or p.phone or "—")}</td>'
-                    f'<td style="vertical-align:top;"><span class="status-pill" style="background:{badge_color}22;color:{badge_color};">{escape(classification)}</span></td>'
-                    f'<td style="vertical-align:top;white-space:nowrap;">{when}</td>'
-                    f'<td style="max-width:420px;white-space:pre-wrap;">{escape(r.body or "(empty message)")}</td></tr>'
-                )
-            table_html = f"""<div class="adm-card" style="overflow-x:auto;">
-<table><thead><tr><th>Business</th><th>Contact</th><th>Type</th><th>When</th><th>Message</th></tr></thead>
-<tbody>{trs}</tbody></table></div>"""
-
-        content = f"""
-<h1 class="adm-title">Replies</h1>
-<p class="adm-sub">
-  The actual message text, captured directly from the inbound webhook (email-inbound / sms-inbound) —
-  not the forwarded copy in <a href="mailto:groundwork-build@outlook.com">groundwork-build@outlook.com</a>,
-  which is best-effort and not guaranteed to arrive.
-</p>
-
-<div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-bottom:16px;font-size:13px;color:#5C5A56;font-weight:600;">
-  <span><b style="color:#1C1C1C;font-weight:800;font-size:15px;margin-right:4px;">{total_unsub_n}</b>unsubscribed (any channel)</span>
-  <span><b style="color:#1C1C1C;font-weight:800;font-size:15px;margin-right:4px;">{email_unsub_n}</b>email</span>
-  <span><b style="color:#1C1C1C;font-weight:800;font-size:15px;margin-right:4px;">{sms_unsub_n}</b>SMS</span>
-</div>
-
-<p class="adm-sub" style="color:#B45309;background:#FEF3C7;padding:10px 14px;border-radius:8px;">
-  ⚠ Only replies received after 2026-07-21 have their text captured here — anything before that only
-  exists (if at all) in the Outlook forwarding inbox.
-</p>
-
-{table_html}
-"""
-        return render_template_string(_admin_page("Replies", content, active="replies"))
-    finally:
-        db.close()
+    """Folded into /admin/deliverability 2026-07-21 — kept as a redirect."""
+    return redirect("/admin/deliverability")
 
 
 # ---------------------------------------------------------------------------
