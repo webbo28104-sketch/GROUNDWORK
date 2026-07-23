@@ -151,6 +151,13 @@ URGENCY OVERRIDES:
 - High urgency: phone number visible at all times (nav, hero, and a persistent sticky call bar), CTA repeated multiple times, short copy, minimal contact form (or no form, just call/email) — friction is the enemy here.
 - Low urgency: normal CTA frequency, longer copy is fine, fuller enquiry form is fine.
 
+SCROLL ANIMATION — every generated site gets a subtle scroll-reveal treatment, vanilla JS only (no animation library, no CDN dependency — this must work as a single self-contained file):
+- Use a single shared IntersectionObserver watching every major content block (section headings, stat bars, cards in a grid, portfolio items, testimonial cards) — do not wire up a separate observer per element.
+- Default hidden state: small opacity/translateY offset (e.g. opacity:0, translateY(16px)); revealed state: opacity:1, translateY(0), transitioning over ~500-700ms with an ease-out curve. Stagger siblings within the same grid/row by ~60-80ms increments (via a small transition-delay per child index) rather than firing every card in a row simultaneously.
+- Trigger once per element (unobserve after it reveals) — never re-hide on scrolling back up, and never re-trigger repeatedly.
+- Respect prefers-reduced-motion: wrap the observer setup so that if `window.matchMedia('(prefers-reduced-motion: reduce)').matches`, every element is simply shown at full opacity/position immediately with no transition at all — reduced-motion users must never see the hidden state.
+- Keep it restrained and tasteful, matching the PRESTIGE/SCALE dials already set for this site — this is a subtle reveal-on-scroll, not a showcase of animation techniques. No parallax, no rotation/skew effects, no bouncing/elastic easing, no per-character text animation. The nav bar and hero's first viewport content should NOT be scroll-hidden on page load (nothing above the fold should require a scroll event to become visible) — only content that starts below the initial viewport gets the reveal treatment.
+
 === STEP 4: BUILD ===
 Fixed page structure — always in this order, sections can be omitted but never reordered:
 1. Nav — logo (if a logo src token is given in MEDIA REFERENCES, embed it as an <img> using that exact token as the src; otherwise a typographic wordmark) + scroll-anchor links + primary contact CTA (phone if given, otherwise email/contact-anchor — never invent a phone number).
