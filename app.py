@@ -5083,22 +5083,39 @@ def _compute_kpis(db, range_from: datetime = None, range_to: datetime = None) ->
             Generation.status == "live", Generation.is_internal == False, Generation.created_at < period_start
         ).count() > 0
 
+    # 6/7 instrumentation reliability window — text_edited_at and
+    # checkout_started_at are both new columns, only stamped going forward
+    # from the deploy that added them (2026-07-23, ~12:50 UTC). A "draft"
+    # generation created BEFORE that deploy that genuinely started checkout
+    # (or was genuinely edited) still has these fields NULL — indistin-
+    # guishable from "never happened." Counting those rows as real zeros
+    # would silently misreport "never attempted"/"never edited" for
+    # generations we simply have no data for. So: clamp the cohort's start
+    # to whichever is later, the requested period_start or this cutoff, and
+    # treat a period that ends before the cutoff as having no reliable data
+    # at all (same pattern as _OPENED_TRACKING_RELIABLE_FROM above).
+    _EDIT_CHECKOUT_TRACKING_RELIABLE_FROM = datetime(2026, 7, 23, 12, 50)
+    _edit_checkout_reliable = period_end >= _EDIT_CHECKOUT_TRACKING_RELIABLE_FROM
+    _edit_checkout_cohort_start = max(period_start, _EDIT_CHECKOUT_TRACKING_RELIABLE_FROM)
+
     # 6. Made a real edit — engagement signal, added 2026-07-23. Cohort is
-    # every non-internal Generation created in the period, regardless of
-    # status (draft/live/canceled all count — the question is "did this
-    # person engage with their own site at all," not "did they pay").
-    # Numerator is Generation.text_edited_at set. See that column's
-    # docstring in models.py for why this can't be reconstructed for
-    # generations that predate the column, and for the interpretation
-    # (high edit rate + low conversion -> pricing/checkout friction, not a
-    # quality problem; low edit rate -> the site or the generation wait
-    # itself is failing to land).
-    edit_cohort_q = db.query(Generation).filter(
-        Generation.is_internal == False,  # noqa: E712
-        Generation.created_at >= period_start, Generation.created_at <= period_end,
-    )
-    edit_denom = edit_cohort_q.count()
-    edit_numer = edit_cohort_q.filter(Generation.text_edited_at.isnot(None)).count()
+    # every non-internal Generation created in the (reliability-clamped)
+    # period, regardless of status (draft/live/canceled all count — the
+    # question is "did this person engage with their own site at all," not
+    # "did they pay"). Numerator is Generation.text_edited_at set. See that
+    # column's docstring in models.py for the interpretation (high edit
+    # rate + low conversion -> pricing/checkout friction, not a quality
+    # problem; low edit rate -> the site or the generation wait itself is
+    # failing to land).
+    if _edit_checkout_reliable:
+        edit_cohort_q = db.query(Generation).filter(
+            Generation.is_internal == False,  # noqa: E712
+            Generation.created_at >= _edit_checkout_cohort_start, Generation.created_at <= period_end,
+        )
+        edit_denom = edit_cohort_q.count()
+        edit_numer = edit_cohort_q.filter(Generation.text_edited_at.isnot(None)).count()
+    else:
+        edit_denom = edit_numer = 0
 
     # 7. Checkout started-and-abandoned vs never-attempted — added
     # 2026-07-23. Cohort is Generation.status == "draft" specifically
@@ -5106,15 +5123,20 @@ def _compute_kpis(db, range_from: datetime = None, range_to: datetime = None) ->
     # generation DID complete a real checkout at some point, so it belongs
     # in neither bucket here. See Generation.checkout_started_at's
     # docstring: "started, abandoned" is a trust/checkout-friction problem;
-    # "never attempted" is upstream of pricing entirely.
-    never_paid_q = db.query(Generation).filter(
-        Generation.is_internal == False,  # noqa: E712
-        Generation.status == "draft",
-        Generation.created_at >= period_start, Generation.created_at <= period_end,
-    )
-    never_paid_denom = never_paid_q.count()
-    checkout_abandoned_n = never_paid_q.filter(Generation.checkout_started_at.isnot(None)).count()
-    checkout_never_attempted_n = never_paid_denom - checkout_abandoned_n
+    # "never attempted" is upstream of pricing entirely. Same reliability
+    # clamp as #6 above — a pre-cutoff draft's "never attempted" can't be
+    # trusted, so it's excluded from the cohort entirely rather than guessed.
+    if _edit_checkout_reliable:
+        never_paid_q = db.query(Generation).filter(
+            Generation.is_internal == False,  # noqa: E712
+            Generation.status == "draft",
+            Generation.created_at >= _edit_checkout_cohort_start, Generation.created_at <= period_end,
+        )
+        never_paid_denom = never_paid_q.count()
+        checkout_abandoned_n = never_paid_q.filter(Generation.checkout_started_at.isnot(None)).count()
+        checkout_never_attempted_n = never_paid_denom - checkout_abandoned_n
+    else:
+        never_paid_denom = checkout_abandoned_n = checkout_never_attempted_n = 0
 
     period_label = (
         f'{period_start.strftime("%d %b %Y")} – {period_end.strftime("%d %b %Y")}'
@@ -5150,6 +5172,7 @@ def _compute_kpis(db, range_from: datetime = None, range_to: datetime = None) ->
         "edit_rate": {
             "pct": _funnel_pct(edit_numer, edit_denom),
             "numer": edit_numer, "denom": edit_denom,
+            "reliable": _edit_checkout_reliable,
         },
         "checkout_abandon": {
             "abandoned_n": checkout_abandoned_n,
@@ -5157,6 +5180,7 @@ def _compute_kpis(db, range_from: datetime = None, range_to: datetime = None) ->
             "denom": never_paid_denom,
             "abandoned_pct": _funnel_pct(checkout_abandoned_n, never_paid_denom),
             "never_attempted_pct": _funnel_pct(checkout_never_attempted_n, never_paid_denom),
+            "reliable": _edit_checkout_reliable,
         },
     }
 
@@ -5223,24 +5247,27 @@ def _render_kpi_strip(kpis: dict) -> str:
     )
 
     ed = kpis["edit_rate"]
-    tiles += tile(
-        "Made a real edit",
-        f'{ed["pct"]}%' if ed["pct"] is not None else "—",
-        f'{ed["numer"]}/{ed["denom"]} sites' if ed["denom"] else "no sites yet",
-    )
+    if not ed["reliable"]:
+        ed_big, ed_sub = "—", "tracking started 23 Jul — pick a more recent range"
+    elif ed["denom"]:
+        ed_big, ed_sub = f'{ed["pct"]}%', f'{ed["numer"]}/{ed["denom"]} sites'
+    else:
+        ed_big, ed_sub = "—", "no sites yet"
+    tiles += tile("Made a real edit", ed_big, ed_sub)
 
     ab = kpis["checkout_abandon"]
     ab_denom = ab["denom"]
-    tiles += tile(
-        "Started checkout, didn't pay",
-        str(ab["abandoned_n"]),
-        f'{ab["abandoned_pct"]}% of {ab_denom} never-paid' if ab_denom else "no unpaid sites yet",
-    )
-    tiles += tile(
-        "Never attempted checkout",
-        str(ab["never_attempted_n"]),
-        f'{ab["never_attempted_pct"]}% of {ab_denom} never-paid' if ab_denom else "no unpaid sites yet",
-    )
+    if not ab["reliable"]:
+        ab1_big, ab1_sub = "—", "tracking started 23 Jul — pick a more recent range"
+        ab2_big, ab2_sub = "—", "tracking started 23 Jul — pick a more recent range"
+    elif ab_denom:
+        ab1_big, ab1_sub = str(ab["abandoned_n"]), f'{ab["abandoned_pct"]}% of {ab_denom} never-paid'
+        ab2_big, ab2_sub = str(ab["never_attempted_n"]), f'{ab["never_attempted_pct"]}% of {ab_denom} never-paid'
+    else:
+        ab1_big = ab2_big = "—"
+        ab1_sub = ab2_sub = "no unpaid sites yet"
+    tiles += tile("Started checkout, didn't pay", ab1_big, ab1_sub)
+    tiles += tile("Never attempted checkout", ab2_big, ab2_sub)
 
     return f"""<style>
 .kpi-strip{{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-bottom:24px;}}
