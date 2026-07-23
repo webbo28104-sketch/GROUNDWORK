@@ -159,13 +159,20 @@ _RESERVED_SUBDOMAINS = {"www", "mail", "api", "admin", "app", "static"}
 
 
 def _make_subdomain(business_name: str) -> str:
-    """Lowercase and remove spaces only. Other characters are left intact so
-    _subdomain_has_invalid_chars() can catch and flag them."""
-    return business_name.lower().replace(" ", "")
+    """Lowercase and strip everything except a-z0-9 — apostrophes, symbols,
+    spaces, accents etc. are simply removed rather than left in place for
+    _subdomain_has_invalid_chars() to flag later (that used to block
+    checkout entirely on e.g. an apostrophe in the company name; see
+    _resolve_subdomain, added 2026-07-23, for why that's gone)."""
+    return re.sub(r'[^a-z0-9]', '', business_name.lower())
 
 
 def _subdomain_has_invalid_chars(slug: str) -> bool:
-    """DNS labels only allow a-z, 0-9. Returns True if anything else is present."""
+    """DNS labels only allow a-z, 0-9. Returns True if anything else is
+    present — can't actually happen for a slug that came out of
+    _make_subdomain() any more (it only ever emits a-z0-9), but kept as a
+    defensive check for the legacy-subdomain-migration path below, which
+    predates the stripping approach."""
     return not re.match(r'^[a-z0-9]+$', slug)
 
 
@@ -178,6 +185,26 @@ def _subdomain_is_taken(slug: str, db, exclude_gen_id=None) -> bool:
     if exclude_gen_id is not None:
         q = q.filter(Generation.id != exclude_gen_id)
     return q.first() is not None
+
+
+def _resolve_subdomain(business_name: str, db, exclude_gen_id=None) -> str:
+    """Turns a business name into a live, guaranteed-available subdomain —
+    never blocks or rejects (added 2026-07-23, by request: going live free
+    today should have zero friction; a slightly-off web address is a
+    solvable-after-the-fact support request, not a reason to stop someone
+    paying). Non a-z0-9 characters are stripped by _make_subdomain rather
+    than flagged; if that leaves nothing usable at all (e.g. a business
+    name in a non-Latin script), falls back to a random slug. A name
+    collision with another live site is resolved with a numeric suffix
+    (-2, -3, ...) rather than blocking — the customer can still ask
+    support to tidy up their address afterwards if they want the bare name."""
+    base = _make_subdomain(business_name) or f"site{uuid.uuid4().hex[:8]}"
+    slug = base
+    suffix = 2
+    while _subdomain_is_taken(slug, db, exclude_gen_id=exclude_gen_id):
+        slug = f"{base}{suffix}"
+        suffix += 1
+    return slug
 
 init_db()
 
@@ -7010,29 +7037,24 @@ def job_html_preserved(job_id):
 
 @app.route("/api/generate/<job_id>/info")
 def job_info(job_id):
-    """Return metadata used by checkout.html and live.html — validity/taken
-    checks for the auto-derived address, and the assigned address itself
-    once one exists (i.e. post-payment, once gen.subdomain is set).
+    """Return metadata used by checkout.html and live.html — status, and
+    the assigned address itself once one exists (i.e. post-payment, once
+    gen.subdomain is set).
 
     Deliberately does NOT return the pre-payment candidate address itself
-    (neither the bare slug nor a preview URL) — only the invalid/taken
-    booleans. The address is computed and validated before checkout so a
-    customer can't pay for one that's broken or already used, but the
-    literal string is only revealed once payment actually goes through,
-    per the 2026-07-19 change to stop showing it beforehand."""
+    (neither the bare slug nor a preview URL) — the literal string is only
+    revealed once payment actually goes through, per the 2026-07-19 change
+    to stop showing it beforehand. No longer returns invalid-chars/taken
+    booleans either (removed 2026-07-23) — _resolve_subdomain (app.py)
+    guarantees a usable, available address by construction (stripping bad
+    characters, suffixing on a collision) rather than checkout.html
+    needing to grey out the pay button over it."""
     db = SessionLocal()
     try:
         gen = db.query(Generation).join(Lead).filter(Lead.public_id == job_id).first()
         if not gen:
             return jsonify({"error": "not found"}), 404
         business_name = (gen.lead.form_data or {}).get("business_name", "")
-        preview_slug = _make_subdomain(business_name)
-        invalid = _subdomain_has_invalid_chars(preview_slug) if preview_slug else True
-        taken = (
-            _subdomain_is_taken(preview_slug, db, exclude_gen_id=gen.id)
-            if preview_slug and not invalid
-            else False
-        )
         assigned_url = (
             f"https://{gen.subdomain}.{_SUBDOMAIN_BASE}" if gen.subdomain else None
         )
@@ -7041,8 +7063,6 @@ def job_info(job_id):
             "business_name": business_name,
             "subdomain": gen.subdomain,
             "subdomain_url": assigned_url,
-            "subdomain_invalid_chars": invalid,
-            "subdomain_taken": taken,
             "receipt_pdf_url": _fetch_invoice_pdf(gen.stripe_setup_invoice_id),
         })
     finally:
@@ -8130,29 +8150,13 @@ def create_checkout_session():
         # setup fee, no trial — see subscription_data/line_items below.
         is_reactivation = gen.status == "canceled"
 
+        # No blocking here any more (removed 2026-07-23) — _resolve_subdomain
+        # always produces a usable, available slug (stripping bad characters,
+        # suffixing on a name collision) rather than making the customer
+        # email support before they're allowed to pay. The actual subdomain
+        # is assigned at webhook time (checkout.session.completed below),
+        # same as before; this call just needs to not error.
         business_name = (gen.lead.form_data or {}).get("business_name", "")
-        slug = _make_subdomain(business_name)
-
-        if not slug:
-            return jsonify({"error": "Company name is missing — please contact us."}), 422
-
-        if _subdomain_has_invalid_chars(slug):
-            app.logger.warning(f"Checkout blocked — invalid subdomain chars: {business_name!r} → {slug!r}")
-            return jsonify({
-                "error": "Your company name contains characters (e.g. apostrophes or symbols) "
-                         "that can't be used in a web address. Please email us at "
-                         "groundwork-build@outlook.com and we'll sort out your address before you pay."
-            }), 422
-
-        if _subdomain_is_taken(slug, db, exclude_gen_id=gen.id):
-            # Deliberately doesn't include the candidate slug in the message —
-            # see job_info()'s docstring for why the address itself isn't
-            # revealed before payment.
-            app.logger.warning(f"Checkout blocked — subdomain taken: {business_name!r} → {slug!r}")
-            return jsonify({
-                "error": "There's a naming conflict with another company using a very similar name. "
-                         "Please email us at groundwork-build@outlook.com and we'll help you sort it out before you pay."
-            }), 409
 
         # Setup-fee discount codes are retired along with the setup fee
         # itself (2026-07-23) — there's nothing left for a code to
@@ -8293,18 +8297,15 @@ def stripe_webhook():
                                 prospect.discount_code = None
                                 prospect.discount_expiry = None
 
-                        # Assign subdomain (the checkout route already validated this;
-                        # the double-check here guards the rare simultaneous-payment race).
+                        # Assign subdomain — _resolve_subdomain always returns
+                        # a usable, available slug (see its docstring), so
+                        # there's no invalid-chars/taken branch to handle
+                        # here any more; collisions (including the rare
+                        # simultaneous-payment race) are resolved with a
+                        # numeric suffix, never left unassigned.
                         if not gen.subdomain:
                             business_name = (gen.lead.form_data or {}).get("business_name", "")
-                            slug = _make_subdomain(business_name)
-                            if slug and not _subdomain_has_invalid_chars(slug):
-                                if not _subdomain_is_taken(slug, db, exclude_gen_id=gen.id):
-                                    gen.subdomain = slug
-                                else:
-                                    app.logger.error(
-                                        f"Subdomain race: {slug!r} taken when webhook fired for job {job_id}"
-                                    )
+                            gen.subdomain = _resolve_subdomain(business_name, db, exclude_gen_id=gen.id)
 
                         # Reinstate: this is a resubscribe (was_canceled), not a
                         # first-time purchase — reconnect any domain(s) that were

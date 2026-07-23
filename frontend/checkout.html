@@ -110,7 +110,6 @@ body{margin:0;background:#F5F3EE;font-family:Inter,sans-serif;color:#1C1C1C;}
 <script>
 const params = new URLSearchParams(location.search);
 const jobId = params.get('id');
-let subdomainBlocked = false;
 let currentPlan = 'monthly';
 let isReactivation = false;
 
@@ -203,33 +202,14 @@ async function loadSubdomainPreview() {
       applyReactivationUI();
     }
 
-    if (d.subdomain_invalid_chars) {
-      showSubdomainError(
-        'Your company name contains characters (like apostrophes or symbols) that can\'t be used in a web address. ' +
-        'Please email us at groundwork-build@outlook.com before paying and we\'ll sort your address out.'
-      );
-      subdomainBlocked = true;
-    } else if (d.subdomain_taken) {
-      showSubdomainError(
-        'There\'s a naming conflict with another company using a very similar name. ' +
-        'Please email us at groundwork-build@outlook.com and we\'ll help you sort it out before you pay.'
-      );
-      subdomainBlocked = true;
-    }
-
-    if (subdomainBlocked) {
-      const btn = document.getElementById('pay-btn');
-      btn.disabled = true;
-      btn.style.opacity = '0.45';
-      btn.style.cursor = 'not-allowed';
-    }
+    // No pre-payment address validation any more (removed 2026-07-23) —
+    // the backend now always resolves a usable web address automatically
+    // (stripping unusable characters from the company name, suffixing on
+    // a name collision) rather than blocking the pay button over it. If a
+    // customer wants their exact name instead of the auto-resolved one,
+    // that's a support request to sort out after they've gone live, not a
+    // reason to stop them paying.
   } catch (e) { /* non-fatal — preview is cosmetic, validation also runs server-side */ }
-}
-
-function showSubdomainError(html) {
-  const el = document.getElementById('subdomain-error');
-  el.innerHTML = html;
-  el.style.display = 'block';
 }
 
 async function startCheckout() {
