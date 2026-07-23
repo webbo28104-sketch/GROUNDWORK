@@ -8940,14 +8940,26 @@ def _inject_watermark(html: str, job_id: str, *, show_toast: bool = False) -> st
     checkout_url = f"/checkout.html?id={job_id}"
     editor_url = f"/editor.html?id={job_id}"
 
-    watermark_bar = f"""<div id="gw-preview-bar" style="position:fixed;top:0;left:0;right:0;z-index:99999;background:#1C2630;color:#fff;font-family:sans-serif;font-size:13px;display:flex;align-items:center;justify-content:space-between;padding:10px 20px;box-shadow:0 2px 8px rgba(0,0,0,0.3);">
-  <span>⚠ Preview — this site is unpublished and watermarked</span>
-  <span style="display:flex;align-items:center;gap:10px;">
-    <a href="{editor_url}" style="background:transparent;color:#fff;padding:6px 16px;border-radius:4px;border:1px solid #3C4A5A;text-decoration:none;font-weight:600;">Edit</a>
-    <a href="{checkout_url}" style="background:#3B82F6;color:#fff;padding:6px 16px;border-radius:4px;text-decoration:none;font-weight:600;">Get it live free today →</a>
-  </span>
+    # Restyled 2026-07-23 (by request) to match the rest of the site's
+    # design language (#1C1C1C nav, Inter, #3B82F6 accent — same treatment
+    # as preview.html's own top bar) instead of the old #1C2630/sans-serif
+    # look, and to say the actual offer explicitly rather than a vague
+    # "Get it live free today" — first month is genuinely free, no setup
+    # fee, so the bar says that outright instead of making someone click
+    # through to find out.
+    watermark_bar = f"""<div id="gw-preview-bar" style="position:fixed;top:0;left:0;right:0;z-index:99999;background:#1C1C1C;border-bottom:1px solid #2C2C2C;font-family:Inter,Arial,sans-serif;box-shadow:0 2px 10px rgba(0,0,0,.35);">
+  <div style="max-width:1280px;margin:0 auto;padding:10px 20px;display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;">
+    <span style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+      <span style="background:rgba(59,130,246,.16);color:#9DBEF8;font-weight:700;font-size:11px;letter-spacing:.06em;text-transform:uppercase;padding:4px 10px;border-radius:20px;white-space:nowrap;">Preview</span>
+      <span style="color:#B8B6B0;font-size:13px;">This site isn't published yet — free to go live, first month on us.</span>
+    </span>
+    <span style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+      <a href="{editor_url}" style="color:#DAD8D3;padding:9px 16px;border-radius:8px;border:1px solid #3C3C3C;text-decoration:none;font-weight:600;font-size:13.5px;">Edit</a>
+      <a href="{checkout_url}" style="background:#3B82F6;color:#fff;padding:9px 18px;border-radius:8px;text-decoration:none;font-weight:700;font-size:13.5px;box-shadow:0 4px 14px -4px rgba(59,130,246,.65);white-space:nowrap;">Go live free — first month on us →</a>
+    </span>
+  </div>
 </div>
-<div style="height:44px;"></div>"""
+<div style="height:60px;"></div>"""
 
     toast_html = ""
     if show_toast:
