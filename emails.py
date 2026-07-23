@@ -244,33 +244,6 @@ def send_domain_order_admin_email(domain: str, price_gbp: float, customer_email:
     _send(support_inbox, f"Domain order: {domain}", html)
 
 
-def send_admin_magic_link_clicked_email(business_name: str, prospect_id: int, has_email: bool) -> None:
-    """Notify the admin inbox the first time a prospect clicks their
-    outreach magic link (added 2026-07-19). Fired once per prospect, from
-    inside the `prospect.clicked_at is None` guard in
-    _claim_generate_and_redirect, so a repeat/idempotent visit never sends
-    a second notification for the same prospect."""
-    support_inbox = _env_email_or_warn("SUPPORT_INBOX_EMAIL")
-    biz = escape(business_name or "Unknown business")
-    html = f"""<div style="font-family:Arial,Helvetica,sans-serif;background:#F5F3EE;padding:32px 20px;">
-  <div style="max-width:480px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;">
-    <div style="background:#1C1C1C;padding:20px 28px;">
-      <span style="color:{ACCENT};font-weight:800;font-size:18px;letter-spacing:-.03em;">Groundwork</span>
-    </div>
-    <div style="padding:28px;">
-      <h2 style="margin:0 0 8px;font-size:19px;color:#1C1C1C;">Magic link clicked</h2>
-      <p style="margin:0 0 20px;font-size:14px;color:#5C5A56;">A prospect just opened their outreach preview link — generation is kicking off now.</p>
-      <table style="width:100%;border-collapse:collapse;">
-        <tr><td style="padding:8px 0;font-size:14px;color:#5C5A56;width:110px;">Business</td><td style="padding:8px 0;font-size:14px;font-weight:700;color:#1C1C1C;">{biz}</td></tr>
-        <tr><td style="padding:8px 0;font-size:14px;color:#5C5A56;">Channel</td><td style="padding:8px 0;font-size:14px;color:#1C1C1C;">{"Email track" if has_email else "Phone-only (SMS) track"}</td></tr>
-      </table>
-      <p style="margin:20px 0 0;"><a href="https://groundworkbuild.com/admin/prospects/{prospect_id}" style="color:{ACCENT};font-size:14px;font-weight:600;text-decoration:none;">View prospect →</a></p>
-    </div>
-  </div>
-</div>"""
-    _send(support_inbox, f"Magic link clicked — {business_name or 'Unknown business'}", html)
-
-
 def send_admin_payment_received_email(business_name: str, customer_email: str, job_id: str, was_reactivation: bool) -> None:
     """Notify the admin inbox whenever a checkout.session.completed webhook
     confirms real payment (added 2026-07-19) — covers both a first-time
@@ -297,6 +270,35 @@ def send_admin_payment_received_email(business_name: str, customer_email: str, j
   </div>
 </div>"""
     _send(support_inbox, f"{heading} — {business_name or 'Unknown business'}", html)
+
+
+def send_admin_daily_summary_email(day_label: str, emails_sent: int, clicked: int, click_pct: float,
+                                    signed_up: int, signup_pct: float) -> None:
+    """Once-a-day admin digest (added 2026-07-23), replacing the old
+    per-click notification (removed the same day — real-time pings on
+    every click had no signal value at real volume). Sent once, at the end
+    of the day's send window, by outreach/send_daily_summary.py — not
+    tied to any single event, so there's no idempotency guard here; that
+    script's own cron-once-a-day schedule is what keeps this to one send."""
+    support_inbox = _env_email_or_warn("SUPPORT_INBOX_EMAIL")
+    html = f"""<div style="font-family:Arial,Helvetica,sans-serif;background:#F5F3EE;padding:32px 20px;">
+  <div style="max-width:480px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;">
+    <div style="background:#1C1C1C;padding:20px 28px;">
+      <span style="color:{ACCENT};font-weight:800;font-size:18px;letter-spacing:-.03em;">Groundwork</span>
+    </div>
+    <div style="padding:28px;">
+      <h2 style="margin:0 0 4px;font-size:19px;color:#1C1C1C;">Today's outreach summary</h2>
+      <p style="margin:0 0 20px;font-size:13px;color:#9A9893;">{escape(day_label)}</p>
+      <table style="width:100%;border-collapse:collapse;">
+        <tr><td style="padding:10px 0;font-size:14px;color:#5C5A56;border-bottom:1px solid #EDEBE5;">Emails sent</td><td style="padding:10px 0;font-size:16px;font-weight:700;color:#1C1C1C;text-align:right;border-bottom:1px solid #EDEBE5;">{emails_sent}</td></tr>
+        <tr><td style="padding:10px 0;font-size:14px;color:#5C5A56;border-bottom:1px solid #EDEBE5;">Clicked magic link</td><td style="padding:10px 0;font-size:16px;font-weight:700;color:#1C1C1C;text-align:right;border-bottom:1px solid #EDEBE5;">{clicked} <span style="font-size:13px;font-weight:600;color:#5C5A56;">({click_pct:.1f}%)</span></td></tr>
+        <tr><td style="padding:10px 0;font-size:14px;color:#5C5A56;">Signed up (free trial)</td><td style="padding:10px 0;font-size:16px;font-weight:700;color:#1C1C1C;text-align:right;">{signed_up} <span style="font-size:13px;font-weight:600;color:#5C5A56;">({signup_pct:.1f}%)</span></td></tr>
+      </table>
+      <p style="margin:20px 0 0;"><a href="https://groundworkbuild.com/admin/funnel" style="color:{ACCENT};font-size:14px;font-weight:600;text-decoration:none;">View full funnel →</a></p>
+    </div>
+  </div>
+</div>"""
+    _send(support_inbox, f"Daily summary — {emails_sent} sent, {clicked} clicked, {signed_up} signed up", html)
 
 
 def send_domain_order_customer_email(to_email: str, domain: str, business_name: str) -> None:

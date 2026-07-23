@@ -35,7 +35,7 @@ from emails import (send_verification_email, send_resend_email, send_password_re
                     send_support_message_email, send_enquiry_email,
                     send_domain_order_admin_email, send_domain_order_customer_email,
                     send_domain_setup_failed_email, send_domain_live_email,
-                    send_admin_magic_link_clicked_email, send_admin_payment_received_email,
+                    send_admin_payment_received_email,
                     send_site_ready_email)
 from outreach.reply_handling import handle_inbound_sms, handle_inbound_email, handle_forced_sms_stop
 from outreach.templates import SURVEY_DISCOUNT_PERCENT
@@ -2706,16 +2706,13 @@ def _claim_generate_and_redirect(db, prospect):
     if prospect.clicked_at is None:
         prospect.clicked_at = datetime.utcnow()
         _stamp_latest_touch_outcome(db, prospect.id, "clicked_at")
-        # Admin notification (2026-07-19) — backgrounded so a slow Resend
-        # call never adds latency to this redirect. Fires exactly once per
-        # prospect, guarded by the same clicked_at-is-None check that gates
-        # the timestamp write itself, so a repeat/idempotent visit never
-        # sends a second notification.
-        threading.Thread(
-            target=send_admin_magic_link_clicked_email,
-            args=(prospect.business_name, prospect.id, bool(prospect.email)),
-            daemon=True,
-        ).start()
+        # Per-click admin notification removed 2026-07-23, by request — at
+        # real volume this was firing dozens of times a day with no signal
+        # value per individual click; clicks are now rolled into
+        # outreach/send_daily_summary.py's once-a-day totals instead (see
+        # that module). Payment still gets its own real-time notification
+        # (send_admin_payment_received_email, below) — that one's rare and
+        # worth an instant ping.
 
     if prospect.lead_id:
         lead = db.get(Lead, prospect.lead_id)
@@ -4166,9 +4163,8 @@ _OUTREACH_FUNNEL_SUBSTAGES = [
 def admin_outreach():
     """Filterable list of prospects — every metric the pipeline actually
     scores/tracks is a filter, and each row links straight to
-    /admin/prospects/<id>, the same profile page a magic-link click lands
-    admins on elsewhere (e.g. send_admin_magic_link_clicked_email's link).
-    Replaces the old Tinder-style approve/pass card, which had no real
+    /admin/prospects/<id>, the same profile page outreach/send_daily_summary.py's
+    click totals link back to. Replaces the old Tinder-style approve/pass card, which had no real
     effect on what gets sent (see module comment above)."""
     args = request.args
 
