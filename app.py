@@ -5309,19 +5309,25 @@ _OPENED_TRACKING_RELIABLE_FROM = datetime(2026, 7, 20)
 # up to and including that substage reads ~100% by construction, not because
 # the touch caused anything. E.g. stage C only ever fires for prospects
 # already at clicked_generated, so "Opened" AND "Clicked/Generated" are both
-# tautological for that row; only "Account Created" and "Paid" are real
-# signal. Audited 2026-07-20 after the same issue was flagged for stage C's
-# Clicked/Generated column specifically — generalized to every row instead
-# of leaving it as a caveat in prose. Maps substage -> the _FUNNEL_STEPS
-# index it corresponds to; a stage's tautological columns are every index
-# from 1 up to and including its substage's index (index 0, "Sent", is
-# always real — it's just the cohort's size, not a claim about them),
-# EXCEPT _VIEWED_COLUMN_INDEX — see that constant's comment for why it's
-# deliberately carved out of this range rather than included in it.
-_SUBSTAGE_COLUMN_INDEX = {"opened": 1, "clicked_generated": 2, "account_created": 4}
+# tautological for that row; only "Paid" is real signal. Audited 2026-07-20
+# after the same issue was flagged for stage C's Clicked/Generated column
+# specifically — generalized to every row instead of leaving it as a caveat
+# in prose. Maps substage -> the _FUNNEL_STEPS index it corresponds to; a
+# stage's tautological columns are every index from 1 up to and including
+# its substage's index (index 0, "Sent", is always real — it's just the
+# cohort's size, not a claim about them), EXCEPT _VIEWED_COLUMN_INDEX — see
+# that constant's comment for why it's deliberately carved out of this
+# range rather than included in it. "account_created" maps to the same
+# boundary as "clicked_generated" (2) — the "Account Created" column itself
+# was removed 2026-07-23 (zero prospects had ever reached it — outreach
+# checkout never requires an account, see create_checkout_session), but a
+# stage D cohort (defined by substage=="account_created") still has
+# Opened/Clicked-Generated as real tautological columns, so this key can't
+# just be deleted outright.
+_SUBSTAGE_COLUMN_INDEX = {"opened": 1, "clicked_generated": 2, "account_created": 2}
 _SUBSTAGE_BY_STAGE_LETTER = {letter: substage for substage, letter in STAGE_BY_SUBSTAGE.items()}
 
-_FUNNEL_STEPS = ["Sent", "Opened", "Clicked/Generated", "Viewed", "Account Created", "Paid"]
+_FUNNEL_STEPS = ["Sent", "Opened", "Clicked/Generated", "Viewed", "Paid"]
 # "Viewed" (added 2026-07-20) is never tautological, even for a
 # clicked_generated/account_created-cohort row — reaching /claim/<token>
 # and having a Generation row created (what "Clicked/Generated" means)
@@ -5700,10 +5706,9 @@ def admin_funnel():
                     ).count()
                     if cohort_lead_ids else 0
                 )
-                account_created_n = sum(1 for p in cohort if p.account_created_at is not None)
                 paid_n = sum(1 for p in cohort if p.paid_at is not None)
             else:
-                bounced_n = opened_n = clicked_n = viewed_n = account_created_n = paid_n = 0
+                bounced_n = opened_n = clicked_n = viewed_n = paid_n = 0
 
             # delivered_n, not sent_n, is the headline number and the
             # denominator for every downstream rate — same principle as the
@@ -5713,7 +5718,7 @@ def admin_funnel():
             # shown, in the sub-caption, not hidden — this table is meant to
             # carry more detail than the single KPI tile, not less.
             delivered_n = sent_n - bounced_n
-            counts = [delivered_n, opened_n, clicked_n, viewed_n, account_created_n, paid_n]
+            counts = [delivered_n, opened_n, clicked_n, viewed_n, paid_n]
             pcts = [None] + [
                 _funnel_pct(counts[i], counts[i - 1]) for i in range(1, len(counts))
             ]
