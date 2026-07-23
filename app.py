@@ -4761,11 +4761,12 @@ def admin_prospect_detail(prospect_id):
 
         replies = db.query(InboundReply).filter(InboundReply.prospect_id == p.id).order_by(InboundReply.received_at.desc()).all()
         if replies:
+            _stop_badge_html = ' · <span style="color:#DC2626;font-weight:700;">STOP</span>'
             replies_html = "".join(
                 f'<div style="padding:10px 0;border-bottom:1px solid #EDEBE5;">'
                 f'<p style="margin:0 0 4px;font-size:12.5px;color:#9A9893;">'
                 f'{r.channel.upper()} · {_fmt_dt(r.received_at)}'
-                f'{" · <span style=\'color:#DC2626;font-weight:700;\'>STOP</span>" if r.is_stop_intent else ""}</p>'
+                f'{_stop_badge_html if r.is_stop_intent else ""}</p>'
                 f'<p style="margin:0;font-size:13.5px;white-space:pre-wrap;">{escape(r.body or "(empty message)")}</p>'
                 f'</div>'
                 for r in replies
