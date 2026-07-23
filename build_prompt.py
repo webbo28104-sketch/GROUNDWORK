@@ -126,6 +126,7 @@ Fixed page structure — always in this order, sections can be omitted but never
 4. Services — from form input, generic safe categories unless something specific was found.
 5. Accreditations — OMIT ENTIRELY if nothing was verified. Do not pad with vague reassurance copy instead.
 6. Portfolio — if photo src tokens are given in MEDIA REFERENCES, use them as the src for the portfolio image cards, one token per card, in the order given. If no photo tokens are given, render the portfolio grid with a single tasteful placeholder note rather than repeating "Photos Coming Soon" per card — wording along the lines of: "Portfolio photography in preparation. Contact us to discuss examples of work relevant to your project type." Do not repeat placeholder text across multiple cards. Never invent project names.
+6a. Testimonials — use web_search to look up this business's real Google Business Profile reviews (search "[business name] [location] google reviews"). If genuine reviews are found, include a Testimonials section with up to 3 real quotes verbatim (trimmed for length is fine, paraphrasing the meaning is not), each attributed with the reviewer's first name/initial and star rating exactly as shown, plus the aggregate rating and review count if visible (e.g. "4.9★ from 32 Google reviews") linking out to the business's Google listing if a URL was found. OMIT THIS SECTION ENTIRELY if no real reviews are found — never fabricate a quote, name, or rating, and never invent an aggregate score.
 7. Contact — real contact details only. For low/normal urgency: include an enquiry form that submits via JavaScript fetch() to GW_CONTACT_URL (use this literal string as the fetch URL — it will be substituted at deploy time). The form must include exactly these fields:
    - `<input type="hidden" name="site_id" value="GW_SITE_ID">` (use the literal string GW_SITE_ID as the value — substituted at deploy time)
    - `<input type="text" name="website" tabindex="-1" autocomplete="off" style="position:absolute;left:-9999px;opacity:0;pointer-events:none;" aria-hidden="true">` (spam honeypot, hidden off-screen — must be present but invisible)
@@ -138,7 +139,7 @@ Fixed page structure — always in this order, sections can be omitted but never
 === HARD RULES ===
 - Never state who specifically performs the work (e.g. "our team of two") — work may be subcontracted. Describe quality/standard instead of staffing.
 - Never publish the work_split percentage or contract value figures, even though they were given — these are for tone-setting only. If reflected at all, do it indirectly (e.g. "primarily serving commercial clients" for a commercial-majority split, or omit entirely for a domestic-majority split) with no number.
-- Never fabricate reviews, projects, credentials, years-trading, or operational claims (response times, turnaround) — if it's not in the form or verified by search, it doesn't go on the page.
+- Never fabricate reviews, projects, credentials, years-trading, or operational claims (response times, turnaround) — if it's not in the form or verified by search, it doesn't go on the page. Real Google reviews found via web_search (Step 4.6a) are the one exception to "if it's not in the form" — they still must be verified by search, quoted verbatim, and never invented.
 - If multiple businesses share a similar name, never conflate them.
 
 === STEP 5: MARK EDITABLE TEXT ===
@@ -148,7 +149,7 @@ Mark: headings (h1–h4), body paragraphs (p), button labels, CTA link text, nav
 Do NOT mark: structural containers (div, section, article, header, footer, nav, ul, ol, figure), elements that only wrap other marked elements, SVG/img/input elements, or elements with no visible text content.
 
 ID format — data-gw-text="[section]-[descriptor]-[n]":
-- section: the page section (hero, nav, about, services, portfolio, accreditations, contact, footer)
+- section: the page section (hero, nav, about, services, portfolio, accreditations, testimonials, contact, footer)
 - descriptor: what the text is (headline, subheadline, body, cta, title, desc, item, caption, copyright, credit)
 - n: 1-based counter when multiple of the same kind exist in a section (omit if only one)
 

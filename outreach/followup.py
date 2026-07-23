@@ -172,6 +172,7 @@ def _fire_touch(db, p, stage, now, remaining_ramp, unsubscribe_link_fn, preview_
                 "hail_mary",
                 business_name=p.business_name,
                 survey_link=survey_link_fn(p),
+                preview_link=preview_link_fn(p),
                 unsubscribe_link=unsubscribe_link_fn(p),
             )
             email_id = send_outreach_email(p.email, msg["subject"], msg["body"], unsubscribe_link_fn(p))
@@ -179,7 +180,7 @@ def _fire_touch(db, p, stage, now, remaining_ramp, unsubscribe_link_fn, preview_
                 db.add(OutreachTouch(prospect_id=p.id, stage="hail_mary", channel="email", sent_at=now))
                 email_used = 1
         if SMS_REPLY_CAPTURE_READY and not p.sms_unsubscribed and p.phone and remaining_ramp["sms"] > 0:
-            body = render_sms("hail_mary", business_name=p.business_name, survey_link=survey_link_fn(p))
+            body = render_sms("hail_mary", business_name=p.business_name, survey_link=survey_link_fn(p), preview_link=preview_link_fn(p))
             sms_id = send_outreach_sms(p.phone, body)
             if sms_id:
                 db.add(SmsDeliveryEvent(message_sid=sms_id, to_phone=p.phone, status="submitted"))

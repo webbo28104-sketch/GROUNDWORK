@@ -94,6 +94,17 @@ SMS_FLOOR = SMS_RAMP_TABLE[1]
 EMAIL_SEND_WINDOW_START_HOUR = 3
 EMAIL_SEND_WINDOW_END_HOUR_EXCLUSIVE = 23
 
+# Send cadence (changed 2026-07-23, by request): email now sends in fixed
+# 15-minute slices — 5 emails per 15-minute slot — instead of one big
+# per-hour ramp figure from EMAIL_HOURLY_RAMP_TABLE. The window itself
+# (EMAIL_SEND_WINDOW_START_HOUR/END_HOUR_EXCLUSIVE above) is unchanged;
+# only how often send-job-cron fires and how much it's allowed to send per
+# firing changed. send-job-cron's Railway Cron schedule must be updated to
+# match ("*/15 3-22 * * *" UTC) — same "code-level guard + cron schedule
+# have to agree" relationship as the window check above.
+EMAIL_SLOT_MINUTES = 15
+EMAIL_PER_SLOT_CAP = 5
+
 EMAIL_SPAM_RATE_TRIGGER = 0.001  # 0.1% — genuine spam complaints only, per Section 15.
 # Bounces are tracked and trip the breaker separately from complaints (added
 # 2026-07-17). They used to be folded into the same "spam_rate" as
@@ -384,24 +395,38 @@ def is_within_email_send_window(now=None):
     return EMAIL_SEND_WINDOW_START_HOUR <= now.hour < EMAIL_SEND_WINDOW_END_HOUR_EXCLUSIVE
 
 
+def _slot_bucket(channel, now):
+    """15-minute bucket key for email (e.g. '2026-07-23-14-2' = the third
+    15-min slice of 14:00); hourly bucket for every other channel — SMS has
+    no slot-level cap, so there's no reason to fragment its counter."""
+    if channel == "email":
+        slot = now.minute // EMAIL_SLOT_MINUTES
+        return now.strftime("%Y-%m-%d-%H") + f"-{slot}"
+    return now.strftime("%Y-%m-%d-%H")
+
+
 def get_remaining_ramp_this_hour(channel, now=None):
-    """How many more sends of this channel are allowed in the current UTC
-    hour — RampState.daily_volume (per-hour, for email) minus what's
-    already gone out in this hour's HourlySendCount bucket. Returns 0
-    outside the email send window regardless of remaining budget."""
+    """How many more sends of this channel are allowed right now. For
+    email, this is a fixed EMAIL_PER_SLOT_CAP per 15-minute slot (not
+    RampState.daily_volume/the ramp table — see EMAIL_SLOT_MINUTES above);
+    for every other channel it's unchanged (RampState.daily_volume minus
+    this hour's HourlySendCount bucket). Returns 0 outside the email send
+    window regardless of remaining budget."""
     now = now or datetime.utcnow()
     if channel == "email" and not is_within_email_send_window(now):
         return 0
 
-    hour_bucket = now.strftime("%Y-%m-%d-%H")
+    bucket = _slot_bucket(channel, now)
     db = SessionLocal()
     try:
-        state = _get_or_create_state(db, channel)
         row = db.query(HourlySendCount).filter(
-            HourlySendCount.channel == channel, HourlySendCount.hour_bucket == hour_bucket
+            HourlySendCount.channel == channel, HourlySendCount.hour_bucket == bucket
         ).first()
-        sent_this_hour = row.count if row else 0
-        return max(0, state.daily_volume - sent_this_hour)
+        sent_this_slot = row.count if row else 0
+        if channel == "email":
+            return max(0, EMAIL_PER_SLOT_CAP - sent_this_slot)
+        state = _get_or_create_state(db, channel)
+        return max(0, state.daily_volume - sent_this_slot)
     finally:
         db.close()
 
@@ -424,7 +449,7 @@ def record_sends(channel, n, now=None, db=None):
         return
     now = now or datetime.utcnow()
     today = now.strftime("%Y-%m-%d")
-    hour_bucket = now.strftime("%Y-%m-%d-%H")
+    hour_bucket = _slot_bucket(channel, now)
 
     owns_session = db is None
     db = db or SessionLocal()

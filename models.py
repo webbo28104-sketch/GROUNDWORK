@@ -118,6 +118,13 @@ class Generation(Base):
     # (0-100) — not per-visit history, which would need its own table.
     max_scroll_pct = Column(Integer, nullable=False, default=0)
 
+    # Claude API cost of producing this site (added 2026-07-23), estimated
+    # from token usage x published per-token pricing (claude-sonnet-4-6:
+    # $3/$15/$3.75/$0.30 per MTok for input/output/cache-write/cache-read —
+    # see app.py's _run()) rather than pulled from a live Anthropic usage/cost
+    # API, since this repo has no Anthropic Admin key with that access.
+    generation_cost_usd = Column(Float, nullable=True)
+
     lead = relationship("Lead", back_populates="generations")
 
 

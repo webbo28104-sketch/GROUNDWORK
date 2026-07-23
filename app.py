@@ -82,15 +82,19 @@ RESET_TOKEN_MAX_AGE = 3600  # 1h — shorter-lived since it grants a password ch
 IP_RATE_LIMIT_PER_HOUR = int(os.environ.get("IP_RATE_LIMIT_PER_HOUR", "5"))
 
 # Stripe — all values come from environment variables set in Railway.
-# STRIPE_SETUP_PRICE_ID   → the one-time £99 price          (price_...)
-# STRIPE_MONTHLY_PRICE_ID → the £24.99/month recurring price (price_...)
-# STRIPE_ANNUAL_PRICE_ID  → the £249.99/year recurring price (price_...)
+# STRIPE_MONTHLY_PRICE_ID → the £24.99/month recurring price (price_...) — no
+#                           setup fee (removed 2026-07-23, until break-even;
+#                           see docs/outreach-pipeline-spec.md). STRIPE_MONTHLY_PRICE_ID
+#                           must point at a £24.99 Stripe Price object — that
+#                           object still needs creating/swapping in the Stripe
+#                           dashboard, this repo has no Stripe credentials to do
+#                           it from code.
+# STRIPE_ANNUAL_PRICE_ID  → the annual recurring price       (price_...)
 # STRIPE_SECRET_KEY       → sk_live_... (or sk_test_... for testing)
 # STRIPE_WEBHOOK_SECRET   → whsec_... from `stripe listen` or dashboard
 # SITE_URL                → https://groundworkbuild.com (used for redirect URLs)
 STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY", "")
 STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
-STRIPE_SETUP_PRICE_ID = os.environ.get("STRIPE_SETUP_PRICE_ID", "")
 STRIPE_MONTHLY_PRICE_ID = os.environ.get("STRIPE_MONTHLY_PRICE_ID", "")
 STRIPE_ANNUAL_PRICE_ID = os.environ.get("STRIPE_ANNUAL_PRICE_ID", "")
 SITE_URL = os.environ.get("SITE_URL", "https://groundworkbuild.com")
@@ -1017,8 +1021,31 @@ def _build_media_placeholders(job_dir, logo_path):
     return build_overrides, image_placeholders
 
 
+# claude-sonnet-4-6 published per-token pricing, $/million tokens — used to
+# estimate each generation's API cost (app.py has no Anthropic Admin API key
+# to pull a real usage/cost figure, so this is computed from token counts
+# already logged in _run() x these published rates).
+_SONNET_PRICE_PER_MTOK = {
+    "input": 3.00,
+    "output": 15.00,
+    "cache_write": 3.75,
+    "cache_read": 0.30,
+}
+
+
+def _estimate_generation_cost_usd(usage_totals: dict) -> float:
+    p = _SONNET_PRICE_PER_MTOK
+    return (
+        usage_totals.get("input_tokens", 0) * p["input"]
+        + usage_totals.get("output_tokens", 0) * p["output"]
+        + usage_totals.get("cache_creation_input_tokens", 0) * p["cache_write"]
+        + usage_totals.get("cache_read_input_tokens", 0) * p["cache_read"]
+    ) / 1_000_000
+
+
 def _run(job_id, prompt, logo_b64, logo_mime):
     client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+    usage_totals = {"input_tokens": 0, "output_tokens": 0, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}
     try:
         content = []
         if logo_b64 and logo_mime:
@@ -1045,6 +1072,10 @@ def _run(job_id, prompt, logo_b64, logo_mime):
             )
 
             u = resp.usage
+            usage_totals["input_tokens"] += u.input_tokens
+            usage_totals["output_tokens"] += u.output_tokens
+            usage_totals["cache_creation_input_tokens"] += getattr(u, "cache_creation_input_tokens", 0) or 0
+            usage_totals["cache_read_input_tokens"] += getattr(u, "cache_read_input_tokens", 0) or 0
             app.logger.info(
                 f"Generation {job_id} turn usage: "
                 f"in={u.input_tokens} out={u.output_tokens} "
@@ -1102,7 +1133,7 @@ def _run(job_id, prompt, logo_b64, logo_mime):
         html = accumulated_text[idx:] if idx != -1 else accumulated_text
 
         with _jobs_lock:
-            _jobs[job_id] = {"status": "done", "html": html}
+            _jobs[job_id] = {"status": "done", "html": html, "cost_usd": _estimate_generation_cost_usd(usage_totals)}
 
     except Exception as exc:
         with _jobs_lock:
@@ -1257,6 +1288,7 @@ def _run_and_persist(job_id, lead_id, email, business_name, prompt, logo_b64, lo
             business_name=business_name,
             html_content=html,
             status="draft",
+            generation_cost_usd=job.get("cost_usd"),
         )
         db.add(gen)
         db.flush()  # assigns gen.id for the GenerationImage rows below
@@ -1968,7 +2000,7 @@ def _describe_invoice(invoice) -> str:
             descriptions.append(desc)
     if descriptions:
         return ", ".join(descriptions)
-    return "Monthly subscription" if invoice.billing_reason == "subscription_cycle" else "Setup fee"
+    return "Monthly subscription" if invoice.billing_reason == "subscription_cycle" else "First invoice"
 
 
 def _render_billing_section(customer_ids: list) -> str:
@@ -2885,8 +2917,8 @@ def _survey_form_page(prospect, error=None):
 <div class="acct-card">
   <h1 style="margin:0 0 6px;font-weight:800;font-size:24px;letter-spacing:-.02em;">Quick favour, {escape(prospect.business_name or "there")}?</h1>
   <p style="margin:0 0 24px;font-size:15px;color:#5C5A56;line-height:1.6;">
-    Answer a few quick questions about your website preview and we'll take {SURVEY_DISCOUNT_PERCENT}% off your
-    £99 setup fee — a one-time code, valid for {SURVEY_DISCOUNT_WINDOW_DAYS} days, no obligation either way.
+    Answer a few quick questions about your website preview — genuinely helps us fix what's not working.
+    No obligation either way, and your site's still free to go live on whenever you're ready.
   </p>
   {error_html}
   <form method="post">
@@ -2909,21 +2941,13 @@ def _survey_form_page(prospect, error=None):
 
 
 def _survey_confirmation_page(response):
-    if response.discount_code_issued:
-        code_html = f"""<div style="background:#F0F9FF;border:1px solid #BAE6FD;border-radius:10px;padding:18px 20px;margin:18px 0;">
-      <p style="margin:0 0 6px;font-size:13px;font-weight:700;color:#0369A1;text-transform:uppercase;letter-spacing:.04em;">{SURVEY_DISCOUNT_PERCENT}% off your setup fee</p>
-      <p style="margin:0 0 4px;font-size:22px;font-weight:800;letter-spacing:.02em;font-family:monospace;">{escape(response.discount_code_issued)}</p>
-      <p style="margin:0;font-size:13.5px;color:#5C5A56;">Enter this code at checkout — valid until {response.discount_expires_at.strftime("%d %b %Y") if response.discount_expires_at else "soon"}.</p>
-    </div>"""
-    else:
-        code_html = (
-            '<p style="color:#B45309;">Thanks — got your answers. We hit a snag generating your code automatically; '
-            'reply to any of our emails and we\'ll sort it out by hand.</p>'
-        )
+    # No setup-fee discount code any more (the setup fee itself was removed
+    # 2026-07-23) — this used to show an "X% off your setup fee" code here;
+    # nothing left for a code to discount, so just a plain thanks.
     inner = f"""<div class="acct-card" style="text-align:center;">
       <h1 style="margin:0 0 10px;font-weight:800;font-size:24px;letter-spacing:-.02em;">Thanks — that's genuinely useful</h1>
-      <p style="margin:0;font-size:15px;color:#5C5A56;line-height:1.6;">We read every response.</p>
-      {code_html}
+      <p style="margin:0 0 14px;font-size:15px;color:#5C5A56;line-height:1.6;">We read every response.</p>
+      <p style="margin:0;font-size:15px;color:#5C5A56;line-height:1.6;">Remember — your site's free to go live on today, £24.99/month after your first month.</p>
     </div>"""
     return render_template_string(_account_page(inner, "Thanks"))
 
@@ -4748,11 +4772,18 @@ def admin_prospect_detail(prospect_id):
                     )
                 else:
                     view_stats_html = '<p class="muted" style="margin:6px 0 0;">Never actually viewed — generated but the link hasn\'t been opened (or was opened before this tracking existed and not since).</p>'
+                cost_html = (
+                    f'<p class="muted" style="margin:6px 0 0;">Cost to generate: '
+                    f'<b style="color:#1C1C1C;">${generation.generation_cost_usd:.4f}</b> (Claude API, estimated from token usage)</p>'
+                    if generation.generation_cost_usd is not None
+                    else '<p class="muted" style="margin:6px 0 0;">Cost to generate: not recorded (generated before cost tracking was added).</p>'
+                )
                 gen_links = (
                     f'<a href="/admin/generations/{generation.id}/html" target="_blank">View generated site</a> · '
                     f'<a href="/admin/generations/{generation.id}/form-data" target="_blank">Raw form data</a>'
                     f'<p class="muted" style="margin:8px 0 0;">Status: <b style="color:#1C1C1C;">{escape(generation.status)}</b> · created {_fmt_dt(generation.created_at)}</p>'
                     f'{view_stats_html}'
+                    f'{cost_html}'
                     f'<form method="post" action="/admin/generations/{generation.id}/toggle-internal" style="margin:10px 0 0;">'
                     f'<input type="hidden" name="redirect_to" value="/admin/prospects/{p.id}">'
                     f'<label style="display:flex;align-items:center;gap:7px;font-size:13px;color:#5C5A56;cursor:pointer;">'
@@ -6947,10 +6978,8 @@ def job_html_preserved(job_id):
 
     Deliberately a separate route from /api/generate/<job_id>/html, not a
     branch inside it: that route's _inject_watermark() banner says "this
-    site is unpublished" with a "Go live — £99 + £24.99/mo" CTA, which is
-    actively wrong for a site that WAS live and paid for — re-showing the
-    setup fee implies they'd be charged it again, which they wouldn't be
-    (reinstating just resumes the same subscription). This route shows
+    site is unpublished" with a "Get it live today, free" CTA, which is
+    actively wrong for a site that WAS live and paid for. This route shows
     the real content with an accurate, distinct banner instead.
 
     Only serves anything for status=="canceled" — a live or draft site
@@ -8125,36 +8154,21 @@ def create_checkout_session():
                          "Please email us at groundwork-build@outlook.com and we'll help you sort it out before you pay."
             }), 409
 
-        # Survey-issued setup-fee discount (2026-07-17, reduced from a full
-        # waiver to SURVEY_DISCOUNT_PERCENT on 2026-07-18) — deliberately
-        # checked and applied entirely app-side rather than via a Stripe
-        # Coupon; see _issue_survey_discount_code's docstring for why (a
-        # percent_off Coupon's applies_to restriction was found to be
-        # silently dropped by the live API, which would have discounted the
-        # whole checkout, not just the setup fee). apply_setup_discount is
-        # the only effect a valid code has: the setup line item is swapped
-        # for a discounted price_data line item below, nothing else changes.
-        # Discount codes only ever discount the setup fee (see below) — moot
-        # on a reactivation, since there isn't one. Skip validation entirely
-        # rather than erroring, so a stale/irrelevant code in the field
-        # can't block a reactivating customer from paying.
+        # Setup-fee discount codes are retired along with the setup fee
+        # itself (2026-07-23) — there's nothing left for a code to
+        # discount. Still accepted here (rather than erroring) so a code
+        # already in someone's inbox from before this change doesn't block
+        # checkout; it just no longer has any effect on the line items.
         submitted_code = (data.get("discount_code") or "").strip().upper()
-        apply_setup_discount = False
-        if submitted_code and not is_reactivation:
-            prospect = db.query(Prospect).filter(Prospect.lead_id == gen.lead_id).first()
-            if (prospect and prospect.discount_code
-                    and prospect.discount_code.upper() == submitted_code
-                    and prospect.discount_expiry and prospect.discount_expiry > datetime.utcnow()):
-                apply_setup_discount = True
-            else:
-                return jsonify({"error": "That discount code isn't valid or has expired."}), 422
     finally:
         db.close()
 
+    # No setup fee (removed 2026-07-23, until break-even). Reactivation and
+    # first-time purchase are both just the recurring price now; the only
+    # remaining difference is the first-month-free trial, which only makes
+    # sense on a genuine first-time signup.
+    line_items = [{"price": recurring_price_id, "quantity": 1}]
     if is_reactivation:
-        # No setup fee, no trial — this is a resubscribe, not a first-time
-        # purchase. Charged the plan's recurring price immediately.
-        line_items = [{"price": recurring_price_id, "quantity": 1}]
         subscription_data = {}
     else:
         # First-month-free trial is a monthly-only promo — annual customers
@@ -8162,33 +8176,12 @@ def create_checkout_session():
         # on top of that (see design_handoff_marketing_consistency notes).
         subscription_data = {"trial_period_days": 30} if plan == "monthly" else {}
 
-        if apply_setup_discount:
-            # A dynamic price_data line item, not the fixed STRIPE_SETUP_PRICE_ID —
-            # unit_amount/currency/product read live from the real setup Price so
-            # this never drifts if that price ever changes, and the discounted
-            # amount is computed here in code, not via any Stripe-side discount
-            # mechanism (see the docstring above for why that's deliberate).
-            setup_price = stripe.Price.retrieve(STRIPE_SETUP_PRICE_ID)
-            discounted_amount = round(setup_price.unit_amount * (100 - SURVEY_DISCOUNT_PERCENT) / 100)
-            setup_line_item = {
-                "price_data": {
-                    "currency": setup_price.currency,
-                    "product": setup_price.product,
-                    "unit_amount": discounted_amount,
-                },
-                "quantity": 1,
-            }
-        else:
-            setup_line_item = {"price": STRIPE_SETUP_PRICE_ID, "quantity": 1}
-        line_items = [setup_line_item, {"price": recurring_price_id, "quantity": 1}]
-
     cs = stripe.checkout.Session.create(
         mode="subscription",
         line_items=line_items,
         subscription_data=subscription_data,
         allow_promotion_codes=True,
         client_reference_id=job_id,
-        metadata={"discount_code_redeemed": submitted_code} if apply_setup_discount else {},
         success_url=f"{SITE_URL}/live.html?id={job_id}",
         cancel_url=(
             f"{SITE_URL}/api/generate/{job_id}/preserved" if is_reactivation
@@ -8950,7 +8943,7 @@ def _inject_watermark(html: str, job_id: str, *, show_toast: bool = False) -> st
   <span>⚠ Preview — this site is unpublished and watermarked</span>
   <span style="display:flex;align-items:center;gap:10px;">
     <a href="{editor_url}" style="background:transparent;color:#fff;padding:6px 16px;border-radius:4px;border:1px solid #3C4A5A;text-decoration:none;font-weight:600;">Edit</a>
-    <a href="{checkout_url}" style="background:#B8976A;color:#fff;padding:6px 16px;border-radius:4px;text-decoration:none;font-weight:600;">Go live — £99 + £24.99/mo →</a>
+    <a href="{checkout_url}" style="background:#3B82F6;color:#fff;padding:6px 16px;border-radius:4px;text-decoration:none;font-weight:600;">Get it live free today →</a>
   </span>
 </div>
 <div style="height:44px;"></div>"""

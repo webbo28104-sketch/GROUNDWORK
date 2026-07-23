@@ -80,7 +80,7 @@ INITIAL_EMAIL = {
       </td></tr>
 
       <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:15.5px;line-height:1.65;color:#2A2A28;padding:0 0 8px;">
-        If you like what you see, going live is £99 setup + £24.99/month, first month free — most other website services charge around £89 a month alone. Any questions, just reply to this email.
+        If you like what you see, you can get {business_name}'s site live today, completely free — no setup fee, first month free, £24.99/month after that. Most other website services charge around £89 a month alone. Any questions, just reply to this email.
       </td></tr>
       <tr><td style="padding:6px 0 26px;">
         <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;font-family:Arial,Helvetica,sans-serif;">
@@ -126,7 +126,7 @@ INITIAL_EMAIL = {
 INITIAL_SMS = (
     "Hi {business_name}, this is Groundwork — we build affordable websites for UK trades. "
     "See a free preview built for you: groundworkbuild.com/s/{short_code}\n"
-    "£99 setup + £24.99/mo after, 1st month free.\n"
+    "Live free today, £24.99/mo after your 1st month free. No setup fee.\n"
     "Reply STOP to opt out."
 )
 
@@ -384,7 +384,7 @@ FOLLOWUP_EMAIL = {
         Just checking in — your website's built and waiting.
       </td></tr>
       <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:15.5px;line-height:1.65;color:#2A2A28;padding:0 0 30px;">
-        First month's free if you'd like to go live — £99 setup + £24.99/month after.
+        Go live completely free today — no setup fee, first month free, £24.99/month after.
       </td></tr>
 
       <!-- CTA: single button, reused as-is across all 8 templates. Table-based
@@ -486,7 +486,7 @@ FOLLOWUP_EMAIL = {
         Your account's set up and your site's ready to go — just needs switching on.
       </td></tr>
       <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:15.5px;line-height:1.65;color:#2A2A28;padding:0 0 30px;">
-        First month's free, £99 setup + £24.99/month after.
+        Free to go live today — no setup fee, first month free, £24.99/month after.
       </td></tr>
 
       <!-- CTA: single button, reused as-is across all 8 templates. Table-based
@@ -557,18 +557,18 @@ SURVEY_DISCOUNT_PERCENT = 50
 # OutreachTouch.stage="hail_mary" (outreach/followup.py), with the offer
 # as the actual headline rather than a postscript.
 HAIL_MARY_EMAIL = {
-    "subject": "Last chance: {pct}% off your setup, {{business_name}}".format(pct=SURVEY_DISCOUNT_PERCENT),
+    "subject": "Last chance — get {{business_name}}'s site live, free",
     "body": """<!DOCTYPE html>
 <html lang="en"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
-<title>Last chance: {pct}% off your setup, {{business_name}}</title>
+<title>Last chance — get {{business_name}}'s site live, free</title>
 
 </head>
 <body style="margin:0;padding:0;background:#EDEAE2;font-family:Arial,Helvetica,sans-serif;">
 <!-- Preheader (hidden, shows in inbox preview text) -->
-<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;">Last chance — {pct}% off your setup fee, no obligation.</div>
+<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;">Last chance — go live free today, no setup fee, no obligation.</div>
 
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#EDEAE2;">
 <tbody><tr><td align="center" style="padding:40px 16px;">
@@ -594,26 +594,26 @@ HAIL_MARY_EMAIL = {
       <tbody>
       <!-- Headline IS the offer — the whole point of this send, not a P.S. -->
       <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:22px;font-weight:800;letter-spacing:-.01em;line-height:1.3;color:#1C1C1C;padding:0 0 14px;">
-        Last chance: {pct}% off your setup, {{business_name}}
+        Last chance — {{business_name}}'s site, live and free today
       </td></tr>
       <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:15.5px;line-height:1.65;color:#2A2A28;padding:0 0 18px;">
         We built you a free website preview a while back and haven't heard from you since — so this is genuinely the last email you'll get about it.
       </td></tr>
       <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:15.5px;line-height:1.65;color:#2A2A28;padding:0 0 30px;">
-        Answer 6 quick questions about why now isn't the right time and we'll knock {pct}% off your £99 setup fee — a real code, no obligation, no strings.
+        There's no setup fee and no cost to go live — first month free, £24.99/month after that. If two minutes to tell us why now isn't the right time is easier than deciding, that works too — we read every response ourselves.
       </td></tr>
 
       <!-- CTA -->
       <tr><td style="padding:0 0 20px;">
         <table role="presentation" cellpadding="0" cellspacing="0" border="0">
           <tbody><tr><td bgcolor="#3B82F6" style="border-radius:8px;">
-            <a href="{{survey_link}}" target="_blank" style="display:inline-block;padding:13px 24px;font-family:Arial,Helvetica,sans-serif;font-size:15px;font-weight:bold;color:#FFFFFF;text-decoration:none;border-radius:8px;">Answer & claim {pct}% off</a>
+            <a href="{{preview_link}}" target="_blank" style="display:inline-block;padding:13px 24px;font-family:Arial,Helvetica,sans-serif;font-size:15px;font-weight:bold;color:#FFFFFF;text-decoration:none;border-radius:8px;">Get it live, free →</a>
           </td></tr>
         </tbody></table>
       </td></tr>
 
       <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:13.5px;line-height:1.6;color:#9A9893;padding:0 0 30px;">
-        Takes about 2 minutes. We read every response ourselves.
+        Or <a href="{{survey_link}}" style="color:#9A9893;text-decoration:underline;">answer 6 quick questions</a> about why now isn't right — takes about 2 minutes.
       </td></tr>
 
       <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:15.5px;line-height:1.65;color:#2A2A28;padding:0 0 8px;">
@@ -659,10 +659,10 @@ HAIL_MARY_EMAIL = {
 }
 
 HAIL_MARY_SMS = (
-    "Hi {{business_name}}, last chance: {pct}% off your Groundwork setup if you tell us why "
-    "now isn't the right time: {{survey_link}}\n"
+    "Hi {{business_name}}, last chance — your Groundwork site is free to go live today, "
+    "no setup fee: {{preview_link}}\n"
     "Reply STOP to opt out."
-).format(pct=SURVEY_DISCOUNT_PERCENT)
+)
 
 
 FOLLOWUP_SMS = {

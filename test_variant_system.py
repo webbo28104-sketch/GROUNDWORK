@@ -57,7 +57,7 @@ passed, violations = run_content_safety_gates("A", _BASELINE_STAGE_TEMPLATES["A"
 check("pre-click built-claim violation is caught", not passed and any("built" in v for v in violations), str(violations))
 
 # A deliberately bad price: invents a figure.
-bad_price_body = _BASELINE_STAGE_TEMPLATES["initial"]["body"].replace("£99", "£149")
+bad_price_body = _BASELINE_STAGE_TEMPLATES["initial"]["body"].replace("£24.99", "£149")
 passed, violations = run_content_safety_gates("initial", _BASELINE_STAGE_TEMPLATES["initial"]["subject"], bad_price_body)
 check("invented price is caught", not passed and any("£149" in v for v in violations), str(violations))
 
