@@ -125,6 +125,27 @@ class Generation(Base):
     # API, since this repo has no Anthropic Admin key with that access.
     generation_cost_usd = Column(Float, nullable=True)
 
+    # Engagement/funnel instrumentation (added 2026-07-23) — both are
+    # "first time this happened" stamps (set once, never overwritten), used
+    # by the admin Funnel page to split "didn't convert" into distinct
+    # populations rather than one undifferentiated bucket:
+    #   - text_edited_at: this customer made a real text edit (pre- or
+    #     post-launch — PATCH /api/generate/<id>/text) — a high edit rate
+    #     with low conversion points at pricing/checkout friction (people
+    #     who don't like the site don't usually bother personalizing it
+    #     first); a low edit rate points at the site/wait failing to land.
+    #     Can't be reconstructed retroactively — pre-launch edits overwrite
+    #     html_content in place with no prior audit trail, so generations
+    #     edited before this column existed will show as "no edit" even if
+    #     they genuinely had one.
+    #   - checkout_started_at: a Stripe Checkout Session was actually
+    #     created for this generation (app.py's create_checkout_session) —
+    #     distinguishes "started checkout, abandoned" (trust/checkout-
+    #     friction problem) from "never attempted checkout at all"
+    #     (upstream of pricing entirely, e.g. never even looked at pricing).
+    text_edited_at = Column(DateTime, nullable=True)
+    checkout_started_at = Column(DateTime, nullable=True)
+
     lead = relationship("Lead", back_populates="generations")
 
 
@@ -752,6 +773,8 @@ def init_db():
     _ensure_column(Generation.__tablename__, "max_scroll_pct", "INTEGER NOT NULL DEFAULT 0")
     _ensure_column(Generation.__tablename__, "is_internal", "BOOLEAN NOT NULL DEFAULT FALSE")
     _ensure_column(Generation.__tablename__, "generation_cost_usd", "FLOAT")
+    _ensure_column(Generation.__tablename__, "text_edited_at", "TIMESTAMP")
+    _ensure_column(Generation.__tablename__, "checkout_started_at", "TIMESTAMP")
     _ensure_column(Domain.__tablename__, "registered_at", "TIMESTAMP")
     _ensure_column(Domain.__tablename__, "dns_configured_at", "TIMESTAMP")
     _ensure_column(Domain.__tablename__, "railway_connected_at", "TIMESTAMP")

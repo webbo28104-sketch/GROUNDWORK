@@ -5083,6 +5083,39 @@ def _compute_kpis(db, range_from: datetime = None, range_to: datetime = None) ->
             Generation.status == "live", Generation.is_internal == False, Generation.created_at < period_start
         ).count() > 0
 
+    # 6. Made a real edit — engagement signal, added 2026-07-23. Cohort is
+    # every non-internal Generation created in the period, regardless of
+    # status (draft/live/canceled all count — the question is "did this
+    # person engage with their own site at all," not "did they pay").
+    # Numerator is Generation.text_edited_at set. See that column's
+    # docstring in models.py for why this can't be reconstructed for
+    # generations that predate the column, and for the interpretation
+    # (high edit rate + low conversion -> pricing/checkout friction, not a
+    # quality problem; low edit rate -> the site or the generation wait
+    # itself is failing to land).
+    edit_cohort_q = db.query(Generation).filter(
+        Generation.is_internal == False,  # noqa: E712
+        Generation.created_at >= period_start, Generation.created_at <= period_end,
+    )
+    edit_denom = edit_cohort_q.count()
+    edit_numer = edit_cohort_q.filter(Generation.text_edited_at.isnot(None)).count()
+
+    # 7. Checkout started-and-abandoned vs never-attempted — added
+    # 2026-07-23. Cohort is Generation.status == "draft" specifically
+    # (never went live) rather than "not live" generally — a canceled
+    # generation DID complete a real checkout at some point, so it belongs
+    # in neither bucket here. See Generation.checkout_started_at's
+    # docstring: "started, abandoned" is a trust/checkout-friction problem;
+    # "never attempted" is upstream of pricing entirely.
+    never_paid_q = db.query(Generation).filter(
+        Generation.is_internal == False,  # noqa: E712
+        Generation.status == "draft",
+        Generation.created_at >= period_start, Generation.created_at <= period_end,
+    )
+    never_paid_denom = never_paid_q.count()
+    checkout_abandoned_n = never_paid_q.filter(Generation.checkout_started_at.isnot(None)).count()
+    checkout_never_attempted_n = never_paid_denom - checkout_abandoned_n
+
     period_label = (
         f'{period_start.strftime("%d %b %Y")} – {period_end.strftime("%d %b %Y")}'
         if filtering else now.strftime("%B %Y")
@@ -5113,6 +5146,17 @@ def _compute_kpis(db, range_from: datetime = None, range_to: datetime = None) ->
             "numer": churn_numer, "denom": churn_denom,
             "has_full_month_baseline": has_full_month_baseline,
             "month_label": period_label,
+        },
+        "edit_rate": {
+            "pct": _funnel_pct(edit_numer, edit_denom),
+            "numer": edit_numer, "denom": edit_denom,
+        },
+        "checkout_abandon": {
+            "abandoned_n": checkout_abandoned_n,
+            "never_attempted_n": checkout_never_attempted_n,
+            "denom": never_paid_denom,
+            "abandoned_pct": _funnel_pct(checkout_abandoned_n, never_paid_denom),
+            "never_attempted_pct": _funnel_pct(checkout_never_attempted_n, never_paid_denom),
         },
     }
 
@@ -5178,8 +5222,28 @@ def _render_kpi_strip(kpis: dict) -> str:
         ch_sub,
     )
 
+    ed = kpis["edit_rate"]
+    tiles += tile(
+        "Made a real edit",
+        f'{ed["pct"]}%' if ed["pct"] is not None else "—",
+        f'{ed["numer"]}/{ed["denom"]} sites' if ed["denom"] else "no sites yet",
+    )
+
+    ab = kpis["checkout_abandon"]
+    ab_denom = ab["denom"]
+    tiles += tile(
+        "Started checkout, didn't pay",
+        str(ab["abandoned_n"]),
+        f'{ab["abandoned_pct"]}% of {ab_denom} never-paid' if ab_denom else "no unpaid sites yet",
+    )
+    tiles += tile(
+        "Never attempted checkout",
+        str(ab["never_attempted_n"]),
+        f'{ab["never_attempted_pct"]}% of {ab_denom} never-paid' if ab_denom else "no unpaid sites yet",
+    )
+
     return f"""<style>
-.kpi-strip{{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-bottom:24px;}}
+.kpi-strip{{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-bottom:24px;}}
 .kpi-tile{{background:#fff;border:1px solid #E2E0DA;border-radius:12px;padding:16px 18px;}}
 .kpi-label{{font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#9A9893;margin-bottom:8px;}}
 .kpi-value{{font-size:26px;font-weight:800;letter-spacing:-.02em;color:#1C1C1C;line-height:1;margin-bottom:6px;}}
@@ -7168,6 +7232,13 @@ def update_text_field(job_id):
                 if job_id in _jobs and _jobs[job_id].get("status") == "done":
                     _jobs[job_id]["html"] = new_html
 
+        # First-edit stamp for the Funnel page's engagement stat (see
+        # Generation.text_edited_at's docstring) — set once, never
+        # overwritten, so it always reflects when this customer FIRST made
+        # a real edit rather than their most recent one.
+        if gen.text_edited_at is None:
+            gen.text_edited_at = datetime.utcnow()
+
         db.commit()
         return jsonify({"ok": True})
     finally:
@@ -8249,6 +8320,22 @@ def create_checkout_session():
             else f"{SITE_URL}/api/generate/{job_id}/html"
         ),
     )
+
+    # First-checkout-attempt stamp for the Funnel page (see
+    # Generation.checkout_started_at's docstring) — set once, never
+    # overwritten, so retrying checkout after a first abandoned attempt
+    # doesn't erase "when they first got this far." A short separate
+    # session, opened only now that the (potentially slow) Stripe call has
+    # already succeeded — no reason to hold a DB connection open across it.
+    db2 = SessionLocal()
+    try:
+        gen2 = db2.query(Generation).join(Lead).filter(Lead.public_id == job_id).first()
+        if gen2 and gen2.checkout_started_at is None:
+            gen2.checkout_started_at = datetime.utcnow()
+            db2.commit()
+    finally:
+        db2.close()
+
     return jsonify({"url": cs.url})
 
 
