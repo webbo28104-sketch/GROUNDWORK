@@ -32,17 +32,32 @@ PLACES_SEARCH_URL = "https://places.googleapis.com/v1/places:searchText"
 
 # All fields we ask Google to return. Kept as one string so it's identical in
 # the request header and easy to audit against parse_place() below.
+# Billing tier note (2026-07-23): adding places.reviews/editorialSummary
+# moved this call from the "Text Search Enterprise" SKU ($35/1000) to
+# "Text Search Enterprise + Atmosphere" ($40/1000) — a deliberate choice,
+# not an accident. Both SKUs share the SAME 1,000 free-calls/month
+# allowance, and outreach/pipeline.py's get_daily_places_api_budget() only
+# counts call volume, not which fields are requested — so this stays
+# completely free as long as total monthly calls stay <=1,000, same as
+# before. primaryType/regularOpeningHours/currentOpeningHours are Pro/
+# Enterprise-tier fields already covered by the existing Enterprise
+# billing — added at zero incremental cost either way.
 FIELD_MASK = (
     "places.id,"
     "places.displayName,"
     "places.formattedAddress,"
     "places.location,"
     "places.types,"
+    "places.primaryType,"
     "places.businessStatus,"
     "places.rating,"
     "places.userRatingCount,"
     "places.websiteUri,"
-    "places.nationalPhoneNumber"
+    "places.nationalPhoneNumber,"
+    "places.regularOpeningHours,"
+    "places.currentOpeningHours,"
+    "places.reviews,"
+    "places.editorialSummary"
 )
 
 
@@ -266,6 +281,52 @@ def get_pending_cells(db, limit=25):
     return unsearched + research
 
 
+def _parse_reviews(raw) -> list:
+    """Up to 5 review snippets (Places returns at most 5 per place regardless
+    of field mask) as {author, rating, text, publish_time} dicts — only
+    present at all once the field mask requests places.reviews (Enterprise +
+    Atmosphere tier, added 2026-07-23). Skips reviews with no text (a
+    star-only rating with nothing to quote isn't a testimonial)."""
+    out = []
+    for r in (raw.get("reviews") or []):
+        if not isinstance(r, dict):
+            continue
+        text = ((r.get("text") or {}).get("text") or "").strip()
+        if not text:
+            continue
+        author = ((r.get("authorAttribution") or {}).get("displayName") or "").strip()
+        out.append({
+            "author": author or None,
+            "rating": r.get("rating"),
+            "text": text,
+            "publish_time": r.get("publishTime"),
+        })
+    return out
+
+
+def _earliest_review_date(reviews: list):
+    """Oldest publishTime across this place's (up to 5) fetched reviews, as
+    a proxy for "how long they've had a Google listing" — NOT verified
+    years-trading; build_prompt.py must hedge accordingly ("at least since
+    X"), never assert it as confirmed founding/trading date. publishTime is
+    RFC3339 (e.g. "2023-08-15T13:45:00Z" or with fractional seconds) —
+    parsed to a real datetime so the column sorts/compares properly;
+    malformed timestamps are skipped rather than raising."""
+    parsed = []
+    for r in reviews:
+        raw_ts = r.get("publish_time")
+        if not raw_ts:
+            continue
+        try:
+            # Stripped to naive UTC — every other DateTime column in this
+            # codebase is naive UTC (datetime.utcnow()); keeping this one
+            # timezone-aware would break comparisons/sorting against them.
+            parsed.append(datetime.fromisoformat(raw_ts.replace("Z", "+00:00")).replace(tzinfo=None))
+        except (ValueError, AttributeError):
+            continue
+    return min(parsed) if parsed else None
+
+
 def parse_place(raw, search_term, postcode_area):
     """Flatten a raw Places API place dict into a dict matching Prospect columns.
 
@@ -280,6 +341,11 @@ def parse_place(raw, search_term, postcode_area):
     longitude = location.get("longitude") if isinstance(location, dict) else None
 
     canonical, tier = get_trade_by_term(search_term)
+
+    reviews = _parse_reviews(raw)
+    opening_hours = raw.get("regularOpeningHours") or raw.get("currentOpeningHours") or {}
+    weekday_descriptions = opening_hours.get("weekdayDescriptions") if isinstance(opening_hours, dict) else None
+    editorial_summary = (raw.get("editorialSummary") or {}).get("text")
 
     return {
         "google_place_id": raw.get("id"),
@@ -298,6 +364,11 @@ def parse_place(raw, search_term, postcode_area):
         "latitude": latitude,
         "longitude": longitude,
         "types": raw.get("types"),
+        "primary_type": raw.get("primaryType"),
+        "editorial_summary": editorial_summary,
+        "opening_hours": weekday_descriptions,
+        "reviews": reviews or None,
+        "earliest_review_date": _earliest_review_date(reviews),
         "raw_data": raw,
     }
 
@@ -340,6 +411,11 @@ def upsert_prospect(db, place_data):
         latitude=place_data.get("latitude"),
         longitude=place_data.get("longitude"),
         types=place_data.get("types"),
+        primary_type=place_data.get("primary_type"),
+        editorial_summary=place_data.get("editorial_summary"),
+        opening_hours=place_data.get("opening_hours"),
+        reviews=place_data.get("reviews"),
+        earliest_review_date=place_data.get("earliest_review_date"),
         raw_data=place_data.get("raw_data"),
         funnel_stage=funnel_stage,
     )

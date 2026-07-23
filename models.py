@@ -253,6 +253,15 @@ class Prospect(Base):
     latitude = Column(Float, nullable=True)
     longitude = Column(Float, nullable=True)
     types = Column(JSON, nullable=True)
+    # Places API (New) Enterprise + Atmosphere tier fields, added 2026-07-23
+    # (see outreach/sourcer.py's FIELD_MASK comment for the billing-tier
+    # tradeoff — same 1,000 free-calls/month allowance as before, just
+    # +$5/1000 over that allowance).
+    primary_type = Column(String(100), nullable=True)  # Places' single best-guess category, e.g. "plumber"
+    editorial_summary = Column(Text, nullable=True)  # Google's own written blurb, when present
+    opening_hours = Column(JSON, nullable=True)  # weekdayDescriptions list, e.g. ["Monday: 9AM-5PM", ...]
+    reviews = Column(JSON, nullable=True)  # up to 5 {author, rating, text, publish_time} dicts
+    earliest_review_date = Column(DateTime, nullable=True)  # proxy for listing age — see sourcer.py's docstring
     google_photos_count = Column(Integer, nullable=True)
     opening_hours_complete = Column(Boolean, nullable=True)
     website_status = Column(String(30), nullable=True)
@@ -792,6 +801,11 @@ def init_db():
     # Prospect / SearchCell columns — create_all() handles brand-new tables, but
     # these _ensure_column calls backfill columns onto an older prospects table
     # that predates a given field (same dependency-free migration pattern above).
+    _ensure_column(Prospect.__tablename__, "primary_type", "VARCHAR(100)")
+    _ensure_column(Prospect.__tablename__, "editorial_summary", "TEXT")
+    _ensure_column(Prospect.__tablename__, "opening_hours", "JSON")
+    _ensure_column(Prospect.__tablename__, "reviews", "JSON")
+    _ensure_column(Prospect.__tablename__, "earliest_review_date", "TIMESTAMP")
     _ensure_column(Prospect.__tablename__, "google_photos_count", "INTEGER")
     _ensure_column(Prospect.__tablename__, "opening_hours_complete", "BOOLEAN")
     _ensure_column(Prospect.__tablename__, "website_status", "VARCHAR(30)")

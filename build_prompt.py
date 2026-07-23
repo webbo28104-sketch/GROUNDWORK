@@ -25,10 +25,43 @@ def build_prompt(form_data: dict) -> str:
     photo_src_tokens (list[str]) — literal placeholder strings, one per
         portfolio photo, in display order; substituted the same way.
     """
+    # google_reviews/google_opening_hours are structured (list of dicts /
+    # list of strings) — rendered in their own sections below, not dumped
+    # into the generic "- key: value" facts list (which would print as an
+    # ugly, token-wasting Python repr). google_rating/google_review_count/
+    # google_primary_type/google_earliest_review_date are plain scalars and
+    # print fine in the generic list, so they're deliberately NOT excluded.
     MEDIA_KEYS = {"logo_src_token", "photo_src_tokens", "logo_bg_hex", "logo_accent_hex", "commercial_lean"}
+    STRUCTURED_KEYS = {"google_reviews", "google_opening_hours"}
 
-    facts = "\n".join(f"- {k}: {v}" for k, v in form_data.items() if v and k not in MEDIA_KEYS)
+    facts = "\n".join(f"- {k}: {v}" for k, v in form_data.items() if v and k not in MEDIA_KEYS | STRUCTURED_KEYS)
     current_year = datetime.now().year
+
+    # Real Google review data, pulled at sourcing time from the Places API
+    # (Enterprise + Atmosphere tier, added 2026-07-23 — see
+    # outreach/sourcer.py) for outreach-originated prospects. Zero
+    # additional cost/latency vs the old web_search-based lookup, and more
+    # reliable (verbatim quotes we already fetched, not re-derived at
+    # generation time). Only present for prospects Places actually returned
+    # reviews for — direct-signup traffic (no Prospect row at all) and
+    # outreach prospects with no fetched reviews still fall back to Step
+    # 4.6a's web_search instruction below.
+    google_reviews = form_data.get("google_reviews") or []
+    google_reviews_section = ""
+    if google_reviews:
+        review_lines = "\n".join(
+            f'- "{r["text"]}" — {r.get("author") or "Google reviewer"}'
+            f'{f", {r["rating"]}★" if r.get("rating") else ""}'
+            for r in google_reviews if r.get("text")
+        )
+        google_reviews_section = f"\n=== REAL GOOGLE REVIEWS (already verified, fetched from Google Places) ===\n{review_lines}\n"
+
+    google_opening_hours = form_data.get("google_opening_hours") or []
+    opening_hours_section = ""
+    if google_opening_hours:
+        opening_hours_section = "\n=== REAL GOOGLE BUSINESS HOURS (already verified) ===\n" + "\n".join(
+            f"- {line}" for line in google_opening_hours
+        ) + "\n"
 
     logo_src_token = form_data.get("logo_src_token")
     photo_src_tokens = form_data.get("photo_src_tokens") or []
@@ -74,7 +107,7 @@ def build_prompt(form_data: dict) -> str:
 
 FORM DATA:
 {facts}
-
+{google_reviews_section}{opening_hours_section}
 === STEP 1: VERIFY ===
 Use web search (2-4 targeted searches max) to:
 1. Confirm this is the correct business — disambiguate from any similarly-named businesses before using anything found online.
@@ -122,11 +155,12 @@ URGENCY OVERRIDES:
 Fixed page structure — always in this order, sections can be omitted but never reordered:
 1. Nav — logo (if a logo src token is given in MEDIA REFERENCES, embed it as an <img> using that exact token as the src; otherwise a typographic wordmark) + scroll-anchor links + primary contact CTA (phone if given, otherwise email/contact-anchor — never invent a phone number).
 2. Hero — value proposition, 1-2 CTAs, stat row ONLY if real verified stats exist.
-3. About — credibility section using only verified facts. If research surfaces a specific named building, landmark, or notable project the company has worked on (e.g. a listed building, an award entry, a named institution), include it by name in the About body copy. Do not fabricate project names — only include if found in research. Named references are strongly preferred over generic descriptions.
+3. About — credibility section using only verified facts. If research surfaces a specific named building, landmark, or notable project the company has worked on (e.g. a listed building, an award entry, a named institution), include it by name in the About body copy. Do not fabricate project names — only include if found in research. Named references are strongly preferred over generic descriptions. If google_earliest_review_date is present in FORM DATA, it's the year of this business's oldest fetched Google review — a proxy for how long they've had a Google listing, NOT a confirmed founding/trading date. If used at all, phrase it hedged (e.g. "serving the area since at least 2019" / "on Google since 2019"), never as a bare confident claim (e.g. "established 2019"). Fine to omit entirely if it doesn't fit naturally.
 4. Services — from form input, generic safe categories unless something specific was found.
 5. Accreditations — OMIT ENTIRELY if nothing was verified. Do not pad with vague reassurance copy instead.
 6. Portfolio — if photo src tokens are given in MEDIA REFERENCES, use them as the src for the portfolio image cards, one token per card, in the order given. If no photo tokens are given, render the portfolio grid with a single tasteful placeholder note rather than repeating "Photos Coming Soon" per card — wording along the lines of: "Portfolio photography in preparation. Contact us to discuss examples of work relevant to your project type." Do not repeat placeholder text across multiple cards. Never invent project names.
-6a. Testimonials — use web_search to look up this business's real Google Business Profile reviews (search "[business name] [location] google reviews"). If genuine reviews are found, include a Testimonials section with up to 3 real quotes verbatim (trimmed for length is fine, paraphrasing the meaning is not), each attributed with the reviewer's first name/initial and star rating exactly as shown, plus the aggregate rating and review count if visible (e.g. "4.9★ from 32 Google reviews") linking out to the business's Google listing if a URL was found. OMIT THIS SECTION ENTIRELY if no real reviews are found — never fabricate a quote, name, or rating, and never invent an aggregate score.
+6a. Testimonials — if the REAL GOOGLE REVIEWS section above is present, use those quotes verbatim (trimmed for length is fine, paraphrasing the meaning is not) — do NOT call web_search for reviews in this case, they're already verified. Show up to 3, each attributed with the reviewer's name/initial and star rating exactly as given, plus the aggregate rating/review count from the FORM DATA facts above if present (e.g. "4.9★ from 32 Google reviews"). If the REAL GOOGLE REVIEWS section is absent, fall back to web_search (search "[business name] [location] google reviews") — same verbatim-quote and attribution rules apply. OMIT THIS SECTION ENTIRELY if no genuine reviews are found either way — never fabricate a quote, name, or rating, and never invent an aggregate score.
+6b. Business hours — if the REAL GOOGLE BUSINESS HOURS section above is present, include a compact hours listing (e.g. in the contact section or footer) using those lines verbatim — do not reformat, reorder, guess at holiday hours, or add an "open now" indicator (that needs live time-of-day logic this static page doesn't have). Omit entirely if that section is absent — never invent hours.
 7. Contact — real contact details only. For low/normal urgency: include an enquiry form that submits via JavaScript fetch() to GW_CONTACT_URL (use this literal string as the fetch URL — it will be substituted at deploy time). The form must include exactly these fields:
    - `<input type="hidden" name="site_id" value="GW_SITE_ID">` (use the literal string GW_SITE_ID as the value — substituted at deploy time)
    - `<input type="text" name="website" tabindex="-1" autocomplete="off" style="position:absolute;left:-9999px;opacity:0;pointer-events:none;" aria-hidden="true">` (spam honeypot, hidden off-screen — must be present but invisible)

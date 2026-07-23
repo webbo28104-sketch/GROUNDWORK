@@ -2562,6 +2562,17 @@ def _prospect_to_form_data(p):
         "email": p.email or "",
         "logo_uploaded": False,
         "portfolio_uploaded": False,
+        # Real Google Places data (Enterprise + Atmosphere tier, added
+        # 2026-07-23) — see build_prompt.py for how each is used. Aggregate
+        # rating/count are plain facts-list entries; reviews/opening_hours
+        # are structured and get their own prompt sections.
+        "google_rating": p.rating,
+        "google_review_count": p.review_count,
+        "google_primary_type": p.primary_type,
+        "google_editorial_summary": p.editorial_summary,
+        "google_earliest_review_date": p.earliest_review_date.strftime("%Y") if p.earliest_review_date else None,
+        "google_reviews": p.reviews,
+        "google_opening_hours": p.opening_hours,
     }
 
 
