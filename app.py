@@ -5442,6 +5442,33 @@ def admin_funnel():
         extraction_quality_breakdown = _render_extraction_quality_breakdown(db)
         survey_breakdown = _render_survey_breakdown(db)
 
+        # Avg generation cost, last 20 sites (added 2026-07-23) — shown in
+        # the Recent clicks bar below. Claude API cost is estimated per
+        # generation from token usage (Generation.generation_cost_usd — see
+        # app.py's _run(); no Anthropic Admin API key available to pull a
+        # real billed figure), averaged over the most recent 20 rows that
+        # have a recorded cost (older generations predate cost tracking and
+        # are simply skipped, not counted as $0). Converted to GBP using
+        # today's live rate, not the static domain-pricing constant above.
+        last_20_costs = [
+            g.generation_cost_usd for g in
+            db.query(Generation.generation_cost_usd)
+            .filter(Generation.generation_cost_usd.isnot(None))
+            .order_by(Generation.created_at.desc())
+            .limit(20).all()
+        ]
+        if last_20_costs:
+            avg_cost_usd = sum(last_20_costs) / len(last_20_costs)
+            fx_rate = _live_usd_to_gbp_rate()
+            avg_cost_gbp = avg_cost_usd * fx_rate
+            avg_cost_html = (
+                f'<span style="color:#9A9893;">Avg cost/site (last {len(last_20_costs)}):</span> '
+                f'<b style="color:#1C1C1C;">${avg_cost_usd:.4f}</b> '
+                f'<span style="color:#9A9893;">(£{avg_cost_gbp:.4f} @ {fx_rate:.4f})</span>'
+            )
+        else:
+            avg_cost_html = '<span style="color:#9A9893;">Avg cost/site: no cost data recorded yet</span>'
+
         # Recent clicks — every prospect who has clicked their magic link,
         # most recent first, with enough context to see WHY at a glance
         # (score, trade, source, time-to-click) without a drill-down. Links
@@ -5485,7 +5512,10 @@ def admin_funnel():
             for cp in recent_clicked
         ) or '<tr><td colspan="9" style="padding:10px;color:#9A9893;">No clicks yet.</td></tr>'
         recent_clicks_html = f"""
-<h2 style="font-size:15px;font-weight:700;margin:28px 0 10px;">Recent clicks ({len(recent_clicked)})</h2>
+<div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:10px;margin:28px 0 10px;">
+  <h2 style="font-size:15px;font-weight:700;margin:0;">Recent clicks ({len(recent_clicked)})</h2>
+  <span style="font-size:13px;">{avg_cost_html}</span>
+</div>
 <div class="adm-card" style="overflow-x:auto;">
 <table style="width:100%;border-collapse:collapse;font-size:13.5px;">
 <thead><tr style="color:#9A9893;font-size:11px;text-transform:uppercase;border-bottom:1px solid #E6E3DC;">
@@ -7173,6 +7203,37 @@ _TLD_PRICE_GBP_FALLBACK = {
 
 _porkbun_pricing_cache = {"data": None, "fetched_at": 0.0}
 _PORKBUN_PRICING_TTL_SECONDS = 6 * 3600  # 6h — pricing/get is a heavy-ish call covering every TLD
+
+# Live USD→GBP rate for the admin funnel page's "avg generation cost"
+# stat (added 2026-07-23) — deliberately separate from _USD_TO_GBP above,
+# which is a manually-set constant for domain-margin math, not a live rate.
+# frankfurter.app is ECB-sourced, free, and needs no API key. Cached for
+# _FX_RATE_TTL_SECONDS so an admin page refresh doesn't hit it every time;
+# falls back to _USD_TO_GBP (stale but safe) if the fetch fails.
+_fx_rate_cache = {"rate": None, "fetched_at": 0.0}
+_FX_RATE_TTL_SECONDS = 3600  # 1h
+
+
+def _live_usd_to_gbp_rate() -> float:
+    now = time.time()
+    if _fx_rate_cache["rate"] and (now - _fx_rate_cache["fetched_at"] < _FX_RATE_TTL_SECONDS):
+        return _fx_rate_cache["rate"]
+    try:
+        # frankfurter.app 403s on urllib's default User-Agent — confirmed
+        # live, not a hypothetical — a real header value is required.
+        req = urllib.request.Request(
+            "https://api.frankfurter.app/latest?from=USD&to=GBP",
+            headers={"User-Agent": "Mozilla/5.0 (compatible; GroundworkAdmin/1.0)"},
+        )
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            data = json.loads(resp.read().decode())
+        rate = float(data["rates"]["GBP"])
+        _fx_rate_cache["rate"] = rate
+        _fx_rate_cache["fetched_at"] = now
+        return rate
+    except Exception as exc:
+        app.logger.warning(f"Live USD->GBP rate fetch failed, using static fallback {_USD_TO_GBP}: {exc}")
+        return _USD_TO_GBP
 
 
 def _tld_price_gbp() -> dict:
