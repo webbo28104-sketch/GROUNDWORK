@@ -6392,17 +6392,22 @@ slightly off vs. the Funnel page's prospect-level rates.</p>
         db.close()
 
 
-def _render_dual_rate_chart(buckets, opened_disabled):
-    """Inline SVG grouped-bar chart (no external library, same convention as
+def _render_dual_rate_chart(buckets, opened_disabled, label_stride=1):
+    """Inline SVG dual-line chart (no external library, same convention as
     _render_rate_chart above) — buckets is a list of (label, sent, opened,
-    generated) tuples in display order. Two bars per bucket: opened rate
-    (blue) and generated/clicked rate (green), against a shared 0-100%
-    y-axis. Buckets with sent=0 are still labeled on the x-axis but draw no
-    bars, same "no data isn't 0%" principle as the deliverability chart.
-    opened_disabled greys out the opened series (with a tooltip) the same
-    way admin_funnel's _FUNNEL_OPENED_DISABLED does, for the same reason —
-    open tracking wasn't reliable before 2026-07-20 (see
-    _OPENED_TRACKING_RELIABLE_FROM)."""
+    generated) tuples in display order. Two line series against a shared
+    0-100% y-axis: opened rate (blue) and generated/clicked rate (green).
+    Changed from grouped bars to lines 2026-07-23, by request — a rate
+    trending across hours/weekdays reads more naturally as a line than as
+    side-by-side bar pairs. Buckets with sent=0 leave a gap in the line
+    (no point plotted) rather than drawing a false 0%, same "no data isn't
+    0%" principle the old bar chart used. opened_disabled greys out and
+    dashes the opened series (with a tooltip) the same way admin_funnel's
+    _FUNNEL_OPENED_DISABLED does, for the same reason — open tracking
+    wasn't reliable before 2026-07-20 (see _OPENED_TRACKING_RELIABLE_FROM).
+    label_stride only thins the x-axis TEXT labels (every Nth bucket) —
+    every bucket still gets a plotted point; added for the 96-bucket
+    15-min-slot chart, where a label on every bucket would be unreadable."""
     if not buckets:
         return '<div class="muted" style="padding:20px;">No data.</div>'
 
@@ -6414,35 +6419,62 @@ def _render_dual_rate_chart(buckets, opened_disabled):
     def y_of(pct):
         return pad_t + chart_h - (pct / 100.0) * chart_h
 
-    bars = ""
+    def x_of(i):
+        return pad_l + i * bucket_w + bucket_w / 2
+
     x_labels = ""
+    opened_points = []   # (x, y, title) or None for a gap
+    generated_points = []
     for i, (label, sent, opened, generated) in enumerate(buckets):
         x = pad_l + i * bucket_w
-        x_labels += (
-            f'<text x="{x + bucket_w / 2:.1f}" y="{h - 6}" text-anchor="middle" '
-            f'font-size="10.5" fill="#9A9893">{escape(label)}</text>'
-        )
+        if i % label_stride == 0:
+            x_labels += (
+                f'<text x="{x + bucket_w / 2:.1f}" y="{h - 6}" text-anchor="middle" '
+                f'font-size="10.5" fill="#9A9893">{escape(label)}</text>'
+            )
         if not sent:
+            opened_points.append(None)
+            generated_points.append(None)
             continue
         opened_pct = (opened / sent) * 100
         generated_pct = (generated / sent) * 100
-        sub_w = bucket_w * 0.32
-        gap = bucket_w * 0.06
-        x1 = x + bucket_w * 0.5 - sub_w - gap / 2
-        x2 = x + bucket_w * 0.5 + gap / 2
-        opened_fill = "#B9C4D6" if opened_disabled else "#3B82F6"
         opened_title = (
             f"{label}: opened tracking not reliable before {_OPENED_TRACKING_RELIABLE_FROM.strftime('%d %b %Y')}"
             if opened_disabled else f"{label}: {opened}/{sent} opened = {opened_pct:.0f}%"
         )
-        bars += (
-            f'<rect x="{x1:.1f}" y="{y_of(opened_pct):.1f}" width="{sub_w:.1f}" '
-            f'height="{chart_h - (y_of(opened_pct) - pad_t):.1f}" fill="{opened_fill}" rx="1.5">'
-            f'<title>{escape(opened_title)}</title></rect>'
-            f'<rect x="{x2:.1f}" y="{y_of(generated_pct):.1f}" width="{sub_w:.1f}" '
-            f'height="{chart_h - (y_of(generated_pct) - pad_t):.1f}" fill="#10B981" rx="1.5">'
-            f'<title>{label}: {generated}/{sent} generated = {generated_pct:.0f}%</title></rect>'
+        opened_points.append((x_of(i), y_of(opened_pct), opened_title))
+        generated_points.append((x_of(i), y_of(generated_pct), f"{label}: {generated}/{sent} generated = {generated_pct:.0f}%"))
+
+    def render_series(points, color, dashed=False):
+        # Connect consecutive non-gap points only — a None (no-data bucket)
+        # breaks the line rather than interpolating across it or dropping
+        # to 0.
+        segments = []
+        current = []
+        for p in points:
+            if p is None:
+                if len(current) > 1:
+                    segments.append(current)
+                current = []
+                continue
+            current.append(p)
+        if len(current) > 1:
+            segments.append(current)
+
+        dash_attr = ' stroke-dasharray="5,4"' if dashed else ""
+        paths = "".join(
+            '<path d="M ' + " L ".join(f"{x:.1f} {y:.1f}" for x, y, _ in seg) + '" '
+            f'fill="none" stroke="{color}" stroke-width="2.5"{dash_attr} stroke-linejoin="round" stroke-linecap="round"/>'
+            for seg in segments
         )
+        dots = "".join(
+            f'<circle cx="{p[0]:.1f}" cy="{p[1]:.1f}" r="3.5" fill="{color}"><title>{escape(p[2])}</title></circle>'
+            for p in points if p is not None
+        )
+        return paths + dots
+
+    opened_color = "#B9C4D6" if opened_disabled else "#3B82F6"
+    lines = render_series(generated_points, "#10B981") + render_series(opened_points, opened_color, dashed=opened_disabled)
 
     gridlines = ""
     for pct in (0, 25, 50, 75, 100):
@@ -6454,40 +6486,59 @@ def _render_dual_rate_chart(buckets, opened_disabled):
 
     return f"""<svg viewBox="0 0 {w} {h}" style="width:100%;height:auto;display:block;">
       {gridlines}
-      {bars}
+      {lines}
       {x_labels}
     </svg>"""
 
 
 def _timing_buckets(db, window_start, now, group_by):
-    """Shared aggregation behind admin_send_timing — group_by is "hour" (0-23,
-    from Prospect.sent_at_hour) or "dow" (0-6 Monday-first, from
-    Prospect.sent_at_dow), both stamped at send time already (see
-    send_initial_touch in outreach/send_job.py) rather than recomputed here,
-    so this always matches what the rest of the admin already shows for a
-    given prospect. Returns a list of (label, sent, opened, generated)
-    tuples in display order, one per bucket, covering every bucket even if
-    empty (0 sent) so the chart's x-axis doesn't silently skip quiet
-    hours/days."""
+    """Shared aggregation behind the send-timing charts — group_by is
+    "slot" (96 buckets, 15-min resolution across the day, from
+    Prospect.sent_at_hour/sent_at_slot) or "dow" (0-6 Monday-first, from
+    Prospect.sent_at_dow) — all stamped at send time already (see
+    send_initial_touch in outreach/send_job.py) rather than recomputed
+    here, so this always matches what the rest of the admin already shows
+    for a given prospect. Returns a list of (label, sent, opened,
+    generated) tuples in display order, one per bucket, covering every
+    bucket even if empty (0 sent) so the chart's x-axis doesn't silently
+    skip quiet slots/days.
+
+    "slot" replaced the old 24-bucket "hour" grouping 2026-07-23, once
+    sending itself moved to 15-min slots (outreach/ramp.py's
+    EMAIL_SLOT_MINUTES) — an hourly rollup was too coarse to show anything
+    a per-slot send schedule could actually act on. sent_at_slot is NULL
+    for every send before that change, so this naturally only reflects
+    real 15-min-era data (filtered below) rather than needing a hardcoded
+    reliable-from cutoff."""
     prospects = db.query(Prospect).filter(
         Prospect.sent_at.isnot(None), Prospect.sent_at >= window_start, Prospect.sent_at <= now,
     ).all()
 
-    n_buckets = 24 if group_by == "hour" else 7
-    counts = [{"sent": 0, "opened": 0, "generated": 0} for _ in range(n_buckets)]
-    for p in prospects:
-        key = p.sent_at_hour if group_by == "hour" else p.sent_at_dow
-        if key is None:
-            continue
-        counts[key]["sent"] += 1
-        if p.opened_at is not None:
-            counts[key]["opened"] += 1
-        if p.clicked_at is not None:
-            counts[key]["generated"] += 1
-
-    if group_by == "hour":
-        labels = [f"{h:02d}" for h in range(24)]
+    if group_by == "slot":
+        n_buckets = 24 * 4
+        counts = [{"sent": 0, "opened": 0, "generated": 0} for _ in range(n_buckets)]
+        for p in prospects:
+            if p.sent_at_hour is None or p.sent_at_slot is None:
+                continue  # pre-15-min-slot send — no slot data to bucket
+            key = p.sent_at_hour * 4 + p.sent_at_slot
+            counts[key]["sent"] += 1
+            if p.opened_at is not None:
+                counts[key]["opened"] += 1
+            if p.clicked_at is not None:
+                counts[key]["generated"] += 1
+        labels = [f"{h:02d}:{m:02d}" for h in range(24) for m in (0, 15, 30, 45)]
     else:
+        n_buckets = 7
+        counts = [{"sent": 0, "opened": 0, "generated": 0} for _ in range(n_buckets)]
+        for p in prospects:
+            key = p.sent_at_dow
+            if key is None:
+                continue
+            counts[key]["sent"] += 1
+            if p.opened_at is not None:
+                counts[key]["opened"] += 1
+            if p.clicked_at is not None:
+                counts[key]["generated"] += 1
         labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
     return [(labels[i], c["sent"], c["opened"], c["generated"]) for i, c in enumerate(counts)]
@@ -6506,7 +6557,7 @@ def _render_send_timing_section(db):
     week_start = now - timedelta(days=7)
     month_start = now - timedelta(days=30)
 
-    hourly_buckets = _timing_buckets(db, week_start, now, "hour")
+    slot_buckets = _timing_buckets(db, week_start, now, "slot")
     weekday_buckets = _timing_buckets(db, month_start, now, "dow")
 
     hourly_opened_disabled = week_start < _OPENED_TRACKING_RELIABLE_FROM
@@ -6518,7 +6569,10 @@ def _render_send_timing_section(db):
             return None, None
         return max(real, key=lambda r: r[3] / r[1]), min(real, key=lambda r: r[3] / r[1])
 
-    hourly_best, hourly_worst = _best_worst(hourly_buckets)
+    # min_n lower than the old hourly chart's — 96 buckets across 7 days
+    # split volume far thinner per bucket than 24 ever did, so a 10-send
+    # floor would show "not enough volume" almost everywhere for a while.
+    slot_best, slot_worst = _best_worst(slot_buckets, min_n=3)
     weekday_best, weekday_worst = _best_worst(weekday_buckets, min_n=5)
 
     def _callout(best, worst, unit):
@@ -6534,16 +6588,16 @@ def _render_send_timing_section(db):
             f'Worst: <b style="color:#DC2626;">{escape(worst_label)}</b> ({worst_gen / worst_sent * 100:.0f}%)</p>'
         )
 
-    hourly_chart = _render_dual_rate_chart(hourly_buckets, hourly_opened_disabled)
+    slot_chart = _render_dual_rate_chart(slot_buckets, hourly_opened_disabled, label_stride=4)
     weekday_chart = _render_dual_rate_chart(weekday_buckets, weekday_opened_disabled)
 
     return f"""
 <h2 style="font-size:16px;font-weight:800;margin:28px 0 4px;">Send timing</h2>
-<p class="muted" style="font-size:12.5px;margin:0 0 10px;">By send hour (7d) / weekday (30d) — <span style="color:#3B82F6;">■</span> opened, <span style="color:#10B981;">■</span> generated.</p>
+<p class="muted" style="font-size:12.5px;margin:0 0 10px;">By 15-min send slot (7d) / weekday (30d) — <span style="color:#3B82F6;">■</span> opened, <span style="color:#10B981;">■</span> generated.</p>
 
-<p class="muted" style="font-size:12px;margin:0 0 4px;">By hour of day — trailing 7 days</p>
-{_callout(hourly_best, hourly_worst, "hour")}
-<div class="adm-card" style="padding:20px 20px 8px;margin-bottom:18px;">{hourly_chart}</div>
+<p class="muted" style="font-size:12px;margin:0 0 4px;">By 15-min send slot — trailing 7 days (only reflects sends since the 15-min-slot cadence started — see Prospect.sent_at_slot)</p>
+{_callout(slot_best, slot_worst, "slot")}
+<div class="adm-card" style="padding:20px 20px 8px;margin-bottom:18px;">{slot_chart}</div>
 
 <p class="muted" style="font-size:12px;margin:0 0 4px;">By day of week — trailing 30 days</p>
 {_callout(weekday_best, weekday_worst, "day")}

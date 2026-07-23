@@ -227,6 +227,7 @@ def send_initial_touch(db, p, now, remaining_ramp=None):
     p.sent_at = now
     p.sent_at_dow = now.weekday()
     p.sent_at_hour = now.hour
+    p.sent_at_slot = now.minute // 15  # 0-3 — see Prospect.sent_at_slot's docstring
     p.last_touch_at = now
     p.touch_count = 1
     db.commit()

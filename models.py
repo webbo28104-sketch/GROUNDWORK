@@ -301,6 +301,13 @@ class Prospect(Base):
     sent_at = Column(DateTime, nullable=True)
     sent_at_dow = Column(Integer, nullable=True)
     sent_at_hour = Column(Integer, nullable=True)
+    # Which 15-min slot of sent_at_hour this send fired in (0-3), added
+    # 2026-07-23 alongside the send cadence change to 15-min slots (see
+    # outreach/ramp.py's EMAIL_SLOT_MINUTES). NULL for every send before
+    # that change — the admin send-timing chart filters on this being
+    # non-null rather than using a hardcoded reliable-from date, since the
+    # column's own NULL-ness already is the "no data yet" signal.
+    sent_at_slot = Column(Integer, nullable=True)
     opened_at = Column(DateTime, nullable=True)
     clicked_at = Column(DateTime, nullable=True)
     paid_at = Column(DateTime, nullable=True)
@@ -836,6 +843,7 @@ def init_db():
     _ensure_column(Prospect.__tablename__, "sent_at", "TIMESTAMP")
     _ensure_column(Prospect.__tablename__, "sent_at_dow", "INTEGER")
     _ensure_column(Prospect.__tablename__, "sent_at_hour", "INTEGER")
+    _ensure_column(Prospect.__tablename__, "sent_at_slot", "INTEGER")
     _ensure_column(Prospect.__tablename__, "opened_at", "TIMESTAMP")
     _ensure_column(Prospect.__tablename__, "clicked_at", "TIMESTAMP")
     _ensure_column(Prospect.__tablename__, "paid_at", "TIMESTAMP")
