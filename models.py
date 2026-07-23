@@ -480,14 +480,18 @@ class HourlySendCount(Base):
     signal denominator via DailySendCount, unchanged; this is a second,
     finer-grained counter purely for the per-hour send cap, so sending 60
     emails in the first hour of an 08:00-19:00 window can't happen just
-    because the day's total budget hasn't been used up yet). hour_bucket is
-    "YYYY-MM-DD-HH", UTC, so it naturally resets every hour with no cron/
-    cleanup step needed — old rows are just never queried again."""
+    because the day's total budget hasn't been used up yet). hour_bucket was
+    "YYYY-MM-DD-HH", UTC, until 2026-07-23, when email switched to a 15-min
+    slot cadence (outreach/ramp.py's _slot_bucket) — email's bucket is now
+    "YYYY-MM-DD-HH-S" (S = 0-3, 16 chars), SMS's is unchanged at 13. Column
+    widened to fit both (String(13) crashed send-job-cron outright on the
+    first email insert after the cadence change — StringDataRightTruncation,
+    not caught/handled anywhere, so the whole job died)."""
     __tablename__ = "hourly_send_counts"
 
     id = Column(Integer, primary_key=True)
     channel = Column(String(10), nullable=False)  # "email" / "sms"
-    hour_bucket = Column(String(13), nullable=False)  # "YYYY-MM-DD-HH", UTC
+    hour_bucket = Column(String(20), nullable=False)  # "YYYY-MM-DD-HH" or "YYYY-MM-DD-HH-S", UTC
     count = Column(Integer, nullable=False, default=0)
 
     __table_args__ = (UniqueConstraint("channel", "hour_bucket", name="uq_hourly_send_counts_channel_hour"),)
@@ -805,6 +809,7 @@ def init_db():
     _ensure_column(OutreachTouch.__tablename__, "opened_at", "TIMESTAMP")
     _ensure_column(OutreachTouch.__tablename__, "clicked_at", "TIMESTAMP")
     _ensure_column(OutreachTouch.__tablename__, "paid_at", "TIMESTAMP")
+    _ensure_column_width(HourlySendCount.__tablename__, "hour_bucket", 20)
 
 
 def _ensure_column(table_name: str, column_name: str, ddl_type: str) -> None:
