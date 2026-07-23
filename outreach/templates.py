@@ -665,6 +665,116 @@ HAIL_MARY_SMS = (
 )
 
 
+# One-off win-back announcement (added 2026-07-23) — sent once, to prospects
+# who clicked their preview link and never paid back when there was still a
+# £99 setup fee to overcome. Not a rotating stage/variant (see EmailVariant's
+# docstring in models.py — this isn't under A/B test, it's a single genuine
+# announcement of a real, permanent price change) and not part of the normal
+# A-D drip — outreach/send_price_drop_announcement.py sends this directly
+# and logs it as its own OutreachTouch.stage="price_drop" so it can
+# never double-send. The urgency here is real, not fabricated scarcity —
+# the thing that changed (no more setup fee) actually happened and is
+# actually new news to this specific audience, so it's stated plainly
+# rather than padded with a fake countdown or "today only" claim.
+PRICE_DROP_ANNOUNCEMENT_EMAIL = {
+    "subject": "We dropped the setup fee — {business_name}'s site can go live today, free",
+    "body": """<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<title>We dropped the setup fee — {business_name}'s site can go live today, free</title>
+
+</head>
+<body style="margin:0;padding:0;background:#EDEAE2;font-family:Arial,Helvetica,sans-serif;">
+<!-- Preheader (hidden, shows in inbox preview text) -->
+<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;">The setup fee that stopped you last time is gone — nothing to pay to go live now.</div>
+
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#EDEAE2;">
+<tbody><tr><td align="center" style="padding:40px 16px;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;background:#FFFFFF;">
+
+  <!-- HEADER -->
+  <tbody><tr><td style="padding:28px 32px 18px;border-bottom:2px solid #3B82F6;">
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+      <tbody><tr>
+        <td style="padding:0 9px 0 0;vertical-align:middle;">
+          <img src="https://groundworkbuild.com/assets/email/groundwork-mark-22.png" width="22" height="22" alt="" style="display:block;border-radius:5px;">
+        </td>
+        <td style="vertical-align:middle;">
+          <span style="font-family:Arial,Helvetica,sans-serif;font-size:17px;font-weight:bold;color:#1C1C1C;letter-spacing:-.01em;">Groundwork</span>
+        </td>
+      </tr>
+    </tbody></table>
+  </td></tr>
+
+  <!-- BODY -->
+  <tr><td style="padding:32px 32px 8px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+      <tbody>
+      <!-- Headline IS the news — the whole point of this send. -->
+      <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:22px;font-weight:800;letter-spacing:-.01em;line-height:1.3;color:#1C1C1C;padding:0 0 14px;">
+        The setup fee is gone — {business_name}'s site is still waiting
+      </td></tr>
+      <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:15.5px;line-height:1.65;color:#2A2A28;padding:0 0 18px;">
+        Last time you looked, going live meant a setup fee on top of monthly hosting. That's changed — <b>we've dropped it completely.</b> Nothing to pay upfront, first month free, £24.99/month after that.
+      </td></tr>
+      <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:15.5px;line-height:1.65;color:#2A2A28;padding:0 0 30px;">
+        Your website's exactly where you left it — same design, same content. If the price was what held you back, that reason's gone now.
+      </td></tr>
+
+      <!-- CTA -->
+      <tr><td style="padding:0 0 20px;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+          <tbody><tr><td bgcolor="#3B82F6" style="border-radius:8px;">
+            <a href="{preview_link}" target="_blank" style="display:inline-block;padding:13px 24px;font-family:Arial,Helvetica,sans-serif;font-size:15px;font-weight:bold;color:#FFFFFF;text-decoration:none;border-radius:8px;">Go live today — free →</a>
+          </td></tr>
+        </tbody></table>
+      </td></tr>
+
+      <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:15.5px;line-height:1.65;color:#2A2A28;padding:0 0 8px;">
+        Any questions, just reply to this email — I read every one.
+      </td></tr>
+      <tr><td style="padding:6px 0 26px;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;font-family:Arial,Helvetica,sans-serif;">
+        <tbody><tr>
+          <td valign="middle" style="padding:0 18px 0 0;vertical-align:middle;">
+            <img src="https://groundworkbuild.com/assets/email/groundwork-mark-48.png" width="48" height="48" alt="Groundwork" style="display:block;border-radius:10px;">
+          </td>
+          <td valign="middle" style="border-left:2px solid #3B82F6;padding:0 0 0 18px;vertical-align:middle;">
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
+              <tbody><tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:16px;font-weight:bold;color:#1C1C1C;padding:0 0 2px;line-height:1.3;">Charlie</td></tr>
+              <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5C5A56;padding:0 0 10px;line-height:1.3;">Founder, Groundwork</td></tr>
+              <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:1.3;padding:0;">
+                <a href="https://groundworkbuild.com" style="color:#2257CC;text-decoration:none;">groundworkbuild.com</a><span style="color:#D9D7D0;padding:0 8px;">|</span><a href="mailto:reply@groundworkbuild.com" style="color:#2257CC;text-decoration:none;">reply@groundworkbuild.com</a>
+              </td></tr>
+            </tbody></table>
+      </td></tr>
+    </tbody></table>
+  </td></tr>
+
+  <!-- FOOTER -->
+  <tr><td style="padding:26px 32px 28px;border-top:1px solid #E2E0DA;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+      <tbody><tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:11.5px;font-weight:bold;letter-spacing:.06em;text-transform:uppercase;color:#9A9893;padding:0 0 8px;">
+        Groundwork
+      </td></tr>
+      <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:12.5px;line-height:1.65;color:#9A9893;">
+                <a href="{unsubscribe_link}" style="color:#9A9893;text-decoration:underline;">Unsubscribe</a> or reply and let me know and I won't email again.
+      </td></tr>
+    </tbody></table>
+  </td></tr>
+
+</tbody></table>
+</td></tr>
+</tbody></table>
+
+
+
+</td></tr></tbody></table></body></html>""",
+}
+
+
 FOLLOWUP_SMS = {
     # Also used as the single collapsed pre-click follow-up for phone-only
     # (has_findable_email=False) prospects — SMS has no "opened" tracking.
@@ -741,11 +851,13 @@ def branding_ps_line(extraction_quality):
 
 
 def render_email(stage_key, **kwargs):
-    """stage_key: 'initial', 'hail_mary', or one of 'A'/'B'/'C'/'D'."""
+    """stage_key: 'initial', 'hail_mary', 'price_drop', or one of 'A'/'B'/'C'/'D'."""
     if stage_key == "initial":
         template = INITIAL_EMAIL
     elif stage_key == "hail_mary":
         template = HAIL_MARY_EMAIL
+    elif stage_key == "price_drop":
+        template = PRICE_DROP_ANNOUNCEMENT_EMAIL
     else:
         template = FOLLOWUP_EMAIL[stage_key]
     return {
