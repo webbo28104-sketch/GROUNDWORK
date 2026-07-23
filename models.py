@@ -728,6 +728,7 @@ def init_db():
     _ensure_column(Generation.__tablename__, "total_view_seconds", "INTEGER NOT NULL DEFAULT 0")
     _ensure_column(Generation.__tablename__, "max_scroll_pct", "INTEGER NOT NULL DEFAULT 0")
     _ensure_column(Generation.__tablename__, "is_internal", "BOOLEAN NOT NULL DEFAULT FALSE")
+    _ensure_column(Generation.__tablename__, "generation_cost_usd", "FLOAT")
     _ensure_column(Domain.__tablename__, "registered_at", "TIMESTAMP")
     _ensure_column(Domain.__tablename__, "dns_configured_at", "TIMESTAMP")
     _ensure_column(Domain.__tablename__, "railway_connected_at", "TIMESTAMP")
