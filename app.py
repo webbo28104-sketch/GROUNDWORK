@@ -6396,7 +6396,7 @@ def _render_dual_rate_chart(buckets, opened_disabled, label_stride=1):
     """Inline SVG dual-line chart (no external library, same convention as
     _render_rate_chart above) — buckets is a list of (label, sent, opened,
     generated) tuples in display order. Two line series against a shared
-    0-100% y-axis: opened rate (blue) and generated/clicked rate (green).
+    y-axis: opened rate (blue) and generated/clicked rate (green).
     Changed from grouped bars to lines 2026-07-23, by request — a rate
     trending across hours/weekdays reads more naturally as a line than as
     side-by-side bar pairs. Buckets with sent=0 leave a gap in the line
@@ -6407,7 +6407,14 @@ def _render_dual_rate_chart(buckets, opened_disabled, label_stride=1):
     wasn't reliable before 2026-07-20 (see _OPENED_TRACKING_RELIABLE_FROM).
     label_stride only thins the x-axis TEXT labels (every Nth bucket) —
     every bucket still gets a plotted point; added for the 96-bucket
-    15-min-slot chart, where a label on every bucket would be unreadable."""
+    15-min-slot chart, where a label on every bucket would be unreadable.
+
+    Y-axis auto-scales to the real data's peak (2026-07-23, by request) —
+    a fixed 0-100% axis flattened real peaks/troughs into a thin band near
+    the bottom when actual rates are much lower than 100%. The ceiling is
+    the actual max data point, rounded up to a "nice" step (5/10/25 — see
+    _nice_ceiling below), with a small floor so a near-all-zero chart
+    still gets a sane axis rather than compressing to almost nothing."""
     if not buckets:
         return '<div class="muted" style="padding:20px;">No data.</div>'
 
@@ -6416,34 +6423,59 @@ def _render_dual_rate_chart(buckets, opened_disabled, label_stride=1):
     n = len(buckets)
     bucket_w = chart_w / n
 
-    def y_of(pct):
-        return pad_t + chart_h - (pct / 100.0) * chart_h
-
     def x_of(i):
         return pad_l + i * bucket_w + bucket_w / 2
+
+    # Pass 1: compute raw rates and find the real peak before choosing a
+    # y-axis ceiling — y_of (pass 2) depends on that ceiling.
+    raw = []  # (label, sent, opened_pct_or_None, generated_pct_or_None)
+    max_pct = 0.0
+    for label, sent, opened, generated in buckets:
+        if not sent:
+            raw.append((label, sent, None, None))
+            continue
+        opened_pct = (opened / sent) * 100
+        generated_pct = (generated / sent) * 100
+        max_pct = max(max_pct, opened_pct, generated_pct)
+        raw.append((label, sent, opened_pct, generated_pct))
+
+    def _nice_ceiling(value):
+        if value <= 10:
+            step = 2
+        elif value <= 25:
+            step = 5
+        elif value <= 60:
+            step = 10
+        else:
+            step = 25
+        ceiling = math.ceil(value / step) * step
+        return max(ceiling, step)  # never a zero-height axis
+
+    y_max = _nice_ceiling(max_pct)
+
+    def y_of(pct):
+        return pad_t + chart_h - (pct / y_max) * chart_h
 
     x_labels = ""
     opened_points = []   # (x, y, title) or None for a gap
     generated_points = []
-    for i, (label, sent, opened, generated) in enumerate(buckets):
+    for i, (label, sent, opened_pct, generated_pct) in enumerate(raw):
         x = pad_l + i * bucket_w
         if i % label_stride == 0:
             x_labels += (
                 f'<text x="{x + bucket_w / 2:.1f}" y="{h - 6}" text-anchor="middle" '
                 f'font-size="10.5" fill="#9A9893">{escape(label)}</text>'
             )
-        if not sent:
+        if opened_pct is None:
             opened_points.append(None)
             generated_points.append(None)
             continue
-        opened_pct = (opened / sent) * 100
-        generated_pct = (generated / sent) * 100
         opened_title = (
             f"{label}: opened tracking not reliable before {_OPENED_TRACKING_RELIABLE_FROM.strftime('%d %b %Y')}"
-            if opened_disabled else f"{label}: {opened}/{sent} opened = {opened_pct:.0f}%"
+            if opened_disabled else f"{label}: opened = {opened_pct:.0f}% ({sent} sent)"
         )
         opened_points.append((x_of(i), y_of(opened_pct), opened_title))
-        generated_points.append((x_of(i), y_of(generated_pct), f"{label}: {generated}/{sent} generated = {generated_pct:.0f}%"))
+        generated_points.append((x_of(i), y_of(generated_pct), f"{label}: generated = {generated_pct:.0f}% ({sent} sent)"))
 
     def render_series(points, color, dashed=False):
         # Connect consecutive non-gap points only — a None (no-data bucket)
@@ -6477,11 +6509,13 @@ def _render_dual_rate_chart(buckets, opened_disabled, label_stride=1):
     lines = render_series(generated_points, "#10B981") + render_series(opened_points, opened_color, dashed=opened_disabled)
 
     gridlines = ""
-    for pct in (0, 25, 50, 75, 100):
+    n_gridlines = 4  # 0%, y_max/4, y_max/2, 3*y_max/4, y_max
+    for step in range(n_gridlines + 1):
+        pct = y_max * step / n_gridlines
         gy = y_of(pct)
         gridlines += (
             f'<line x1="{pad_l}" y1="{gy:.1f}" x2="{w - 10}" y2="{gy:.1f}" stroke="#EDEBE5"/>'
-            f'<text x="{pad_l - 6}" y="{gy + 3:.1f}" text-anchor="end" font-size="10" fill="#9A9893">{pct}%</text>'
+            f'<text x="{pad_l - 6}" y="{gy + 3:.1f}" text-anchor="end" font-size="10" fill="#9A9893">{pct:.0f}%</text>'
         )
 
     return f"""<svg viewBox="0 0 {w} {h}" style="width:100%;height:auto;display:block;">
@@ -6569,10 +6603,13 @@ def _render_send_timing_section(db):
             return None, None
         return max(real, key=lambda r: r[3] / r[1]), min(real, key=lambda r: r[3] / r[1])
 
-    # min_n lower than the old hourly chart's — 96 buckets across 7 days
-    # split volume far thinner per bucket than 24 ever did, so a 10-send
-    # floor would show "not enough volume" almost everywhere for a while.
-    slot_best, slot_worst = _best_worst(slot_buckets, min_n=3)
+    # No minimum-volume floor (removed 2026-07-23, by request) — a slot
+    # with a single send is still real data, and with 96 buckets across a
+    # 7-day window, waiting for any meaningful per-slot floor would show
+    # "not enough volume" almost everywhere for a long time. min_n=1 (not
+    # 0) only to keep the sent>=min_n check from ever admitting a
+    # zero-sent bucket and dividing by zero below.
+    slot_best, slot_worst = _best_worst(slot_buckets, min_n=1)
     weekday_best, weekday_worst = _best_worst(weekday_buckets, min_n=5)
 
     def _callout(best, worst, unit):
