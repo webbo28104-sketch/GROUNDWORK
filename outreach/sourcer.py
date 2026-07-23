@@ -11,6 +11,7 @@ Flow:
   parse_place(raw, ...)  -> flat dict matching Prospect columns
   upsert_prospect(db, d) -> (Prospect | None, created_bool), deduped on place_id
 """
+import calendar
 import logging
 import time
 from datetime import datetime, timedelta
@@ -19,10 +20,10 @@ import requests
 from sqlalchemy import func
 
 try:
-    from models import Prospect, SearchCell
+    from models import Prospect, SearchCell, GooglePlacesApiUsage
     from outreach.trade_categories import TRADE_CATEGORIES, UK_AREAS, AREA_INCOME_TIER, get_trade_by_term
 except ImportError:  # pragma: no cover — supports `python outreach/sourcer.py` style imports
-    from models import Prospect, SearchCell
+    from models import Prospect, SearchCell, GooglePlacesApiUsage
     from trade_categories import TRADE_CATEGORIES, UK_AREAS, AREA_INCOME_TIER, get_trade_by_term
 
 logger = logging.getLogger("outreach.sourcer")
@@ -58,10 +59,18 @@ _PAGE_TOKEN_DELAY_SECONDS = 2
 
 
 def _search_places_one_page(query, api_key, page_token=None):
-    """One page of results. Returns (places, next_page_token) — next_page_token
-    is None if there's no further page. Returns ([], None) on any failure
-    (HTTP error, network error, malformed response) rather than raising, so
-    one bad cell/page never kills a pipeline run."""
+    """One page of results. Returns (places, next_page_token, request_sent) —
+    next_page_token is None if there's no further page. request_sent is True
+    the instant a request actually reaches Google (i.e. we got any HTTP
+    response back, success or not) — that's what determines whether this
+    page counts against the free-tier call budget below, independent of
+    whether Google's response happened to contain usable data. Returns
+    ([], None, False) only for a network-level failure that never reached
+    Google (not billed) or a missing API key (never sent)."""
+    if not api_key:
+        logger.error("search_places called with no API key; returning []")
+        return [], None, False
+
     headers = {
         "Content-Type": "application/json",
         "X-Goog-Api-Key": api_key,
@@ -75,44 +84,106 @@ def _search_places_one_page(query, api_key, page_token=None):
         resp = requests.post(PLACES_SEARCH_URL, headers=headers, json=body, timeout=30)
     except requests.RequestException as e:
         logger.error("search_places network error for '%s': %s", query, e)
-        return [], None
+        return [], None, False
 
     if resp.status_code != 200:
         logger.error("search_places HTTP %s for '%s': %s", resp.status_code, query, resp.text[:300])
-        return [], None
+        return [], None, True
 
     try:
         data = resp.json()
     except ValueError as e:
         logger.error("search_places bad JSON for '%s': %s", query, e)
-        return [], None
+        return [], None, True
 
-    return data.get("places", []) or [], data.get("nextPageToken")
+    return data.get("places", []) or [], data.get("nextPageToken"), True
 
 
 def search_places(query, api_key):
-    """POST a text query to the Places API and return the list of place
-    dicts, following pagination up to MAX_PAGES (60 results total) whenever
-    Google reports more are available. Returns [] on any failure (HTTP
-    error, network error, malformed response) rather than raising, so one
-    bad cell never kills a pipeline run.
+    """POST a text query to the Places API and return (places, calls_made),
+    following pagination up to MAX_PAGES (60 results total) whenever Google
+    reports more are available. calls_made is the number of real HTTP
+    requests actually sent to Google this call (1-3) — the caller (currently
+    outreach/pipeline.py) is responsible for recording it via
+    record_places_api_calls() so get_daily_places_api_budget() below stays
+    accurate; this module stays DB-session-agnostic per its own docstring.
+    Returns ([], 0) on a total failure (no API key, or the very first page
+    never reached Google) rather than raising, so one bad cell never kills
+    a pipeline run.
     """
-    if not api_key:
-        logger.error("search_places called with no API key; returning []")
-        return []
-
     all_places = []
+    calls_made = 0
     page_token = None
+    page_num = 0
     for page_num in range(1, MAX_PAGES + 1):
-        places, next_page_token = _search_places_one_page(query, api_key, page_token)
+        places, next_page_token, request_sent = _search_places_one_page(query, api_key, page_token)
+        if request_sent:
+            calls_made += 1
         all_places.extend(places)
         if not next_page_token or page_num == MAX_PAGES:
             break
         time.sleep(_PAGE_TOKEN_DELAY_SECONDS)
         page_token = next_page_token
 
-    logger.info("search_places '%s' -> %d results (%d page(s))", query, len(all_places), page_num)
-    return all_places
+    logger.info("search_places '%s' -> %d results (%d page(s), %d billed call(s))",
+                query, len(all_places), page_num, calls_made)
+    return all_places, calls_made
+
+
+# ── Free-tier pacing (added 2026-07-23) ──────────────────────────────────
+# The Places API (New) Text Search field mask above (rating, userRatingCount,
+# businessStatus, websiteUri, nationalPhoneNumber) puts every call in the
+# "Text Search Enterprise" SKU, which Google gives 1,000 free calls/month
+# (resets the 1st of each month, does NOT roll over — verified against
+# Google's current published pricing, 2026-07-23). Below is a fixed policy
+# constant, not something we can read live from Google's billing API — if
+# Google changes this figure, update it here.
+PLACES_API_FREE_MONTHLY_CALLS = 1000
+
+
+def record_places_api_calls(db, n, now=None):
+    """Increment this calendar month's billed-call counter by n. Call this
+    once per search_places() invocation with its calls_made return value —
+    NOT once per cell, since a single cell can cost 1-3 calls via
+    pagination. No-ops on n <= 0."""
+    if n <= 0:
+        return
+    now = now or datetime.utcnow()
+    month_key = now.strftime("%Y-%m")
+    row = db.query(GooglePlacesApiUsage).filter(GooglePlacesApiUsage.month == month_key).first()
+    if not row:
+        row = GooglePlacesApiUsage(month=month_key, calls_used=0)
+        db.add(row)
+    row.calls_used += n
+    db.commit()
+
+
+def get_calls_used_this_month(db, now=None):
+    now = now or datetime.utcnow()
+    month_key = now.strftime("%Y-%m")
+    row = db.query(GooglePlacesApiUsage).filter(GooglePlacesApiUsage.month == month_key).first()
+    return row.calls_used if row else 0
+
+
+def get_daily_places_api_budget(db, now=None):
+    """How many more Places API calls are safe to make TODAY, so the
+    month's free 1,000-call allowance lasts the whole month instead of
+    running out in the first few days: (calls remaining this month) /
+    (days remaining this month, inclusive of today). Recomputed fresh each
+    call (not cached) — a light day automatically hands its unused
+    allowance forward, since tomorrow's remaining/days-left is recalculated
+    from whatever's actually left, not from a fixed daily quota. Floors
+    (rather than rounds) so the running total across the month never
+    exceeds PLACES_API_FREE_MONTHLY_CALLS even with rounding error. Always
+    >= 0."""
+    now = now or datetime.utcnow()
+    used = get_calls_used_this_month(db, now)
+    remaining_this_month = max(0, PLACES_API_FREE_MONTHLY_CALLS - used)
+    days_in_month = calendar.monthrange(now.year, now.month)[1]
+    days_left_inclusive = days_in_month - now.day + 1
+    if days_left_inclusive <= 0:
+        return remaining_this_month
+    return remaining_this_month // days_left_inclusive
 
 
 def _ensure_all_cells(db):

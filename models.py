@@ -368,6 +368,25 @@ class SearchCell(Base):
     __table_args__ = (UniqueConstraint("postcode_area", "trade_search_term", name="uq_search_cells_area_term"),)
 
 
+class GooglePlacesApiUsage(Base):
+    """Tracks actual billed Google Places API (New) Text Search calls per
+    calendar month (added 2026-07-23) — one row per "YYYY-MM". Lets
+    sourcing pace itself against the Enterprise SKU's free monthly
+    allowance (1,000 calls, resets on the 1st, no rollover — see
+    outreach/sourcer.py's search_places() FIELD_MASK, which requests fields
+    that put every call in that billing tier) rather than burning the
+    whole month's free quota in the first few days. calls_used counts every
+    real HTTP request actually sent to Google (including extra pagination
+    pages), not "cell searches" — a single cell search can cost up to
+    MAX_PAGES billed calls. See outreach/sourcer.py's
+    get_daily_places_api_budget()."""
+    __tablename__ = "google_places_api_usage"
+
+    id = Column(Integer, primary_key=True)
+    month = Column(String(7), nullable=False, unique=True)  # "YYYY-MM"
+    calls_used = Column(Integer, nullable=False, default=0)
+
+
 class PendingVisionCheck(Base):
     """One row per prospect waiting for a website quality judgment.
     Cowork reads these rows, views the screenshot, then calls apply_result.py

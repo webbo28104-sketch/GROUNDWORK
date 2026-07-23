@@ -47,11 +47,19 @@ from models import (  # noqa: E402
 )
 
 try:
-    from outreach.sourcer import search_places, get_pending_cells, parse_place, upsert_prospect
+    from outreach.sourcer import (
+        search_places, get_pending_cells, parse_place, upsert_prospect,
+        record_places_api_calls, get_daily_places_api_budget, get_calls_used_this_month,
+        PLACES_API_FREE_MONTHLY_CALLS,
+    )
     from outreach.email_scrape import fetch_and_assess_quality
     from outreach.trade_categories import AREA_SEARCH_QUALIFIER
 except ImportError:
-    from sourcer import search_places, get_pending_cells, parse_place, upsert_prospect
+    from sourcer import (
+        search_places, get_pending_cells, parse_place, upsert_prospect,
+        record_places_api_calls, get_daily_places_api_budget, get_calls_used_this_month,
+        PLACES_API_FREE_MONTHLY_CALLS,
+    )
     from email_scrape import fetch_and_assess_quality
     from trade_categories import AREA_SEARCH_QUALIFIER
 
@@ -62,22 +70,36 @@ logging.basicConfig(
 logger = logging.getLogger("outreach.pipeline")
 
 
-def _source_cells(n_cells, dry_run):
-    """Search up to n_cells pending cells and upsert new prospects.
-    Returns (cells_searched, new_prospects)."""
+def _source_cells(calls_budget, dry_run):
+    """Search pending cells, spending up to calls_budget real Places API
+    calls (not cells — a single cell can cost 1-3 calls via pagination, see
+    outreach/sourcer.py's search_places()), and upsert new prospects.
+    Stops as soon as the budget is spent, even mid-batch, rather than
+    finishing a fixed cell count regardless of how many calls that took —
+    this is what actually keeps a month's spend under
+    PLACES_API_FREE_MONTHLY_CALLS. Returns (cells_searched, new_prospects,
+    calls_made)."""
     api_key = os.environ.get("GOOGLE_PLACES_API_KEY", "")
     if not api_key:
         logger.warning("GOOGLE_PLACES_API_KEY not set — sourcing will find nothing")
 
     cells_searched = 0
     new_prospects = 0
+    calls_made = 0
 
     db = SessionLocal()
     try:
-        cells = get_pending_cells(db, limit=n_cells)
-        logger.info("Loaded %d pending search cells", len(cells))
+        # Fetching calls_budget cells is a generous upper bound (worst case
+        # every cell costs exactly 1 call and we use the whole batch); the
+        # loop below still stops on the real call count, not this count.
+        cells = get_pending_cells(db, limit=calls_budget)
+        logger.info("Loaded %d pending search cells (budget: %d calls)", len(cells), calls_budget)
 
         for cell in cells:
+            if calls_made >= calls_budget:
+                logger.info("Places API daily budget spent (%d/%d calls) — stopping early", calls_made, calls_budget)
+                break
+
             # postcode_area is a bare district code (e.g. "M1", "SW1A") since
             # 2026-07-21 — AREA_SEARCH_QUALIFIER supplies the real town/
             # borough name a live Places API test proved necessary for
@@ -94,7 +116,10 @@ def _source_cells(n_cells, dry_run):
                 cells_searched += 1
                 continue
 
-            raw_results = search_places(query, api_key)
+            raw_results, cell_calls_made = search_places(query, api_key)
+            if cell_calls_made:
+                record_places_api_calls(db, cell_calls_made)
+                calls_made += cell_calls_made
 
             for raw in raw_results:
                 place_data = parse_place(raw, cell.trade_search_term, cell.postcode_area)
@@ -110,7 +135,7 @@ def _source_cells(n_cells, dry_run):
     finally:
         db.close()
 
-    return cells_searched, new_prospects
+    return cells_searched, new_prospects, calls_made
 
 
 def _queue_pending(dry_run):
@@ -174,12 +199,35 @@ def _queue_pending(dry_run):
     return n_queued
 
 
-def run_pipeline(n_cells=25, dry_run=False):
-    """Run one full Track-A sourcing + queue-population pass."""
-    logger.info("Starting outreach pipeline (n_cells=%d, dry_run=%s)", n_cells, dry_run)
+def run_pipeline(n_cells=None, dry_run=False):
+    """Run one full Track-A sourcing + queue-population pass.
+
+    n_cells: explicit override for the Places API call budget this run
+    (manual/testing use — e.g. `--cells 5` for a quick smoke test). Left as
+    None (the default, and what sourcing-cron actually uses), the budget is
+    computed automatically by get_daily_places_api_budget() — (this
+    month's remaining free-tier calls) / (days left in the month) — so the
+    free 1,000-call/month Places API allowance is spread evenly across the
+    whole month rather than exhausted in the first few days. Recomputed
+    fresh on every run, not cached, so a light day's leftover budget
+    carries forward automatically."""
     init_db()
 
-    cells_searched, new_prospects = _source_cells(n_cells, dry_run)
+    db = SessionLocal()
+    try:
+        calls_used_this_month = get_calls_used_this_month(db)
+        auto_budget = get_daily_places_api_budget(db)
+    finally:
+        db.close()
+    calls_budget = n_cells if n_cells is not None else auto_budget
+
+    logger.info(
+        "Starting outreach pipeline (calls_budget=%d%s, dry_run=%s) — %d/%d free calls used this month",
+        calls_budget, " [manual override]" if n_cells is not None else " [auto-paced]",
+        dry_run, calls_used_this_month, PLACES_API_FREE_MONTHLY_CALLS,
+    )
+
+    cells_searched, new_prospects, calls_made = _source_cells(calls_budget, dry_run)
     n_queued = _queue_pending(dry_run)
 
     # Count what's waiting for Cowork's judgment (email discovery only now)
@@ -196,6 +244,9 @@ def run_pipeline(n_cells=25, dry_run=False):
     print("=" * 56)
     print("Outreach pipeline summary")
     print("-" * 56)
+    print(f"  Places API calls budgeted today: {calls_budget} ({'manual override' if n_cells is not None else 'auto-paced'})")
+    print(f"  Places API calls actually made:   {calls_made}")
+    print(f"  Free-tier used this month:        {calls_used_this_month + calls_made}/{PLACES_API_FREE_MONTHLY_CALLS}")
     print(f"  Cells searched:               {cells_searched}")
     print(f"  New prospects sourced:        {new_prospects}")
     print(f"  Queued this run:              {n_queued}")
@@ -218,6 +269,8 @@ def run_pipeline(n_cells=25, dry_run=False):
     return {
         "cells_searched": cells_searched,
         "new_prospects": new_prospects,
+        "calls_made": calls_made,
+        "calls_budget": calls_budget,
         "queued": n_queued,
         "pending_email": pending_email,
         "awaiting_approval": awaiting_approval,
@@ -226,8 +279,9 @@ def run_pipeline(n_cells=25, dry_run=False):
 
 def main():
     parser = argparse.ArgumentParser(description="Groundwork outreach pipeline (Track A)")
-    parser.add_argument("--cells", type=int, default=25,
-                        help="number of search cells to process (default: 25)")
+    parser.add_argument("--cells", type=int, default=None,
+                        help="override the Places API call budget for this run "
+                             "(default: auto-paced from the free-tier monthly allowance — see run_pipeline())")
     parser.add_argument("--dry-run", action="store_true",
                         help="log actions without calling APIs or writing prospect data")
     args = parser.parse_args()
