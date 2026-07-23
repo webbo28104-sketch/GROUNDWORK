@@ -7379,6 +7379,183 @@ def update_text_field(job_id):
         db.close()
 
 
+_PHOTO_MAX_UPLOAD_BYTES = 12 * 1024 * 1024  # 12MB — same order of magnitude as the build-form's own upload cap
+_PHOTO_MAX_CARDS = 12  # sane ceiling so "add photo" can't be used to grow an unbounded page
+_PHOTO_MAX_DIMENSION = 1600  # matches the portfolio-photo size used at generation time
+
+
+def _gen_photo_html(gen):
+    """Which HTML a photo-manager mutation should read/write — html_pending
+    for a live site (same accumulate-until-applied model as text edits),
+    html_content otherwise."""
+    if gen.status == "live":
+        return gen.html_pending or gen.html_content or ""
+    return gen.html_content or ""
+
+
+def _set_gen_photo_html(gen, job_id, new_html):
+    if gen.status == "live":
+        gen.html_pending = new_html
+    else:
+        gen.html_content = new_html
+        with _jobs_lock:
+            if job_id in _jobs and _jobs[job_id].get("status") == "done":
+                _jobs[job_id]["html"] = new_html
+    if gen.text_edited_at is None:
+        gen.text_edited_at = datetime.utcnow()
+
+
+@app.route("/api/generate/<job_id>/photos", methods=["GET"])
+def get_photos(job_id):
+    """List this generation's portfolio photos for the editor's photo
+    manager. GenerationImage is the source of truth for listing (every
+    photo/logo already gets a row there at persist time — see
+    _run_and_persist) — no HTML scanning needed just to show the list.
+    editable reflects whether the stored HTML actually has the
+    data-gw-photo-grid marker build_prompt.py now bakes in — generations
+    from before this feature have photos but no marker, so add/delete
+    would have nowhere reliable to operate; the frontend shows a "not
+    available for this site" state in that case, same pattern as text
+    editing's old no-fields-state."""
+    db = SessionLocal()
+    try:
+        gen = db.query(Generation).join(Lead).filter(Lead.public_id == job_id).first()
+        if not gen:
+            return jsonify({"error": "not found"}), 404
+        photos = db.query(GenerationImage).filter(
+            GenerationImage.generation_id == gen.id,
+            GenerationImage.slot.like("photo_%"),
+        ).order_by(GenerationImage.slot).all()
+        html = _gen_photo_html(gen)
+        return jsonify({
+            "photos": [{"slot": p.slot, "data_uri": p.data_uri, "caption": p.caption or ""} for p in photos],
+            "editable": "data-gw-photo-grid" in html,
+            "can_add": _last_photo_card_slot(html) is not None and len(photos) < _PHOTO_MAX_CARDS,
+            "status": gen.status,
+        })
+    finally:
+        db.close()
+
+
+@app.route("/api/generate/<job_id>/photos", methods=["POST"])
+def add_photo(job_id):
+    """Upload a new portfolio photo — resized/re-encoded the same way as a
+    photo uploaded at generation time, cloned into a new card matching the
+    site's existing card styling (see _add_gw_photo_card's docstring for
+    why cloning, not hand-building, a card)."""
+    if "photo" not in request.files or not request.files["photo"].filename:
+        return jsonify({"error": "No photo file provided."}), 400
+    file = request.files["photo"]
+    caption = (request.form.get("caption") or "").strip()[:200]
+
+    file.seek(0, os.SEEK_END)
+    size = file.tell()
+    file.seek(0)
+    if size > _PHOTO_MAX_UPLOAD_BYTES:
+        return jsonify({"error": "Photo too large (max 12MB)."}), 400
+
+    try:
+        raw = Image.open(file.stream)
+        raw.load()  # force-read now — a truncated/invalid file raises here, not later
+        img = raw.convert("RGBA") if raw.mode in ("RGBA", "LA", "P") else raw.convert("RGB")
+        data_uri = _encode_pil_image_to_data_uri(img, _PHOTO_MAX_DIMENSION)
+    except Exception:
+        return jsonify({"error": "Couldn't read that as an image. Try a JPEG or PNG."}), 400
+
+    db = SessionLocal()
+    try:
+        gen = db.query(Generation).join(Lead).filter(Lead.public_id == job_id).first()
+        if not gen:
+            return jsonify({"error": "not found"}), 404
+
+        html = _gen_photo_html(gen)
+        # Union of GenerationImage rows AND whatever's actually in the HTML
+        # — these should always agree in practice (every card gets a row at
+        # persist time), but computing the next free slot from the DB alone
+        # would risk colliding with an existing card if they ever drifted.
+        existing_slots = {
+            row[0] for row in db.query(GenerationImage.slot).filter(
+                GenerationImage.generation_id == gen.id, GenerationImage.slot.like("photo_%"),
+            ).all()
+        }
+        existing_slots |= set(re.findall(r'data-gw-photo-card="(photo_\d+)"', html))
+        if len(existing_slots) >= _PHOTO_MAX_CARDS:
+            return jsonify({"error": f"Maximum {_PHOTO_MAX_CARDS} portfolio photos reached."}), 422
+        n = 0
+        while f"photo_{n}" in existing_slots:
+            n += 1
+        new_slot = f"photo_{n}"
+
+        new_html, ok = _add_gw_photo_card(html, new_slot, data_uri, caption)
+        if not ok:
+            return jsonify({"error": "This site has no existing portfolio photo to use as a template — can't add one here."}), 422
+
+        db.add(GenerationImage(generation_id=gen.id, slot=new_slot, data_uri=data_uri,
+                                mime=_data_uri_mime(data_uri), caption=caption or None))
+        _set_gen_photo_html(gen, job_id, new_html)
+        db.commit()
+        return jsonify({"ok": True, "slot": new_slot, "data_uri": data_uri, "caption": caption})
+    finally:
+        db.close()
+
+
+@app.route("/api/generate/<job_id>/photos/<slot>", methods=["DELETE"])
+def delete_photo(job_id, slot):
+    """Remove a portfolio photo entirely — its card from the HTML and its
+    GenerationImage row."""
+    db = SessionLocal()
+    try:
+        gen = db.query(Generation).join(Lead).filter(Lead.public_id == job_id).first()
+        if not gen:
+            return jsonify({"error": "not found"}), 404
+
+        html = _gen_photo_html(gen)
+        new_html, ok = _remove_gw_photo_card(html, slot)
+        if not ok:
+            return jsonify({"error": "Photo not found in this generation."}), 404
+
+        img_row = db.query(GenerationImage).filter(
+            GenerationImage.generation_id == gen.id, GenerationImage.slot == slot,
+        ).first()
+        if img_row:
+            db.delete(img_row)
+        _set_gen_photo_html(gen, job_id, new_html)
+        db.commit()
+        return jsonify({"ok": True})
+    finally:
+        db.close()
+
+
+@app.route("/api/generate/<job_id>/photos/<slot>/caption", methods=["PATCH"])
+def update_photo_caption(job_id, slot):
+    """Set/clear a single photo's caption — independent of deleting or
+    replacing the photo itself."""
+    data = request.get_json(silent=True) or {}
+    new_caption = (data.get("caption") or "").strip()[:200]
+
+    db = SessionLocal()
+    try:
+        gen = db.query(Generation).join(Lead).filter(Lead.public_id == job_id).first()
+        if not gen:
+            return jsonify({"error": "not found"}), 404
+
+        html = _gen_photo_html(gen)
+        new_html, ok = _update_gw_caption_field(html, slot, new_caption)
+        if not ok:
+            return jsonify({"error": "Photo not found in this generation."}), 404
+
+        img_row = db.query(GenerationImage).filter(
+            GenerationImage.generation_id == gen.id, GenerationImage.slot == slot,
+        ).first()
+        if img_row:
+            img_row.caption = new_caption or None
+        _set_gen_photo_html(gen, job_id, new_html)
+        db.commit()
+        return jsonify({"ok": True, "caption": new_caption})
+    finally:
+        db.close()
+
+
 # Supported TLDs. All standard domains at these are flat-rate — no
 # registry-level premiums for .co.uk/.com/.uk/.org.uk. Premium-sounding names
 # (roofing.com) are already registered so WHOIS catches them as taken before
@@ -9191,6 +9368,178 @@ def _update_gw_text_field(html: str, field_id: str, new_text: str):
     if _is_groundwork_credit(current_plain):
         return html, False
     return html[:open_end] + _escape(new_text) + html[close_pos:], True
+
+
+# ── Photo manager (added 2026-07-23) ────────────────────────────────────────
+# Mirrors the data-gw-text edit mechanism (_extract_gw_text_fields /
+# _update_gw_text_field above) but for whole portfolio photo cards, which
+# need to move/insert/delete as a unit (image + caption together), not as a
+# single text node. Relies on markers build_prompt.py now bakes into every
+# generation with real photos: data-gw-photo-grid="1" on the grid container,
+# data-gw-photo-card="{slot}" on each card, data-gw-photo="{slot}" on the
+# <img>, data-gw-caption="{slot}" on the caption element. Generations from
+# before this change have none of these markers — every function below
+# degrades to a clean (html, False) / None on missing markers rather than
+# guessing at unmarked markup, and the API layer surfaces that as "photo
+# editing not available for this site," same pattern as the old
+# no-fields-state for text editing.
+
+def _find_enclosing_tag(html: str, attr_pos: int):
+    """Given the string position of an attribute match, return
+    (tag_name_lower, open_start, open_end) for the tag that attribute is
+    on — open_end is the index right after that tag's own '>'. None if the
+    tag can't be parsed."""
+    tag_start = html.rfind('<', 0, attr_pos)
+    tag_match = re.match(r'<([a-zA-Z][a-zA-Z0-9]*)', html[tag_start:])
+    if not tag_match:
+        return None
+    tag_name = tag_match.group(1).lower()
+    open_end = html.find('>', attr_pos)
+    if open_end == -1:
+        return None
+    return tag_name, tag_start, open_end + 1
+
+
+def _find_matching_close(html: str, tag_name: str, search_from: int):
+    """Depth-matched close position for the tag_name whose opening tag ends
+    at search_from — only tracks nesting of THIS tag name against itself
+    (a nested <img>/<figcaption>/<p>/<span> inside a <div> card doesn't
+    affect the div's own depth count, so this doesn't need a full HTML
+    parser). Returns (close_start, close_end) — close_end is right after
+    the matching '</tag_name>' — or None if unbalanced/not found."""
+    pattern = re.compile(rf'<(/?){tag_name}\b[^>]*?(/?)>', re.IGNORECASE)
+    depth = 1
+    for m in pattern.finditer(html, search_from):
+        is_close = m.group(1) == '/'
+        is_self_closing = m.group(2) == '/'
+        if is_close:
+            depth -= 1
+            if depth == 0:
+                return m.start(), m.end()
+        elif not is_self_closing:
+            depth += 1
+    return None
+
+
+def _find_photo_grid(html: str):
+    """Returns (tag_name, grid_open_end, grid_close_start) for the
+    data-gw-photo-grid="1" container, or None if absent."""
+    m = re.search(r'data-gw-photo-grid="1"', html)
+    if not m:
+        return None
+    enclosing = _find_enclosing_tag(html, m.start())
+    if not enclosing:
+        return None
+    tag_name, _, open_end = enclosing
+    close = _find_matching_close(html, tag_name, open_end)
+    if not close:
+        return None
+    close_start, _ = close
+    return tag_name, open_end, close_start
+
+
+def _find_photo_card(html: str, slot: str):
+    """Returns (tag_name, card_start, card_end) for the full
+    data-gw-photo-card="{slot}" element (from its '<tag' through its
+    matching '</tag>' inclusive), or None if not found/unbalanced."""
+    m = re.search(rf'data-gw-photo-card="{re.escape(slot)}"', html)
+    if not m:
+        return None
+    enclosing = _find_enclosing_tag(html, m.start())
+    if not enclosing:
+        return None
+    tag_name, card_start, open_end = enclosing
+    close = _find_matching_close(html, tag_name, open_end)
+    if not close:
+        return None
+    _, close_end = close
+    return tag_name, card_start, close_end
+
+
+def _last_photo_card_slot(html: str):
+    """The slot name of the last data-gw-photo-card in the grid (used as
+    the clone template for adding a new photo) — None if there are no
+    cards at all."""
+    grid = _find_photo_grid(html)
+    if not grid:
+        return None
+    _, open_end, close_start = grid
+    slots = re.findall(r'data-gw-photo-card="([^"]+)"', html[open_end:close_start])
+    return slots[-1] if slots else None
+
+
+def _remove_gw_photo_card(html: str, slot: str):
+    """Delete a photo card entirely. Returns (new_html, success)."""
+    card = _find_photo_card(html, slot)
+    if not card:
+        return html, False
+    _, card_start, card_end = card
+    return html[:card_start] + html[card_end:], True
+
+
+def _update_gw_caption_field(html: str, slot: str, new_caption: str):
+    """Replace the inner text of data-gw-caption="{slot}". Returns
+    (new_html, success) — same shape as _update_gw_text_field."""
+    from html import escape as _escape
+    m = re.search(rf'data-gw-caption="{re.escape(slot)}"', html)
+    if not m:
+        return html, False
+    enclosing = _find_enclosing_tag(html, m.start())
+    if not enclosing:
+        return html, False
+    tag_name, _, open_end = enclosing
+    close = _find_matching_close(html, tag_name, open_end)
+    if not close:
+        return html, False
+    close_start, close_end = close
+    return html[:open_end] + _escape(new_caption) + html[close_start:], True
+
+
+def _add_gw_photo_card(html: str, new_slot: str, new_data_uri: str, new_caption: str):
+    """Clone the last existing photo card (preserving whatever styling/
+    classes Claude gave it) and insert a copy — with the slot/src/caption
+    swapped — as the new last card in the grid. Returns (new_html, success).
+    Fails cleanly (no template to clone) if the site has no photo cards at
+    all yet — e.g. it was generated with the no-photos placeholder state."""
+    last_slot = _last_photo_card_slot(html)
+    if not last_slot:
+        return html, False
+    card = _find_photo_card(html, last_slot)
+    grid = _find_photo_grid(html)
+    if not card or not grid:
+        return html, False
+    _, card_start, card_end = card
+    _, _, grid_close_start = grid
+
+    clone = html[card_start:card_end]
+    # Slot markers: data-gw-photo-card / data-gw-photo / data-gw-caption
+    clone = re.sub(rf'(data-gw-photo-card|data-gw-photo|data-gw-caption)="{re.escape(last_slot)}"',
+                   rf'\1="{new_slot}"', clone)
+    # The cloned <img>'s src — replace the first src="..." after this
+    # clone's own data-gw-photo="{new_slot}" marker (already swapped above),
+    # since that's what identifies which img in the clone is the photo.
+    img_marker = f'data-gw-photo="{new_slot}"'
+    marker_pos = clone.find(img_marker)
+    if marker_pos != -1:
+        src_match = re.search(r'src="[^"]*"', clone[marker_pos:])
+        if src_match:
+            s, e = marker_pos + src_match.start(), marker_pos + src_match.end()
+            clone = clone[:s] + f'src="{new_data_uri}"' + clone[e:]
+    # Caption — replace whatever text was in the cloned card's caption
+    # element with the new one (escaped), same tag-depth approach as
+    # _update_gw_caption_field but scoped to this clone fragment.
+    cap_marker = re.search(rf'data-gw-caption="{re.escape(new_slot)}"', clone)
+    if cap_marker:
+        cap_enclosing = _find_enclosing_tag(clone, cap_marker.start())
+        if cap_enclosing:
+            cap_tag, _, cap_open_end = cap_enclosing
+            cap_close = _find_matching_close(clone, cap_tag, cap_open_end)
+            if cap_close:
+                cap_close_start, _ = cap_close
+                from html import escape as _escape
+                clone = clone[:cap_open_end] + _escape(new_caption or "") + clone[cap_close_start:]
+
+    return html[:grid_close_start] + clone + html[grid_close_start:], True
 
 
 def _inject_badge(html: str) -> str:

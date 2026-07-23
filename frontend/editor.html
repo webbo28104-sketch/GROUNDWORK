@@ -55,6 +55,23 @@ textarea:focus{outline:none;border-color:#3B82F6;background:#fff;}
 .s-unsaved{color:#B45309;}
 .s-error{color:#B91C1C;}
 
+/* Sidebar tabs (Text / Photos) */
+.sidebar-tabs{display:flex;gap:4px;padding:12px 16px 0;flex-shrink:0;}
+.sidebar-tab{flex:1;text-align:center;padding:8px 0;font-size:12.5px;font-weight:700;color:#807E79;background:transparent;border:none;border-bottom:2px solid #E2E0DA;cursor:pointer;}
+.sidebar-tab.active{color:#3B82F6;border-bottom-color:#3B82F6;}
+
+/* Photo manager */
+.photo-card{background:#fff;border:1.5px solid #E2E0DA;border-radius:9px;padding:10px;margin-bottom:9px;display:flex;gap:10px;}
+.photo-card img{width:64px;height:64px;object-fit:cover;border-radius:6px;flex-shrink:0;background:#EDEBE5;}
+.photo-card-body{flex:1;min-width:0;}
+.photo-card textarea{min-height:38px;font-size:12.5px;padding:6px 8px;}
+.photo-card-row{display:flex;align-items:center;justify-content:space-between;margin-top:4px;}
+.photo-delete-btn{background:none;border:none;color:#B91C1C;font-size:11.5px;font-weight:600;cursor:pointer;padding:2px 4px;}
+.photo-delete-btn:hover{text-decoration:underline;}
+#add-photo-btn{width:100%;background:#fff;border:1.5px dashed #C9C6BE;border-radius:9px;padding:14px;text-align:center;color:#5C5A56;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:10px;}
+#add-photo-btn:hover{border-color:#3B82F6;color:#3B82F6;}
+#add-photo-btn:disabled{opacity:.5;cursor:not-allowed;}
+
 a:focus-visible,button:focus-visible{outline:3px solid #3B82F6;outline-offset:2px;}
 
 /* Mobile: sidebar always full-width, no preview */
@@ -104,6 +121,10 @@ a:focus-visible,button:focus-visible{outline:3px solid #3B82F6;outline-offset:2p
 
     <!-- Sidebar (hidden until toggle) -->
     <div class="sidebar" id="sidebar">
+      <div class="sidebar-tabs" id="sidebar-tabs" style="display:none;">
+        <button class="sidebar-tab active" id="tab-text" onclick="switchTab('text')">Text</button>
+        <button class="sidebar-tab" id="tab-photos" onclick="switchTab('photos')">Photos</button>
+      </div>
       <div class="sidebar-scroll" id="sidebar-scroll">
 
         <p id="sidebar-intro" style="margin:0 0 14px;font-size:13px;color:#807E79;line-height:1.5;">Click any text in the preview to jump to it here, or edit directly. Changes save automatically.</p>
@@ -123,6 +144,19 @@ a:focus-visible,button:focus-visible{outline:3px solid #3B82F6;outline-offset:2p
         </div>
 
         <div id="fields-container"></div>
+
+        <!-- Photos tab content -->
+        <div id="photos-container" style="display:none;">
+          <div id="photos-not-available" style="display:none;text-align:center;padding:32px 0;">
+            <p style="margin:0 0 6px;font-weight:700;font-size:15px;">Photo editing not available</p>
+            <p style="margin:0;font-size:13px;color:#5C5A56;line-height:1.5;">This site doesn't have a portfolio section to add photos to.</p>
+          </div>
+          <div id="photos-loaded" style="display:none;">
+            <input type="file" id="photo-file-input" accept="image/*" style="display:none;">
+            <button id="add-photo-btn" onclick="document.getElementById('photo-file-input').click()">+ Add a photo</button>
+            <div id="photo-cards"></div>
+          </div>
+        </div>
 
       </div>
       <div class="sidebar-footer" id="sidebar-footer" style="display:none;">
@@ -259,6 +293,33 @@ function setupIframeInteractivity(doc) {
   iframeReady = true;
 }
 
+// ── Preview reload (used after any photo add/delete mutates the stored HTML) ──
+
+function reloadPreview() {
+  const frame = document.getElementById('preview-frame');
+  fetch(`${apiBase}/api/generate/${jobId}/html`).then(r => r.ok ? r.text() : null).then(html => {
+    if (html == null) return;
+    frame.addEventListener('load', () => {
+      const doc = iframeDoc();
+      if (doc) setupIframeInteractivity(doc);
+    }, { once: true });
+    frame.srcdoc = html;
+  }).catch(() => {});
+}
+
+// ── Tabs ──────────────────────────────────────────────────────────────────────
+
+function switchTab(name) {
+  const isText = name === 'text';
+  document.getElementById('tab-text').classList.toggle('active', isText);
+  document.getElementById('tab-photos').classList.toggle('active', !isText);
+  document.getElementById('sidebar-intro').style.display = isText ? 'block' : 'none';
+  document.getElementById('loading-state').style.display = 'none';
+  document.getElementById('no-fields-state').style.display = 'none';
+  document.getElementById('fields-container').style.display = isText ? 'block' : 'none';
+  document.getElementById('photos-container').style.display = isText ? 'none' : 'block';
+}
+
 // ── Main load ─────────────────────────────────────────────────────────────────
 
 async function load() {
@@ -267,9 +328,10 @@ async function load() {
     return;
   }
 
-  const [fieldsRes, htmlRes] = await Promise.all([
+  const [fieldsRes, htmlRes, photosRes] = await Promise.all([
     fetch(`${apiBase}/api/generate/${jobId}/text-fields`).catch(() => null),
     fetch(`${apiBase}/api/generate/${jobId}/html`).catch(() => null),
+    fetch(`${apiBase}/api/generate/${jobId}/photos`).catch(() => null),
   ]);
 
   // Load preview iframe
@@ -285,6 +347,14 @@ async function load() {
     frame.srcdoc = html;
   } else {
     document.getElementById('preview-overlay').textContent = 'Preview unavailable';
+  }
+
+  // Photos tab — independent of whether text fields are editable, since an
+  // older generation could plausibly have one but not the other (though in
+  // practice both markers were added the same day).
+  if (photosRes && photosRes.ok) {
+    const pd = await photosRes.json();
+    renderPhotos(pd);
   }
 
   // Render fields sidebar
@@ -313,10 +383,105 @@ async function load() {
     document.getElementById('edit-toggle-label').textContent = 'Edit requests';
   }
 
+  document.getElementById('sidebar-tabs').style.display = 'flex';
   render(d.fields);
   if (!isLive) document.getElementById('sidebar-footer').style.display = 'block';
   document.getElementById('save-all-btn').style.display = 'flex';
 }
+
+// ── Photo manager ─────────────────────────────────────────────────────────────
+
+let photosEditable = false;
+
+function renderPhotos(pd) {
+  photosEditable = !!pd.editable;
+  document.getElementById('photos-not-available').style.display = photosEditable ? 'none' : 'block';
+  document.getElementById('photos-loaded').style.display = photosEditable ? 'block' : 'none';
+  if (!photosEditable) return;
+
+  const addBtn = document.getElementById('add-photo-btn');
+  addBtn.disabled = !pd.can_add;
+  addBtn.textContent = pd.can_add ? '+ Add a photo' : 'Photo limit reached';
+
+  const container = document.getElementById('photo-cards');
+  container.innerHTML = (pd.photos || []).map(p => `
+    <div class="photo-card" data-slot="${esc(p.slot)}">
+      <img src="${esc(p.data_uri)}" alt="">
+      <div class="photo-card-body">
+        <textarea rows="2" placeholder="Add a caption (optional)" data-slot="${esc(p.slot)}">${esc(p.caption)}</textarea>
+        <div class="photo-card-row">
+          <span class="status" id="cap-st-${esc(p.slot)}"></span>
+          <button class="photo-delete-btn" onclick="deletePhoto('${esc(p.slot)}')">Delete photo</button>
+        </div>
+      </div>
+    </div>
+  `).join('') || '<p class="muted" style="font-size:13px;color:#9A9893;">No portfolio photos yet.</p>';
+
+  container.querySelectorAll('textarea').forEach(ta => {
+    const slot = ta.dataset.slot;
+    const st = document.getElementById('cap-st-' + slot);
+    const save = debounce(async () => {
+      st.textContent = 'Saving…'; st.className = 'status s-saving';
+      try {
+        const r = await fetch(`${apiBase}/api/generate/${jobId}/photos/${encodeURIComponent(slot)}/caption`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ caption: ta.value }),
+        });
+        const d = await r.json();
+        if (d.ok) {
+          st.textContent = '✓ Saved'; st.className = 'status s-saved';
+          setTimeout(() => { if (st.textContent === '✓ Saved') st.textContent = ''; }, 3000);
+          reloadPreview();
+        } else {
+          st.textContent = d.error || 'Save failed'; st.className = 'status s-error';
+        }
+      } catch { st.textContent = 'Network error'; st.className = 'status s-error'; }
+    }, 900);
+    ta.addEventListener('input', () => {
+      st.textContent = 'Unsaved'; st.className = 'status s-unsaved';
+      save();
+    });
+  });
+}
+
+async function deletePhoto(slot) {
+  if (!confirm('Delete this photo? This can\'t be undone.')) return;
+  try {
+    const r = await fetch(`${apiBase}/api/generate/${jobId}/photos/${encodeURIComponent(slot)}`, { method: 'DELETE' });
+    const d = await r.json();
+    if (!d.ok) { alert(d.error || 'Delete failed'); return; }
+    document.querySelector(`.photo-card[data-slot="${CSS.escape(slot)}"]`)?.remove();
+    reloadPreview();
+    // Refresh so the "can_add"/limit state stays accurate.
+    const pr = await fetch(`${apiBase}/api/generate/${jobId}/photos`).catch(() => null);
+    if (pr && pr.ok) renderPhotos(await pr.json());
+  } catch { alert('Network error — please try again.'); }
+}
+
+document.getElementById('photo-file-input').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  e.target.value = ''; // allow re-selecting the same file later
+  if (!file) return;
+  const addBtn = document.getElementById('add-photo-btn');
+  const prevLabel = addBtn.textContent;
+  addBtn.disabled = true;
+  addBtn.textContent = 'Uploading…';
+  try {
+    const fd = new FormData();
+    fd.append('photo', file);
+    const r = await fetch(`${apiBase}/api/generate/${jobId}/photos`, { method: 'POST', body: fd });
+    const d = await r.json();
+    if (!d.ok) { alert(d.error || 'Upload failed'); addBtn.disabled = false; addBtn.textContent = prevLabel; return; }
+    reloadPreview();
+    const pr = await fetch(`${apiBase}/api/generate/${jobId}/photos`).catch(() => null);
+    if (pr && pr.ok) renderPhotos(await pr.json());
+  } catch {
+    alert('Network error — please try again.');
+    addBtn.disabled = false;
+    addBtn.textContent = prevLabel;
+  }
+});
 
 // ── Render sidebar fields ─────────────────────────────────────────────────────
 

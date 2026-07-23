@@ -166,6 +166,13 @@ class GenerationImage(Base):
     slot = Column(String(30), nullable=False)  # "logo", "photo_0", "photo_1", ...
     data_uri = Column(Text, nullable=False)
     mime = Column(String(100))
+    # Photo manager (added 2026-07-23) — caption text for a portfolio photo,
+    # editable/deletable from editor.html independent of the data-gw-text
+    # mechanism (captions are managed through their own endpoints since a
+    # photo card's caption needs to move/delete/insert together with its
+    # image, not as a standalone text field). Only meaningful for "photo_N"
+    # slots; always None for "logo".
+    caption = Column(Text, nullable=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     generation = relationship("Generation", back_populates="images")
@@ -791,6 +798,7 @@ def init_db():
     _ensure_column(Generation.__tablename__, "generation_cost_usd", "FLOAT")
     _ensure_column(Generation.__tablename__, "text_edited_at", "TIMESTAMP")
     _ensure_column(Generation.__tablename__, "checkout_started_at", "TIMESTAMP")
+    _ensure_column(GenerationImage.__tablename__, "caption", "TEXT")
     _ensure_column(Domain.__tablename__, "registered_at", "TIMESTAMP")
     _ensure_column(Domain.__tablename__, "dns_configured_at", "TIMESTAMP")
     _ensure_column(Domain.__tablename__, "railway_connected_at", "TIMESTAMP")
