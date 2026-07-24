@@ -73,6 +73,12 @@ class Generation(Base):
     # Prospect behind the lead) are notified immediately as before and this
     # stays NULL for them too, since nothing reads it on that path.
     customer_notified_at = Column(DateTime, nullable=True)
+    # build_prompt.PROMPT_VERSION_HASH at the moment this generation ran —
+    # PromptApproval (below) is checked/set against this, so the approval
+    # gate only re-arms when the prompt template itself actually changes;
+    # once one generation under a given hash is approved, every later
+    # generation sharing it skips straight to notifying the customer.
+    prompt_version_hash = Column(String(16), nullable=True)
     status = Column(String(30), nullable=False, default="draft")
     stripe_customer_id = Column(String(255))
     stripe_setup_invoice_id = Column(String(255))
@@ -189,6 +195,20 @@ class GenerationImage(Base):
 
 
 Generation.images = relationship("GenerationImage", back_populates="generation", order_by="GenerationImage.slot")
+
+
+class PromptApproval(Base):
+    """One row per build_prompt.PROMPT_VERSION_HASH an admin has approved at
+    least one outreach generation under (see app.py's admin_approve_generation
+    and the gate in _run_and_persist). Existence of a row for a given hash
+    means every later generation sharing it skips the admin-approval gate
+    and notifies the customer immediately — only a genuine prompt change
+    (a new hash) re-arms it."""
+    __tablename__ = "prompt_approvals"
+
+    prompt_version_hash = Column(String(16), primary_key=True)
+    approved_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    approved_via_generation_id = Column(Integer, nullable=True)
 
 
 class Domain(Base):
@@ -807,6 +827,7 @@ def init_db():
     _ensure_column(Generation.__tablename__, "text_edited_at", "TIMESTAMP")
     _ensure_column(Generation.__tablename__, "checkout_started_at", "TIMESTAMP")
     _ensure_column(Generation.__tablename__, "customer_notified_at", "TIMESTAMP")
+    _ensure_column(Generation.__tablename__, "prompt_version_hash", "VARCHAR(16)")
     _ensure_column(GenerationImage.__tablename__, "caption", "TEXT")
     _ensure_column(Domain.__tablename__, "registered_at", "TIMESTAMP")
     _ensure_column(Domain.__tablename__, "dns_configured_at", "TIMESTAMP")

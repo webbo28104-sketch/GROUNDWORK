@@ -6,7 +6,20 @@ It is the distilled version of SITE_GENERATION_SPEC.md — instructions only,
 no commentary or history. Update this file when the spec doc changes;
 don't send the spec doc itself to the API.
 """
+import hashlib
 from datetime import datetime
+
+# Fingerprint of this file's own source, computed once at import time — used
+# to gate outreach magic-link generations behind admin approval (see
+# app.py's _run_and_persist / PromptApproval). A generation only needs
+# re-review when this actually changes; once an admin approves one
+# generation under a given hash, every subsequent generation sharing it
+# skips the gate. Hashing the file itself (not the interpolated per-business
+# prompt string, which always differs) is what makes "same prompt version"
+# a meaningful, stable comparison.
+with open(__file__, "rb") as _f:
+    PROMPT_VERSION_HASH = hashlib.sha256(_f.read()).hexdigest()[:16]
+
 
 def build_prompt(form_data: dict) -> str:
     """

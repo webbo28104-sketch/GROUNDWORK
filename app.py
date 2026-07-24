@@ -28,9 +28,9 @@ from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from markupsafe import escape
 from werkzeug.security import generate_password_hash, check_password_hash
 
-from build_prompt import build_prompt
+from build_prompt import build_prompt, PROMPT_VERSION_HASH
 from outreach.site_extract import extract_site_assets
-from models import SessionLocal, Lead, Generation, Account, GenerationImage, Domain, Prospect, SearchCell, PendingEmailDiscovery, EmailEventLog, OutreachTouch, DailySendCount, RampState, SmsDeliveryEvent, SurveyResponse, DiscoveryRunLog, InboundReply, EmailVariant, EvidenceFinding, OptimizerRunLog, init_db
+from models import SessionLocal, Lead, Generation, Account, GenerationImage, Domain, Prospect, SearchCell, PendingEmailDiscovery, EmailEventLog, OutreachTouch, DailySendCount, RampState, SmsDeliveryEvent, SurveyResponse, DiscoveryRunLog, InboundReply, EmailVariant, EvidenceFinding, OptimizerRunLog, PromptApproval, init_db
 from emails import (send_verification_email, send_resend_email, send_password_reset_email,
                     send_support_message_email, send_enquiry_email,
                     send_domain_order_admin_email, send_domain_order_customer_email,
@@ -1316,6 +1316,7 @@ def _run_and_persist(job_id, lead_id, email, business_name, prompt, logo_b64, lo
             html_content=html,
             status="draft",
             generation_cost_usd=job.get("cost_usd"),
+            prompt_version_hash=PROMPT_VERSION_HASH,
         )
         db.add(gen)
         db.flush()  # assigns gen.id for the GenerationImage rows below
@@ -1337,7 +1338,14 @@ def _run_and_persist(job_id, lead_id, email, business_name, prompt, logo_b64, lo
         # unreviewed. Direct-signup generations (no Prospect behind this
         # lead) aren't gated; they've already verified their own email and
         # are waiting on their own site, same as always.
+        #
+        # The gate is per prompt version, not per generation: once an admin
+        # approves any generation built from a given build_prompt.py hash
+        # (PromptApproval row exists for it), every later generation sharing
+        # that hash skips straight to notifying the customer. Only an actual
+        # prompt change (a new hash, no PromptApproval row yet) re-arms it.
         is_outreach_generation = db.query(Prospect).filter(Prospect.lead_id == lead_id).first() is not None
+        prompt_already_approved = db.get(PromptApproval, PROMPT_VERSION_HASH) is not None
         gen_id = gen.id
     finally:
         db.close()
@@ -1353,7 +1361,7 @@ def _run_and_persist(job_id, lead_id, email, business_name, prompt, logo_b64, lo
     # Skipped for admin test generations (/admin/generate-test) — those aren't
     # real customers and shouldn't get a "your website is ready" email.
     if email and not lead_is_test:
-        if is_outreach_generation:
+        if is_outreach_generation and not prompt_already_approved:
             send_admin_approval_email(
                 business_name,
                 email,
@@ -3873,7 +3881,13 @@ def admin_approve_generation(gen_id):
     for outreach-originated generations until an admin reviews the
     preview. Idempotent: re-visiting an already-approved link is a no-op,
     since customer_notified_at being set is exactly what "already sent"
-    means here."""
+    means here.
+
+    Approving also marks this generation's prompt_version_hash as approved
+    (PromptApproval row, insert-if-absent) — every later generation sharing
+    that same build_prompt.py hash then skips the gate entirely and
+    notifies its customer immediately. Only an actual prompt change (a new
+    hash with no PromptApproval row yet) re-arms review."""
     db = SessionLocal()
     try:
         gen = db.get(Generation, gen_id)
@@ -3893,10 +3907,16 @@ def admin_approve_generation(gen_id):
             account_login_url=f"{SITE_URL}/account/login",
         )
         gen.customer_notified_at = datetime.utcnow()
+        if gen.prompt_version_hash and db.get(PromptApproval, gen.prompt_version_hash) is None:
+            db.add(PromptApproval(
+                prompt_version_hash=gen.prompt_version_hash,
+                approved_via_generation_id=gen.id,
+            ))
         db.commit()
         return render_template_string(_account_page(
             f'<div class="acct-card" style="text-align:center;"><h1 style="margin:0 0 10px;font-weight:800;font-size:22px;">Approved &amp; sent</h1>'
-            f'<p style="margin:0;color:#5C5A56;">{escape(gen.business_name or "This site")} — the customer has been emailed their preview link.</p></div>',
+            f'<p style="margin:0;color:#5C5A56;">{escape(gen.business_name or "This site")} — the customer has been emailed their preview link. '
+            f'Future generations from this same prompt version will be sent automatically, without needing approval again.</p></div>',
             "Approved",
         ))
     finally:
