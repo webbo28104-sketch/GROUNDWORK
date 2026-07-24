@@ -9744,7 +9744,33 @@ def _inject_watermark(html: str, job_id: str, *, show_toast: bool = False, track
     </span>
   </div>
 </div>
-<div style="height:60px;"></div>"""
+<div style="height:60px;"></div>
+<script>
+(function(){{
+  // The height:60px spacer above only pushes normal document flow — it
+  // does nothing for the generated site's OWN nav if that nav also uses
+  // position:fixed (a common pattern the model is free to choose per
+  // build_prompt.py's Nav section), since a fixed element ignores flow
+  // entirely. Without this, our watermark bar (z-index 99999) simply
+  // covers the site's real nav bar. Rather than trying to guess the
+  // site's own nav selector, find any OTHER fixed element pinned at (or
+  // very near) the very top of the page and push it down by our bar's
+  // real height — robust across whatever markup a given generation used.
+  var bar = document.getElementById('gw-preview-bar');
+  if (!bar) return;
+  var barHeight = bar.offsetHeight;
+  var all = document.querySelectorAll('body *');
+  for (var i = 0; i < all.length; i++) {{
+    var el = all[i];
+    if (el === bar || bar.contains(el)) continue;
+    var cs = window.getComputedStyle(el);
+    if (cs.position !== 'fixed') continue;
+    var top = parseFloat(cs.top);
+    if (isNaN(top) || top > 4) continue;
+    el.style.top = (top + barHeight) + 'px';
+  }}
+}})();
+</script>"""
 
     toast_html = ""
     if show_toast:
