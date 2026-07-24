@@ -1170,6 +1170,18 @@ def _run(job_id, prompt, logo_b64, logo_mime):
         idx = lower.find("<!doctype html>")
         html = accumulated_text[idx:] if idx != -1 else accumulated_text
 
+        # Strip stray markdown code-fence markers. Each continuation turn's
+        # text is concatenated onto accumulated_text (see the loop above);
+        # when a max_tokens cutoff lands mid-output, the model sometimes
+        # opens a fresh ```html fence on the continuation as if starting a
+        # new code block, leaving a literal ``` or ```html sitting wherever
+        # the cutoff happened in the middle of the page (caught: one
+        # appeared right after a contact form's "Your Name" label). Real
+        # generated HTML never legitimately contains a bare triple-backtick
+        # line, so this is always safe to strip.
+        html = re.sub(r"```html", "", html, flags=re.IGNORECASE)
+        html = html.replace("```", "")
+
         with _jobs_lock:
             _jobs[job_id] = {"status": "done", "html": html, "cost_usd": _estimate_generation_cost_usd(usage_totals)}
 
