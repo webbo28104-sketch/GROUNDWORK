@@ -272,6 +272,39 @@ def send_admin_payment_received_email(business_name: str, customer_email: str, j
     _send(support_inbox, f"{heading} — {business_name or 'Unknown business'}", html)
 
 
+def send_admin_approval_email(business_name: str, customer_email: str, preview_url: str, approve_url: str) -> None:
+    """Admin approval gate for outreach-originated generations (added
+    2026-07-24, in response to the build_prompt/asset-extraction bug that
+    let broken-image sites reach real prospects). Instead of the customer
+    getting notified the moment generation finishes, the admin inbox gets
+    the preview + a one-click approve link; send_site_ready_email only
+    fires once that's clicked (see /admin/generations/<id>/approve).
+    Direct-signup generations (no Prospect behind the lead) are unaffected
+    — this only gates the outreach magic-link path."""
+    support_inbox = _env_email_or_warn("SUPPORT_INBOX_EMAIL")
+    biz = escape(business_name or "Unknown business")
+    e = escape(customer_email or "")
+    html = f"""<div style="font-family:Arial,Helvetica,sans-serif;background:#F5F3EE;padding:32px 20px;">
+  <div style="max-width:480px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;">
+    <div style="background:#1C1C1C;padding:20px 28px;">
+      <span style="color:{ACCENT};font-weight:800;font-size:18px;letter-spacing:-.03em;">Groundwork</span>
+    </div>
+    <div style="padding:28px;">
+      <div style="display:inline-block;background:#FEF3C7;color:#92400E;font-size:12px;font-weight:700;padding:3px 10px;border-radius:20px;margin-bottom:12px;">Awaiting approval</div>
+      <h2 style="margin:0 0 8px;font-size:19px;color:#1C1C1C;">A magic-link generation is ready to review</h2>
+      <table style="width:100%;border-collapse:collapse;margin-bottom:16px;">
+        <tr><td style="padding:8px 0;font-size:14px;color:#5C5A56;width:110px;">Business</td><td style="padding:8px 0;font-size:14px;font-weight:700;color:#1C1C1C;">{biz}</td></tr>
+        <tr><td style="padding:8px 0;font-size:14px;color:#5C5A56;">Customer email</td><td style="padding:8px 0;font-size:14px;color:#1C1C1C;">{e}</td></tr>
+      </table>
+      <p style="margin:0 0 20px;font-size:14px;color:#5C5A56;">The customer has <strong>not</strong> been notified yet. Review the preview below, then use the approve link to send them their "your website is ready" email.</p>
+      <p style="margin:0 0 10px;"><a href="{preview_url}" style="color:{ACCENT};font-size:14px;font-weight:600;text-decoration:none;">Preview site →</a></p>
+      <p style="margin:0;"><a href="{approve_url}" style="display:inline-block;background:{ACCENT};color:#fff;font-weight:700;font-size:14px;text-decoration:none;padding:12px 20px;border-radius:8px;margin-top:8px;">Approve &amp; notify customer →</a></p>
+    </div>
+  </div>
+</div>"""
+    _send(support_inbox, f"Review before send — {business_name or 'Unknown business'}", html)
+
+
 def send_admin_daily_summary_email(day_label: str, emails_sent: int, clicked: int, click_pct: float,
                                     signed_up: int, signup_pct: float) -> None:
     """Once-a-day admin digest (added 2026-07-23), replacing the old

@@ -36,7 +36,7 @@ from emails import (send_verification_email, send_resend_email, send_password_re
                     send_domain_order_admin_email, send_domain_order_customer_email,
                     send_domain_setup_failed_email, send_domain_live_email,
                     send_admin_payment_received_email,
-                    send_site_ready_email)
+                    send_site_ready_email, send_admin_approval_email)
 from outreach.reply_handling import handle_inbound_sms, handle_inbound_email, handle_forced_sms_stop
 from outreach.templates import SURVEY_DISCOUNT_PERCENT
 from outreach.followup import STAGE_LABELS, STAGE_BY_SUBSTAGE
@@ -1331,6 +1331,14 @@ def _run_and_persist(job_id, lead_id, email, business_name, prompt, logo_b64, lo
         db.commit()
 
         lead_is_test = db.get(Lead, lead_id).is_test
+        # Outreach magic-link generations go through an admin approval gate
+        # (added 2026-07-24) before the customer ever hears from us — added
+        # after a bug let broken-image sites reach real prospects
+        # unreviewed. Direct-signup generations (no Prospect behind this
+        # lead) aren't gated; they've already verified their own email and
+        # are waiting on their own site, same as always.
+        is_outreach_generation = db.query(Prospect).filter(Prospect.lead_id == lead_id).first() is not None
+        gen_id = gen.id
     finally:
         db.close()
 
@@ -1345,12 +1353,20 @@ def _run_and_persist(job_id, lead_id, email, business_name, prompt, logo_b64, lo
     # Skipped for admin test generations (/admin/generate-test) — those aren't
     # real customers and shouldn't get a "your website is ready" email.
     if email and not lead_is_test:
-        send_site_ready_email(
-            email,
-            business_name,
-            preview_url=f"{SITE_URL}/preview.html?id={job_id}",
-            account_login_url=f"{SITE_URL}/account/login",
-        )
+        if is_outreach_generation:
+            send_admin_approval_email(
+                business_name,
+                email,
+                preview_url=f"{SITE_URL}/api/generate/{job_id}/html",
+                approve_url=f"{SITE_URL}/admin/generations/{gen_id}/approve",
+            )
+        else:
+            send_site_ready_email(
+                email,
+                business_name,
+                preview_url=f"{SITE_URL}/preview.html?id={job_id}",
+                account_login_url=f"{SITE_URL}/account/login",
+            )
 
 
 def _client_ip():
@@ -3844,6 +3860,45 @@ def admin_update_generation_email(gen_id):
         db.commit()
         app.logger.info(f"Admin updated gen {gen_id} email: {old_email!r} → {new_email!r}")
         return jsonify({"ok": True, "old_email": old_email, "new_email": new_email})
+    finally:
+        db.close()
+
+
+@app.route("/admin/generations/<int:gen_id>/approve")
+@admin_required
+def admin_approve_generation(gen_id):
+    """One-click approval for an outreach magic-link generation (see the
+    admin-approval gate in _run_and_persist, added 2026-07-24) — sends the
+    customer's "your website is ready" email, which is otherwise withheld
+    for outreach-originated generations until an admin reviews the
+    preview. Idempotent: re-visiting an already-approved link is a no-op,
+    since customer_notified_at being set is exactly what "already sent"
+    means here."""
+    db = SessionLocal()
+    try:
+        gen = db.get(Generation, gen_id)
+        if not gen:
+            return "Generation not found.", 404
+        if gen.customer_notified_at is not None:
+            return render_template_string(_account_page(
+                f'<div class="acct-card" style="text-align:center;"><h1 style="margin:0 0 10px;font-weight:800;font-size:22px;">Already sent</h1>'
+                f'<p style="margin:0;color:#5C5A56;">{escape(gen.business_name or "This site")} was already approved and notified.</p></div>',
+                "Already approved",
+            ))
+        job_id = gen.lead.public_id
+        send_site_ready_email(
+            gen.email,
+            gen.business_name,
+            preview_url=f"{SITE_URL}/preview.html?id={job_id}",
+            account_login_url=f"{SITE_URL}/account/login",
+        )
+        gen.customer_notified_at = datetime.utcnow()
+        db.commit()
+        return render_template_string(_account_page(
+            f'<div class="acct-card" style="text-align:center;"><h1 style="margin:0 0 10px;font-weight:800;font-size:22px;">Approved &amp; sent</h1>'
+            f'<p style="margin:0;color:#5C5A56;">{escape(gen.business_name or "This site")} — the customer has been emailed their preview link.</p></div>',
+            "Approved",
+        ))
     finally:
         db.close()
 

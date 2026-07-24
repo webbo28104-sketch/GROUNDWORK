@@ -65,6 +65,14 @@ class Generation(Base):
     html_content = Column(Text, nullable=False)
     html_pending = Column(Text, nullable=True)   # pending edits from a live site's customer
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    # Admin approval gate for outreach magic-link generations (added
+    # 2026-07-24, after a bug let broken-image sites reach real prospects
+    # unreviewed). NULL means the customer hasn't been sent their
+    # "your website is ready" email yet — set the moment an admin approves
+    # via /admin/generations/<id>/approve. Direct-signup generations (no
+    # Prospect behind the lead) are notified immediately as before and this
+    # stays NULL for them too, since nothing reads it on that path.
+    customer_notified_at = Column(DateTime, nullable=True)
     status = Column(String(30), nullable=False, default="draft")
     stripe_customer_id = Column(String(255))
     stripe_setup_invoice_id = Column(String(255))
@@ -798,6 +806,7 @@ def init_db():
     _ensure_column(Generation.__tablename__, "generation_cost_usd", "FLOAT")
     _ensure_column(Generation.__tablename__, "text_edited_at", "TIMESTAMP")
     _ensure_column(Generation.__tablename__, "checkout_started_at", "TIMESTAMP")
+    _ensure_column(Generation.__tablename__, "customer_notified_at", "TIMESTAMP")
     _ensure_column(GenerationImage.__tablename__, "caption", "TEXT")
     _ensure_column(Domain.__tablename__, "registered_at", "TIMESTAMP")
     _ensure_column(Domain.__tablename__, "dns_configured_at", "TIMESTAMP")
