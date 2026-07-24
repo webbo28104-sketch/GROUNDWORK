@@ -3900,10 +3900,18 @@ def admin_approve_generation(gen_id):
                 "Already approved",
             ))
         job_id = gen.lead.public_id
+        # Outreach magic-link generations must never link to preview.html —
+        # that page is part of the direct-signup account funnel (checkout
+        # upsell, account sign-in tie-in) and hangs on "Loading your
+        # website..." forever for a prospect with no Account/session behind
+        # them. _claim_generate_and_redirect itself always sends these
+        # customers straight to /api/generate/<id>/html; this must match.
+        is_outreach = db.query(Prospect).filter(Prospect.lead_id == gen.lead_id).first() is not None
+        preview_url = f"{SITE_URL}/api/generate/{job_id}/html" if is_outreach else f"{SITE_URL}/preview.html?id={job_id}"
         send_site_ready_email(
             gen.email,
             gen.business_name,
-            preview_url=f"{SITE_URL}/preview.html?id={job_id}",
+            preview_url=preview_url,
             account_login_url=f"{SITE_URL}/account/login",
         )
         gen.customer_notified_at = datetime.utcnow()
