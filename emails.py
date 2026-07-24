@@ -141,6 +141,29 @@ def send_site_ready_email(to_email: str, business_name: str, preview_url: str, a
     _send(to_email, f"Your website is ready to preview — {business_name or 'Groundwork'}", html)
 
 
+def send_site_ready_apology_email(to_email: str, business_name: str, preview_url: str, account_login_url: str) -> None:
+    """One-off variant of send_site_ready_email for the 12-generation backlog
+    caused by the build_prompt/asset-extraction bugs (2026-07-24) — those
+    customers already received a "ready to preview" email pointing at a
+    version with broken logo/portfolio images, since fixed in place without
+    a full regeneration. This one owns the mistake up front rather than
+    silently resending the same copy as if nothing had happened."""
+    biz = escape(business_name) if business_name else "your website"
+    html = _wrapper(
+        preheader=f"An issue with your Groundwork website for {business_name or 'your business'} has been fixed.",
+        heading="Your website is ready — for real this time",
+        body_html=(
+            f"Sorry about this — the earlier preview link we sent you for <strong>{biz}</strong> had a bug on our "
+            f"end that broke the logo and portfolio images. That's now fixed, and your site is genuinely ready to "
+            f"view below. You can also come back any time and sign in with just this email address at "
+            f"<a href=\"{account_login_url}\" style=\"color:{ACCENT};\">{account_login_url}</a> to get back to your account."
+        ),
+        cta_url=preview_url,
+        cta_label="Preview my website →",
+    )
+    _send(to_email, f"Fixed — your website is ready to preview — {business_name or 'Groundwork'}", html)
+
+
 def send_password_reset_email(to_email: str, reset_url: str) -> None:
     html = _wrapper(
         preheader="You're receiving this because a password reset was requested for this Groundwork account.",
