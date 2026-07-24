@@ -9756,18 +9756,30 @@ def _inject_watermark(html: str, job_id: str, *, show_toast: bool = False, track
   // site's own nav selector, find any OTHER fixed element pinned at (or
   // very near) the very top of the page and push it down by our bar's
   // real height — robust across whatever markup a given generation used.
-  var bar = document.getElementById('gw-preview-bar');
-  if (!bar) return;
-  var barHeight = bar.offsetHeight;
-  var all = document.querySelectorAll('body *');
-  for (var i = 0; i < all.length; i++) {{
-    var el = all[i];
-    if (el === bar || bar.contains(el)) continue;
-    var cs = window.getComputedStyle(el);
-    if (cs.position !== 'fixed') continue;
-    var top = parseFloat(cs.top);
-    if (isNaN(top) || top > 4) continue;
-    el.style.top = (top + barHeight) + 'px';
+  // This script tag is injected right after <body> opens — the rest of
+  // the generated page (including its own nav) hasn't been parsed into
+  // the DOM yet at this point, so it must wait for the full document
+  // (querySelectorAll('body *') run immediately here would find almost
+  // nothing) before it can find and adjust anything.
+  function pushDownFixedElements() {{
+    var bar = document.getElementById('gw-preview-bar');
+    if (!bar) return;
+    var barHeight = bar.offsetHeight;
+    var all = document.querySelectorAll('body *');
+    for (var i = 0; i < all.length; i++) {{
+      var el = all[i];
+      if (el === bar || bar.contains(el)) continue;
+      var cs = window.getComputedStyle(el);
+      if (cs.position !== 'fixed') continue;
+      var top = parseFloat(cs.top);
+      if (isNaN(top) || top > 4) continue;
+      el.style.top = (top + barHeight) + 'px';
+    }}
+  }}
+  if (document.readyState === 'complete') {{
+    pushDownFixedElements();
+  }} else {{
+    window.addEventListener('load', pushDownFixedElements);
   }}
 }})();
 </script>"""
