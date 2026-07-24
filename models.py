@@ -317,6 +317,17 @@ class Prospect(Base):
     email_source = Column(String(50), nullable=True)
     email_domain_type = Column(String(20), nullable=True)
     email_found = Column(Boolean, default=False)
+    # Facebook DM outreach (added 2026-07-24) — captured during the same
+    # nightly email-discovery search step (which already runs
+    # site:facebook.com queries as one of its lookup strategies), kept
+    # regardless of whether that same search ultimately found a usable
+    # email or not — previously discarded entirely once discovery
+    # resolved. facebook_dm_sent_at is set by the manual admin queue
+    # (/admin/facebook-outreach) once a human has actually sent the DM
+    # inside Facebook — there is no automated send for this channel by
+    # design (see outreach-pipeline-spec.md).
+    facebook_page_url = Column(String(500), nullable=True)
+    facebook_dm_sent_at = Column(DateTime, nullable=True)
     funnel_stage = Column(String(50), default="sourced")
     funnel_substage = Column(String(30), nullable=True)
     last_touch_at = Column(DateTime, nullable=True)
@@ -865,6 +876,8 @@ def init_db():
     _ensure_column(Prospect.__tablename__, "email_source", "VARCHAR(50)")
     _ensure_column(Prospect.__tablename__, "email_domain_type", "VARCHAR(20)")
     _ensure_column(Prospect.__tablename__, "email_found", "BOOLEAN DEFAULT FALSE")
+    _ensure_column(Prospect.__tablename__, "facebook_page_url", "VARCHAR(500)")
+    _ensure_column(Prospect.__tablename__, "facebook_dm_sent_at", "TIMESTAMP")
     _ensure_column(Prospect.__tablename__, "funnel_stage", "VARCHAR(50)")
     _ensure_column(Prospect.__tablename__, "approval_status", "VARCHAR(20)")
     _ensure_column(Prospect.__tablename__, "approved_at", "TIMESTAMP")

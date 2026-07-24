@@ -130,6 +130,18 @@ INITIAL_SMS = (
     "Reply STOP to opt out."
 )
 
+# Facebook DM (added 2026-07-24) — deliberately manual, never sent by any
+# automated job (see docs/outreach-pipeline-spec.md's Facebook DM section):
+# a human copies this from /admin/facebook-outreach and pastes it into
+# Facebook Messenger themselves. Same voice/offer as INITIAL_SMS, adapted
+# to a first-person DM opener rather than a blast-style SMS, since a DM
+# reads as a direct message from a person, not a notification.
+INITIAL_FACEBOOK_DM = (
+    "Hi {business_name}, this is Charlie from Groundwork — we build affordable websites for UK trades. "
+    "I've actually already put together a free preview website for you, no cost: groundworkbuild.com/s/{short_code}\n"
+    "Free to go live today too — first month free, £24.99/mo after, no setup fee. Let me know if you've got any questions!"
+)
+
 # ── Follow-up stages ──────────────────────────────────────────────────────────
 # Stage A: sent, never opened (pre-click — no "built" claim)
 # Stage B: opened, never clicked (pre-click — no "built" claim)
@@ -875,3 +887,9 @@ def render_sms(stage_key, **kwargs):
     else:
         template = FOLLOWUP_SMS[stage_key]
     return template.format(**kwargs)
+
+
+def render_facebook_dm(**kwargs):
+    """Only ever an 'initial' message — there's no follow-up drip for this
+    channel yet (see /admin/facebook-outreach in app.py)."""
+    return INITIAL_FACEBOOK_DM.format(**kwargs)

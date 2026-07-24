@@ -38,7 +38,8 @@ from emails import (send_verification_email, send_resend_email, send_password_re
                     send_admin_payment_received_email,
                     send_site_ready_email, send_admin_approval_email)
 from outreach.reply_handling import handle_inbound_sms, handle_inbound_email, handle_forced_sms_stop
-from outreach.templates import SURVEY_DISCOUNT_PERCENT
+from outreach.templates import SURVEY_DISCOUNT_PERCENT, render_facebook_dm
+from outreach.link_identity import ensure_link_identity
 from outreach.followup import STAGE_LABELS, STAGE_BY_SUBSTAGE
 from outreach.ramp import (
     get_health_signal, get_remaining_ramp_today, EMAIL_SPAM_RATE_TRIGGER,
@@ -4505,6 +4506,137 @@ def admin_outreach():
         db.close()
 
 
+@app.route("/admin/facebook-outreach")
+@admin_required
+def admin_facebook_outreach():
+    """Manual Facebook DM outreach queue (added 2026-07-24) — no_website
+    prospects with a captured Facebook Page URL (see Prospect.facebook_page_url's
+    docstring: found during the same nightly email-discovery search that
+    already runs site:facebook.com queries, kept regardless of whether that
+    search found a usable email) who haven't had a DM logged as sent yet.
+
+    Deliberately NOT automated — no Messenger API, no browser automation
+    driving a logged-in Facebook session. This page's only job is to make
+    the manual find→copy→paste→send→log loop fast: open the Page, copy a
+    pre-filled message with their real magic link merged in, send it
+    yourself inside Facebook, then log it here so it feeds the same
+    funnel/touch tracking as email and SMS. Automating the actual send
+    would risk the Facebook account, which isn't a tradeoff worth making
+    for this channel."""
+    db = SessionLocal()
+    try:
+        prospects = (
+            db.query(Prospect)
+            .filter(
+                Prospect.website_status == "no_website",
+                Prospect.facebook_page_url.isnot(None),
+                Prospect.facebook_page_url != "",
+                Prospect.facebook_dm_sent_at.is_(None),
+            )
+            .order_by(Prospect.score.desc().nullslast())
+            .limit(200)
+            .all()
+        )
+
+        # Every prospect shown here needs a working magic link — generate
+        # one now (ensure_link_identity is idempotent/a no-op if already
+        # set) rather than requiring a send via another channel first,
+        # since Facebook may be the only channel that ever reaches some of
+        # these prospects.
+        touched = False
+        for p in prospects:
+            if not p.token or not p.short_code:
+                ensure_link_identity(db, p)
+                touched = True
+        if touched:
+            db.commit()
+
+        rows_html = ""
+        for p in prospects:
+            message = render_facebook_dm(business_name=p.business_name or "there", short_code=p.short_code)
+            fb_url = escape(p.facebook_page_url)
+            biz = escape(p.business_name or "—")
+            trade = escape(p.trade or "—")
+            location = escape(p.location or "—")
+            rows_html += f"""<tr>
+  <td style="padding:10px;"><a href="/admin/prospects/{p.id}">{biz}</a><div class="muted" style="font-size:12px;">{trade} · {location}</div></td>
+  <td style="padding:10px;"><a href="{fb_url}" target="_blank" rel="noopener">Open Facebook Page →</a></td>
+  <td style="padding:10px;max-width:340px;">
+    <textarea readonly id="msg-{p.id}" style="width:100%;min-height:80px;font-size:12.5px;font-family:inherit;padding:8px;border:1px solid #E2E0DA;border-radius:8px;resize:vertical;">{escape(message)}</textarea>
+    <button type="button" onclick="gwCopyMsg({p.id})" style="margin-top:6px;background:#3B82F6;color:#fff;border:0;border-radius:7px;padding:6px 12px;font-size:12.5px;font-weight:600;cursor:pointer;">Copy message</button>
+  </td>
+  <td style="padding:10px;">
+    <form method="post" action="/admin/prospects/{p.id}/facebook-dm-sent" onsubmit="return confirm('Confirm you\\'ve actually sent this DM inside Facebook?');">
+      <button type="submit" style="background:#1C1C1C;color:#fff;border:0;border-radius:7px;padding:7px 14px;font-size:12.5px;font-weight:600;cursor:pointer;">Mark as sent</button>
+    </form>
+  </td>
+</tr>"""
+
+        content = f"""
+<h1 class="adm-title">Facebook DM outreach</h1>
+<p class="adm-sub">{len(prospects)} no_website prospect(s) with a Facebook Page found and no DM logged yet. Sending is manual by design — this page just makes find → copy → paste → send → log fast. <a href="/admin/pipeline">← Back to Pipeline</a></p>
+<div class="adm-card" style="overflow-x:auto;">
+<table>
+<thead><tr>
+  <th style="text-align:left;padding:10px;">Business</th>
+  <th style="text-align:left;padding:10px;">Facebook Page</th>
+  <th style="text-align:left;padding:10px;">Message (copy &amp; paste into Messenger)</th>
+  <th style="text-align:left;padding:10px;">Log</th>
+</tr></thead>
+<tbody>{rows_html or '<tr><td colspan="4" style="padding:16px 10px;color:#9A9893;">Nothing in the queue right now.</td></tr>'}</tbody>
+</table>
+</div>
+<script>
+function gwCopyMsg(id) {{
+  var el = document.getElementById('msg-' + id);
+  el.select();
+  navigator.clipboard && navigator.clipboard.writeText(el.value);
+}}
+</script>
+"""
+        return render_template_string(_admin_page("Facebook DM outreach", content, active="pipeline"))
+    finally:
+        db.close()
+
+
+@app.route("/admin/prospects/<int:prospect_id>/facebook-dm-sent", methods=["POST"])
+@admin_required
+def admin_mark_facebook_dm_sent(prospect_id):
+    """Logs a manually-sent Facebook DM the same way every other outreach
+    channel is tracked — a real OutreachTouch row (channel="facebook") plus
+    the same generic touch bookkeeping (touch_count/last_touch_at) email
+    and SMS sends already update, so Facebook can eventually be compared
+    against them in the funnel. Only advances funnel_stage/funnel_substage
+    to "sent" if this prospect hasn't been sent anything yet — a prospect
+    already further along (e.g. already clicked their link via another
+    channel) must not be regressed backward by a supplementary DM."""
+    db = SessionLocal()
+    try:
+        p = db.get(Prospect, prospect_id)
+        if not p:
+            return jsonify({"error": "not found"}), 404
+
+        now = datetime.utcnow()
+        p.facebook_dm_sent_at = now
+        db.add(OutreachTouch(prospect_id=p.id, stage="initial", channel="facebook", sent_at=now))
+
+        PRE_SEND_STAGES = {"sourced", "gated", "excluded_closed", "queued", "awaiting_approval", "qualified_no_email", "unreachable"}
+        if p.funnel_stage in PRE_SEND_STAGES:
+            p.funnel_stage = "sent"
+            p.funnel_substage = "sent"
+            if not p.sent_at:
+                p.sent_at = now
+
+        p.last_touch_at = now
+        p.touch_count = (p.touch_count or 0) + 1
+        db.commit()
+
+        app.logger.info(f"Facebook DM marked sent: prospect {prospect_id} ({p.business_name})")
+        return redirect("/admin/facebook-outreach")
+    finally:
+        db.close()
+
+
 @app.route("/admin/pipeline")
 @admin_required
 def admin_pipeline():
@@ -4577,7 +4709,7 @@ def admin_pipeline():
 
 <h2 style="font-size:16px;font-weight:800;margin:24px 0 8px;">Send queue</h2>
 <div style="display:flex;gap:28px;flex-wrap:wrap;margin-bottom:8px;">{queue_strip}</div>
-<p class="muted" style="font-size:12px;margin:0 0 20px;"><a href="/admin/outreach" style="color:#2257CC;">Browse/filter all prospects →</a></p>
+<p class="muted" style="font-size:12px;margin:0 0 20px;"><a href="/admin/outreach" style="color:#2257CC;">Browse/filter all prospects →</a> · <a href="/admin/facebook-outreach" style="color:#2257CC;">Facebook DM queue →</a></p>
 
 {_render_discovery_section(db)}
 {_render_followups_section(db)}

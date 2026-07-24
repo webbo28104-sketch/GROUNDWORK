@@ -24,6 +24,14 @@ Expected input, a JSON array of objects:
     {"prospect_id": 485, "email": "info@example.co.uk", "source": "own_website", "website": null}
     {"prospect_id": 487, "email": null, "website": "https://example.co.uk"}
 
+facebook_page_url (added 2026-07-24) is optional on any entry and applied
+regardless of the email outcome — the same site:facebook.com search run
+as part of email discovery often surfaces the business's Facebook Page
+even when no email is found (or even when one is), and this was
+previously discarded once the email search resolved either way. Feeds
+/admin/facebook-outreach, a manual (never automated) DM queue.
+    {"prospect_id": 490, "email": null, "facebook_page_url": "https://www.facebook.com/examplebiz"}
+
 Runnable standalone:
     python outreach/import_discovery_results.py
     python outreach/import_discovery_results.py --file path/to/results.json
@@ -116,6 +124,7 @@ def import_results_from_data(results, dry_run=False):
             email_raw = (entry.get("email") or "").strip()
             source = entry.get("source", "web_search")
             website_raw = (entry.get("website") or "").strip()
+            facebook_url_raw = (entry.get("facebook_page_url") or "").strip()
 
             p = db.get(Prospect, prospect_id)
             if not p:
@@ -136,6 +145,16 @@ def import_results_from_data(results, dry_run=False):
                 p.website = website_raw
                 p.website_status = "has_website"
                 counts["website_rediscovered"] += 1
+
+            # Facebook Page URL — kept unconditionally, regardless of
+            # whether email discovery below finds/rejects an address. The
+            # same site:facebook.com search that looks for an email often
+            # surfaces the Page itself; previously this was discarded the
+            # moment the email search resolved either way (see
+            # Prospect.facebook_page_url's docstring / /admin/facebook-outreach).
+            if facebook_url_raw and facebook_url_raw.lower().startswith(("http://", "https://")):
+                p.facebook_page_url = facebook_url_raw
+                counts["facebook_url_captured"] = counts.get("facebook_url_captured", 0) + 1
 
             if email_raw:
                 email_raw = clean_email(email_raw)
