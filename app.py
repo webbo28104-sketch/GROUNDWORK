@@ -100,6 +100,17 @@ STRIPE_ANNUAL_PRICE_ID = os.environ.get("STRIPE_ANNUAL_PRICE_ID", "")
 SITE_URL = os.environ.get("SITE_URL", "https://groundworkbuild.com")
 stripe.api_key = STRIPE_SECRET_KEY
 
+# view_count/first_viewed_at/last_viewed_at/total_view_seconds/max_scroll_pct
+# were bulk-reset to 0/NULL on 2026-07-24 ~09:55 UTC (admin previews via the
+# old public preview link had been inflating real customers' own view
+# stats — see admin_generation_preview's docstring for the fix). A
+# generation created before this cutoff with zero view stats is genuinely
+# ambiguous — it could mean "never viewed" or "was viewed, but that's the
+# data we just wiped" — so every display of these fields treats anything
+# before this cutoff as "no data," never as a real zero. Only generations
+# created after this point have trustworthy view stats.
+_VIEW_STATS_RELIABLE_FROM = datetime(2026, 7, 24, 9, 55)
+
 # Porkbun — domain registration and DNS.
 PORKBUN_API_KEY    = os.environ.get("PORKBUN_API_KEY", "")
 PORKBUN_SECRET_KEY = os.environ.get("PORKBUN_SECRET_KEY", "")
@@ -4931,7 +4942,13 @@ def admin_prospect_detail(prospect_id):
         if lead:
             gen_links = ""
             if generation:
-                if generation.view_count:
+                if generation.created_at < _VIEW_STATS_RELIABLE_FROM:
+                    # Pre-reset generation — view_count/etc were bulk-wiped
+                    # (see _VIEW_STATS_RELIABLE_FROM's docstring), so a zero
+                    # here doesn't mean "never viewed," it means "we don't
+                    # know." Blank rather than a misleading real-looking stat.
+                    view_stats_html = ""
+                elif generation.view_count:
                     avg_seconds = round(generation.total_view_seconds / generation.view_count) if generation.view_count else 0
                     view_stats_html = (
                         f'<p class="muted" style="margin:6px 0 0;">'
@@ -4940,7 +4957,7 @@ def admin_prospect_detail(prospect_id):
                         f'~{avg_seconds}s avg time on page · deepest scroll {generation.max_scroll_pct}%</p>'
                     )
                 else:
-                    view_stats_html = '<p class="muted" style="margin:6px 0 0;">Never actually viewed — generated but the link hasn\'t been opened (or was opened before this tracking existed and not since).</p>'
+                    view_stats_html = '<p class="muted" style="margin:6px 0 0;">Never actually viewed — generated but the link hasn\'t been opened.</p>'
                 cost_html = (
                     f'<p class="muted" style="margin:6px 0 0;">Cost to generate: '
                     f'<b style="color:#1C1C1C;">${generation.generation_cost_usd:.4f}</b> (Claude API, estimated from token usage)</p>'
@@ -5735,7 +5752,13 @@ def admin_funnel():
 
         def _viewed_cell(cp):
             gen = gen_by_lead_id.get(cp.lead_id)
-            if not gen or not gen.view_count:
+            if not gen:
+                return '<span style="color:#9A9893;">Never viewed</span>'
+            if gen.created_at < _VIEW_STATS_RELIABLE_FROM:
+                # Pre-reset generation — a zero here means "we don't know,"
+                # not "never viewed" (see _VIEW_STATS_RELIABLE_FROM).
+                return '<span style="color:#9A9893;">No data</span>'
+            if not gen.view_count:
                 return '<span style="color:#9A9893;">Never viewed</span>'
             avg_s = round(gen.total_view_seconds / gen.view_count) if gen.view_count else 0
             return f'{gen.view_count}x · ~{avg_s}s avg · scroll {gen.max_scroll_pct}%'
