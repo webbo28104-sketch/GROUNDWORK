@@ -1152,7 +1152,7 @@ def _run(job_id, prompt, logo_b64, logo_mime):
                 # per-turn token limit; the loop will keep asking until the HTML
                 # is complete (end_turn) or the 15-turn ceiling is hit.
                 app.logger.warning(f"Generation {job_id}: max_tokens hit, requesting continuation")
-                messages.append({"role": "user", "content": [{"type": "text", "text": "The response was cut off by the token limit. Please continue the HTML from exactly where you stopped — complete all remaining open tags and sections without repeating any content already written."}]})
+                messages.append({"role": "user", "content": [{"type": "text", "text": "The response was cut off by the token limit. Please continue the HTML from exactly where you stopped — complete all remaining open tags and sections without repeating any content already written. Your continuation is concatenated directly onto the end of what you already wrote, character for character, with nothing inserted between them — so if the cutoff happened mid-string, mid-attribute, or mid-token (e.g. right after a quote character inside a JS string literal), continue with the literal next character(s) that belong there, with zero leading whitespace, newline, or reformatting of any kind. A stray newline inserted inside a single-quoted JS string is invalid syntax and will break the entire script on the page — resume the exact raw text as if it had never been interrupted, not as a fresh line of output."}]})
                 continue
 
             # Continue conversation for tool_use turns
