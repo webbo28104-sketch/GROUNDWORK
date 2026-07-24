@@ -1170,6 +1170,18 @@ def _run(job_id, prompt, logo_b64, logo_mime):
         idx = lower.find("<!doctype html>")
         html = accumulated_text[idx:] if idx != -1 else accumulated_text
 
+        # Truncate anything after the closing </html> — the model
+        # sometimes appends its own trailing commentary/notes after
+        # finishing the page (caught: a markdown note admitting a
+        # testimonial card wasn't backed by a verified quote and should be
+        # removed — commentary that should never reach stored html_content
+        # at all, let alone ship instead of the model just fixing the page
+        # itself). Keep only up to and including the real closing tag.
+        html_lower = html.lower()
+        close_idx = html_lower.rfind("</html>")
+        if close_idx != -1:
+            html = html[:close_idx + len("</html>")]
+
         # Strip stray markdown code-fence markers. Each continuation turn's
         # text is concatenated onto accumulated_text (see the loop above);
         # when a max_tokens cutoff lands mid-output, the model sometimes
