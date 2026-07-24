@@ -2742,6 +2742,15 @@ def _claim_generate_and_redirect(db, prospect):
         with _jobs_lock:
             already_running = lead.public_id in _jobs
         if not already_running:
+            # job_dir's on-disk logo/photos are transient staging (wiped by
+            # any redeploy — see CLAUDE.md's "residual caveat" on Image
+            # persistence) and may no longer be there by the time a stuck
+            # lead gets re-kicked, potentially long after the original
+            # click. Re-run extraction first so a redeploy in between
+            # doesn't silently produce a site with broken image tokens.
+            job_dir = os.path.join(UPLOAD_DIR, lead.public_id)
+            _try_extract_prospect_assets(prospect, lead, job_dir)
+            db.commit()
             _kickoff_generation(lead)
         return redirect(f"/loading.html?id={lead.public_id}")
 
