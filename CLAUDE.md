@@ -153,6 +153,15 @@ When a customer buys a domain (Stripe webhook → `_handle_domain_order_async` i
 
 The `needs_manual_setup` fallback email (`send_domain_setup_failed_email` in `emails.py`) now gives Cloudflare-specific manual steps (add Custom Hostnames in the Cloudflare dashboard, point Porkbun DNS at the Cloudflare target) instead of the old Railway-dashboard instructions.
 
+## Growth roadmap
+
+`docs/growth-roadmap.md` — living to-do list for expanding beyond cold
+email/SMS (social presence + comment-to-DM automation, affiliate/referral
+revenue, client-as-affiliate program, generation quality for thin-data
+prospects). Read it at the start of any session touching growth/monetization
+work, and update it at the end of one — don't let this planning live only in
+chat history.
+
 ## Outreach pipeline (cold outreach → prospect → paid customer)
 
 Separate from the inbound funnel above — a daily automated pipeline that sources UK trade businesses (Google Places API), scores/qualifies them, emails/texts a free generated-site preview via a magic link, and follows up. Full spec, schema, and design rationale: `docs/outreach-pipeline-spec.md` — this section is a pointer to that doc plus the parts most likely to trip up an agent working on this system without full context.
