@@ -1365,7 +1365,12 @@ def _run_and_persist(job_id, lead_id, email, business_name, prompt, logo_b64, lo
             send_admin_approval_email(
                 business_name,
                 email,
-                preview_url=f"{SITE_URL}/api/generate/{job_id}/html",
+                # /admin/generations/<id>/preview, not the public
+                # /api/generate/<job_id>/html the customer gets — that
+                # route is untracked (see admin_generation_preview), so
+                # reviewing it never contributes to the customer's own
+                # view_count/engagement stats.
+                preview_url=f"{SITE_URL}/admin/generations/{gen_id}/preview",
                 approve_url=f"{SITE_URL}/admin/generations/{gen_id}/approve",
             )
         else:
@@ -4208,6 +4213,32 @@ def admin_generation_html(gen_id):
         if not gen:
             return "Not found", 404
         return gen.html_content, 200, {"Content-Type": "text/html; charset=utf-8"}
+    finally:
+        db.close()
+
+
+@app.route("/admin/generations/<int:gen_id>/preview")
+@admin_required
+def admin_generation_preview(gen_id):
+    """Admin-only mirror of exactly what the customer sees at
+    /api/generate/<job_id>/html — same watermark bar, editor/checkout CTAs,
+    the works — without ever touching the customer's own view stats.
+    Added 2026-07-24: an admin previewing their own site through the real
+    customer-facing link was inflating that customer's view_count,
+    first_viewed_at/last_viewed_at, total_view_seconds and max_scroll_pct,
+    making those numbers meaningless for judging real customer engagement.
+    This route skips both _record_generation_view and the engagement
+    beacon script entirely (track_engagement=False) — nothing here is
+    reported anywhere. Linked from send_admin_approval_email instead of the
+    public URL for exactly this reason."""
+    db = SessionLocal()
+    try:
+        gen = db.get(Generation, gen_id)
+        if not gen:
+            return "Not found", 404
+        job_id = gen.lead.public_id
+        html = (gen.html_pending or gen.html_content) if gen.status == "live" else gen.html_content
+        return _inject_watermark(html, job_id, track_engagement=False), 200, {"Content-Type": "text/html; charset=utf-8"}
     finally:
         db.close()
 
@@ -9667,7 +9698,7 @@ def _inject_badge(html: str) -> str:
     return html + badge
 
 
-def _inject_watermark(html: str, job_id: str, *, show_toast: bool = False) -> str:
+def _inject_watermark(html: str, job_id: str, *, show_toast: bool = False, track_engagement: bool = True) -> str:
     checkout_url = f"/checkout.html?id={job_id}"
     editor_url = f"/editor.html?id={job_id}"
 
@@ -9768,10 +9799,16 @@ def _inject_watermark(html: str, job_id: str, *, show_toast: bool = False) -> st
 
     robots_meta = '<meta name="robots" content="noindex, nofollow">'
 
+    # track_engagement=False (added 2026-07-24, for the admin preview route)
+    # omits this script entirely — an admin viewing their own preview link
+    # must never contribute a scroll/time-on-page beacon to a customer's
+    # own engagement stats, same reasoning as skipping _record_generation_view
+    # on that route.
     body_open = re.search(r"<body[^>]*>", html, re.IGNORECASE)
     if body_open:
         insert_at = body_open.end()
-        html = html[:insert_at] + watermark_bar + toast_html + tracking_script + html[insert_at:]
+        engagement_script = tracking_script if track_engagement else ""
+        html = html[:insert_at] + watermark_bar + toast_html + engagement_script + html[insert_at:]
 
     head_open = re.search(r"<head[^>]*>", html, re.IGNORECASE)
     if head_open:
