@@ -2731,6 +2731,18 @@ def _claim_generate_and_redirect(db, prospect):
         db.commit()
         if existing_gen:
             return redirect(f"/api/generate/{lead.public_id}/html")
+        # A lead can exist with no Generation yet for two reasons: generation
+        # is genuinely still running in its background thread, or a prior
+        # attempt crashed before ever producing one (e.g. the build_prompt
+        # NameError this exact bug class caused — lead_id gets set, then the
+        # crash happens, leaving this prospect permanently stuck on repeat
+        # clicks since nothing before this re-kicked generation off). Only
+        # re-kick if there's no in-flight job for this id, so a genuinely
+        # still-running generation isn't started a second time.
+        with _jobs_lock:
+            already_running = lead.public_id in _jobs
+        if not already_running:
+            _kickoff_generation(lead)
         return redirect(f"/loading.html?id={lead.public_id}")
 
     # First-time claim for this prospect, but the email itself may already
