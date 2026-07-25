@@ -5816,7 +5816,7 @@ def admin_funnel():
     from_str = request.args.get("from", "").strip()
     to_str = request.args.get("to", "").strip()
     channel = request.args.get("channel", "both").strip().lower()
-    if channel not in ("email", "sms", "both"):
+    if channel not in ("email", "sms", "facebook", "both"):
         channel = "both"
 
     def _parse_date(s):
@@ -6141,9 +6141,10 @@ def admin_funnel():
   <div>
     <label style="display:block;font-size:12px;font-weight:600;color:#5C5A56;margin-bottom:4px;">Channel</label>
     <select name="channel" style="padding:8px 10px;border:1px solid #D8D5CE;border-radius:7px;font-size:13.5px;">
-      <option value="both" {"selected" if channel == "both" else ""}>Email + SMS</option>
+      <option value="both" {"selected" if channel == "both" else ""}>All channels</option>
       <option value="email" {"selected" if channel == "email" else ""}>Email only</option>
       <option value="sms" {"selected" if channel == "sms" else ""}>SMS only</option>
+      <option value="facebook" {"selected" if channel == "facebook" else ""}>Facebook only</option>
     </select>
   </div>
   <button type="submit" style="background:#3B82F6;color:#fff;border:0;font-weight:700;padding:9px 18px;border-radius:7px;font-size:13.5px;cursor:pointer;">Apply</button>
