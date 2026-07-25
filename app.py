@@ -3483,19 +3483,49 @@ def _render_date_preset_links(base_url: str, active_preset: str, extra_params: s
     )
 
 
+# Same "both"/"email"/"sms"/"facebook" values admin_funnel() already
+# accepts — shared here so /admin's channel buttons and /admin/funnel's
+# channel <select> can never drift apart on what values are valid.
+_CHANNEL_FILTERS = [
+    ("both", "All channels"), ("email", "Email"), ("sms", "SMS"), ("facebook", "Facebook"),
+]
+
+
+def _render_channel_filter_links(base_url: str, active_channel: str, extra_params: str = "") -> str:
+    """Pill-style channel-filter buttons, same visual language as
+    _render_date_preset_links above (added 2026-07-25 for /admin's
+    dashboard, by request — sits above the date buttons, not beside them)."""
+    return "".join(
+        f'<a href="{base_url}?channel={key}{extra_params}" style="padding:6px 13px;border-radius:999px;font-size:12.5px;font-weight:700;'
+        f'text-decoration:none;{"background:#3B82F6;color:#fff;" if active_channel == key else "background:#fff;color:#5C5A56;border:1px solid #D8D5CE;"}">{label}</a>'
+        for key, label in _CHANNEL_FILTERS
+    )
+
+
 @app.route("/admin")
 @admin_required
 def admin_dashboard():
-    """Top-level admin landing page — the 5-KPI strip, full-size, with a
-    date filter (quick presets + explicit from/to) so week-by-week or
-    month-by-month comparison is possible, not just "this month." The same
+    """Top-level admin landing page — the headline KPI strip, full-size,
+    with a channel filter (buttons, above the date filter) and a date
+    filter (quick presets + explicit from/to) so week-by-week or month-by-
+    month comparison is possible, not just "this month." The same
     _render_kpi_strip() component appears (smaller context, no filter) on
     /admin/funnel and /admin/domains too, so the same numbers stay visible
-    wherever they're relevant, not just here."""
+    wherever they're relevant, not just here.
+
+    Channel filter + embedded funnel table added 2026-07-25, by request —
+    every KPI (_compute_kpis' channel param) and the funnel table below it
+    (_render_funnel_table_html, the same function /admin/funnel uses) both
+    scope to whichever channel is selected, so this page is now a complete
+    per-channel view, not just a summary that links out to the Funnel page
+    for the breakdown."""
     now = datetime.utcnow()
     preset = request.args.get("preset", "").strip()
     from_str = request.args.get("from", "").strip()
     to_str = request.args.get("to", "").strip()
+    channel = request.args.get("channel", "both").strip().lower()
+    if channel not in ("email", "sms", "facebook", "both"):
+        channel = "both"
 
     def _parse_date(s):
         try:
@@ -3514,23 +3544,30 @@ def admin_dashboard():
 
     db = SessionLocal()
     try:
-        kpis = _compute_kpis(db, range_from=range_from, range_to=range_to)
+        kpis = _compute_kpis(db, range_from=range_from, range_to=range_to, channel=channel)
         strip = _render_kpi_strip(kpis)
+        funnel_table_html = _render_funnel_table_html(db, now, range_from, range_to, channel)
     finally:
         db.close()
 
     banner = ""
 
-    preset_links = _render_date_preset_links("/admin", preset)
+    _channel_qs = f"&channel={channel}" if channel != "both" else ""
+    channel_links = _render_channel_filter_links("/admin", channel, extra_params=(f"&preset={preset}" if preset else ""))
+    preset_links = _render_date_preset_links("/admin", preset, extra_params=_channel_qs)
 
     content = f"""
 <h1 class="adm-title">Dashboard</h1>
-<p class="adm-sub">The 5 headline KPIs for <strong>{escape(kpis["period_label"])}</strong>, computed fresh from real data on every load.</p>
+<p class="adm-sub">Headline KPIs for <strong>{escape(kpis["period_label"])}</strong> · <strong>{escape(kpis["channel_label"])}</strong>, computed fresh from real data on every load.</p>
 
-<form method="get" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px;">
+<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
+  {channel_links}
+</div>
+<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px;">
   {preset_links}
-</form>
+</div>
 <form method="get" style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-bottom:22px;">
+  <input type="hidden" name="channel" value="{escape(channel)}">
   <div>
     <label style="display:block;font-size:12px;font-weight:600;color:#5C5A56;margin-bottom:4px;">From</label>
     <input type="date" name="from" value="{escape(from_str)}" style="padding:8px 10px;border:1px solid #D8D5CE;border-radius:7px;font-size:13.5px;">
@@ -3540,14 +3577,18 @@ def admin_dashboard():
     <input type="date" name="to" value="{escape(to_str)}" style="padding:8px 10px;border:1px solid #D8D5CE;border-radius:7px;font-size:13.5px;">
   </div>
   <button type="submit" style="background:#3B82F6;color:#fff;border:0;font-weight:700;padding:9px 18px;border-radius:7px;font-size:13.5px;cursor:pointer;">Apply</button>
-  <a href="/admin" style="font-size:13px;color:#807E79;text-decoration:none;padding:9px 4px;">Reset to default (this month)</a>
+  <a href="/admin" style="font-size:13px;color:#807E79;text-decoration:none;padding:9px 4px;">Reset to default (this month, all channels)</a>
 </form>
 
 {banner}
 {strip}
-<div class="adm-card" style="padding:20px 22px;">
+
+<h2 style="font-size:15px;font-weight:700;margin:28px 0 10px;">Funnel — {escape(kpis["channel_label"])}</h2>
+{funnel_table_html}
+
+<div class="adm-card" style="padding:20px 22px;margin-top:20px;">
   <p style="margin:0;font-size:13.5px;color:#5C5A56;">
-    See these broken down further: <a href="/admin/funnel">Funnel</a> (per-stage outreach detail) ·
+    See these broken down further: <a href="/admin/funnel">Funnel</a> (recent clicks, survey answers, send-timing detail) ·
     <a href="/admin/domains">Domains &amp; margins</a> (per-domain purchase/margin detail).
   </p>
 </div>"""
@@ -5443,7 +5484,7 @@ def admin_prospect_detail(prospect_id):
 _KPI_INSTRUMENTATION_START = datetime(2026, 7, 14)
 
 
-def _compute_kpis(db, range_from: datetime = None, range_to: datetime = None) -> dict:
+def _compute_kpis(db, range_from: datetime = None, range_to: datetime = None, channel: str = "both") -> dict:
     """
     The 5 main KPIs, computed fresh every call (cheap — small tables, no
     caching needed yet). Each entry carries enough (value + raw counts) for
@@ -5472,27 +5513,64 @@ def _compute_kpis(db, range_from: datetime = None, range_to: datetime = None) ->
     period_start = range_from or now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     period_end = range_to or now
 
-    # 1. Clients reached out to (email) in the period — OutreachTouch,
-    # stage == "initial" only. This used to be DailySendCount, which counts
-    # every email send attempt (initial + follow-up combined) with no way to
-    # tell them apart — so "Emails sent / month" was silently inflated by
-    # every A/B/C/D follow-up touch on top of first contact. OutreachTouch
-    # tags each row with its stage ("initial" vs "A"/"B"/"C"/"D"), so this
-    # can now filter to first-contact sends only.
-    # Bounce exclusion unchanged: a bounce is not a successfully sent email
-    # (the message never reached an inbox), so distinct bounced-address
-    # events (EmailEventLog) logged within the same period are subtracted.
-    emails_attempted = db.query(OutreachTouch).filter(
-        OutreachTouch.channel == "email",
+    # Channel scoping (added 2026-07-25, by request — the dashboard needed
+    # to filter to one channel, same as /admin/funnel already could).
+    # channel="both" (default — same sentinel /admin/funnel and
+    # _render_funnel_table_html already use, kept consistent rather than
+    # inventing a second "all" convention) preserves every metric's
+    # original, channel-agnostic behavior exactly. A specific channel ("email"/"sms"/
+    # "facebook") computes a CHANNEL MEMBERSHIP set once — every prospect
+    # ever sent an "initial" touch on that channel, all-time, not scoped to
+    # the period — and reuses it to scope every downstream KPI consistently:
+    # prospect-level metrics (click rate, gen->paid) filter directly by
+    # prospect id; Generation-level metrics (domain conversion, churn, edit
+    # rate, checkout abandonment) filter by that prospect's lead_id, since
+    # Generation has no channel field of its own. This is "which channel
+    # first reached this person," not per-touch attribution — a prospect
+    # touched on multiple channels counts toward each one's membership set,
+    # same as /admin/funnel's per-channel cohort logic.
+    channel_prospect_ids = None
+    channel_lead_ids = None
+    if channel != "both":
+        channel_prospect_ids = {
+            pid for (pid,) in db.query(OutreachTouch.prospect_id).filter(
+                OutreachTouch.channel == channel, OutreachTouch.stage == "initial",
+            ).distinct().all()
+        }
+        channel_lead_ids = {
+            lid for (lid,) in db.query(Prospect.lead_id).filter(
+                Prospect.id.in_(channel_prospect_ids), Prospect.lead_id.isnot(None),
+            ).all()
+        } if channel_prospect_ids else set()
+
+    # 1. Clients reached out to (email, or the selected channel) in the
+    # period — OutreachTouch, stage == "initial" only. This used to be
+    # DailySendCount, which counts every send attempt (initial + follow-up
+    # combined) with no way to tell them apart — so "Emails sent / month"
+    # was silently inflated by every A/B/C/D follow-up touch on top of
+    # first contact. OutreachTouch tags each row with its stage, so this
+    # can filter to first-contact sends only.
+    # Bounce exclusion only applies to email (the only channel Resend gives
+    # a real bounce signal for) — a bounce is not a successfully sent
+    # email (the message never reached an inbox), so distinct bounced-
+    # address events (EmailEventLog) logged within the same period are
+    # subtracted for channel in ("all", "email") only.
+    sent_touch_q = db.query(OutreachTouch).filter(
         OutreachTouch.stage == "initial",
         OutreachTouch.sent_at >= period_start,
         OutreachTouch.sent_at <= period_end,
-    ).count()
-    bounced_n = db.query(EmailEventLog.resend_email_id).filter(
-        EmailEventLog.event_type.in_(["email.bounced", "bounced"]),
-        EmailEventLog.created_at >= period_start,
-        EmailEventLog.created_at <= period_end,
-    ).distinct().count()
+    )
+    if channel != "both":
+        sent_touch_q = sent_touch_q.filter(OutreachTouch.channel == channel)
+    emails_attempted = sent_touch_q.count()
+    if channel in ("all", "email"):
+        bounced_n = db.query(EmailEventLog.resend_email_id).filter(
+            EmailEventLog.event_type.in_(["email.bounced", "bounced"]),
+            EmailEventLog.created_at >= period_start,
+            EmailEventLog.created_at <= period_end,
+        ).distinct().count()
+    else:
+        bounced_n = 0
     emails_sent = max(0, emails_attempted - bounced_n)
 
     # 2. Magic link click rate (aggregate, not per-stage) — Prospect.sent_at
@@ -5515,7 +5593,9 @@ def _compute_kpis(db, range_from: datetime = None, range_to: datetime = None) ->
     }
     sent_q = db.query(Prospect).filter(Prospect.sent_at.isnot(None))
     sent_q = sent_q.filter(Prospect.sent_at >= period_start, Prospect.sent_at <= period_end)
-    if bounced_emails_in_period:
+    if channel != "both":
+        sent_q = sent_q.filter(Prospect.id.in_(channel_prospect_ids or []))
+    if channel in ("all", "email") and bounced_emails_in_period:
         sent_q = sent_q.filter(~func.lower(Prospect.email).in_(bounced_emails_in_period))
     sent_n = sent_q.count()
     clicked_n = sent_q.filter(Prospect.clicked_at.isnot(None)).count()
@@ -5540,6 +5620,8 @@ def _compute_kpis(db, range_from: datetime = None, range_to: datetime = None) ->
         ~Prospect.lead_id.in_(internal_prospect_lead_ids),
     )
     gen_cohort_q = gen_cohort_q.filter(Prospect.clicked_at >= period_start, Prospect.clicked_at <= period_end)
+    if channel != "both":
+        gen_cohort_q = gen_cohort_q.filter(Prospect.id.in_(channel_prospect_ids or []))
     gen_cohort_n = gen_cohort_q.count()
     gen_paid_n = gen_cohort_q.filter(Prospect.paid_at.isnot(None)).count()
 
@@ -5554,6 +5636,8 @@ def _compute_kpis(db, range_from: datetime = None, range_to: datetime = None) ->
     # fix).
     period_gens_q = db.query(Generation).filter(Generation.status == "live", Generation.is_internal == False)
     period_gens_q = period_gens_q.filter(Generation.created_at >= period_start, Generation.created_at <= period_end)
+    if channel != "both":
+        period_gens_q = period_gens_q.filter(Generation.lead_id.in_(channel_lead_ids or []))
     period_gens = period_gens_q.all()
     domain_conv_denom = len(period_gens)
     domain_conv_numer = sum(
@@ -5578,14 +5662,23 @@ def _compute_kpis(db, range_from: datetime = None, range_to: datetime = None) ->
     # 2026-07-19 after a personal test of the reactivation flow (paid,
     # then cancelled) was inflating churn_numer despite there being zero
     # real paying customers who've ever cancelled.
+    def _scope_gen(q):
+        """Applies the channel-membership lead_id filter to a Generation
+        query when a specific channel is selected — small helper so the
+        many Generation-based queries below (churn, edit rate, checkout
+        abandonment) don't each repeat the same conditional."""
+        if channel != "both":
+            return q.filter(Generation.lead_id.in_(channel_lead_ids or []))
+        return q
+
     if filtering:
-        active_at_start = db.query(Generation).filter(
+        active_at_start = _scope_gen(db.query(Generation)).filter(
             Generation.status == "live",
             Generation.is_internal == False,
             Generation.created_at < period_start,
             (Generation.canceled_at.is_(None)) | (Generation.canceled_at >= period_start),
         ).count()
-        churned_in_period = db.query(Generation).filter(
+        churned_in_period = _scope_gen(db.query(Generation)).filter(
             Generation.is_internal == False,
             Generation.canceled_at.isnot(None),
             Generation.canceled_at >= period_start, Generation.canceled_at <= period_end,
@@ -5594,16 +5687,16 @@ def _compute_kpis(db, range_from: datetime = None, range_to: datetime = None) ->
         churn_numer = churned_in_period
         has_full_month_baseline = active_at_start > 0
     else:
-        active_now = db.query(Generation).filter(
+        active_now = _scope_gen(db.query(Generation)).filter(
             Generation.status == "live", Generation.is_internal == False
         ).count()
-        churned_month = db.query(Generation).filter(
+        churned_month = _scope_gen(db.query(Generation)).filter(
             Generation.is_internal == False,
             Generation.canceled_at.isnot(None), Generation.canceled_at >= period_start
         ).count()
         churn_denom = active_now + churned_month
         churn_numer = churned_month
-        has_full_month_baseline = db.query(Generation).filter(
+        has_full_month_baseline = _scope_gen(db.query(Generation)).filter(
             Generation.status == "live", Generation.is_internal == False, Generation.created_at < period_start
         ).count() > 0
 
@@ -5632,7 +5725,7 @@ def _compute_kpis(db, range_from: datetime = None, range_to: datetime = None) ->
     # problem; low edit rate -> the site or the generation wait itself is
     # failing to land).
     if _edit_checkout_reliable:
-        edit_cohort_q = db.query(Generation).filter(
+        edit_cohort_q = _scope_gen(db.query(Generation)).filter(
             Generation.is_internal == False,  # noqa: E712
             Generation.created_at >= _edit_checkout_cohort_start, Generation.created_at <= period_end,
         )
@@ -5651,7 +5744,7 @@ def _compute_kpis(db, range_from: datetime = None, range_to: datetime = None) ->
     # clamp as #6 above — a pre-cutoff draft's "never attempted" can't be
     # trusted, so it's excluded from the cohort entirely rather than guessed.
     if _edit_checkout_reliable:
-        never_paid_q = db.query(Generation).filter(
+        never_paid_q = _scope_gen(db.query(Generation)).filter(
             Generation.is_internal == False,  # noqa: E712
             Generation.status == "draft",
             Generation.created_at >= _edit_checkout_cohort_start, Generation.created_at <= period_end,
@@ -5666,9 +5759,12 @@ def _compute_kpis(db, range_from: datetime = None, range_to: datetime = None) ->
         f'{period_start.strftime("%d %b %Y")} – {period_end.strftime("%d %b %Y")}'
         if filtering else now.strftime("%B %Y")
     )
+    _CHANNEL_LABELS = {"both": "all channels", "email": "email", "sms": "SMS", "facebook": "Facebook"}
 
     return {
         "period_label": period_label,
+        "channel": channel,
+        "channel_label": _CHANNEL_LABELS.get(channel, channel),
         "emails_sent_month": {
             "value": emails_sent,
             "attempted": emails_attempted,
@@ -5745,7 +5841,7 @@ def _render_kpi_strip(kpis: dict) -> str:
     sent_sub = e["month_label"]
     if e["bounced"]:
         sent_sub = f'{e["month_label"]} · {e["attempted"]} attempted, {e["bounced"]} bounced'
-    tiles += tile("Clients reached out to (email)", str(e["value"]), sent_sub)
+    tiles += tile(f'Clients reached out to ({escape(kpis.get("channel_label", "email"))})', str(e["value"]), sent_sub)
     tiles += tile(
         "Magic link click rate",
         f'{c["pct"]}%' if c["pct"] is not None else "—",
@@ -5967,6 +6063,124 @@ in Stage C/D follow-ups (docs/outreach-pipeline-spec.md Section 11), sent to cli
 """
 
 
+def _render_funnel_table_html(db, now, range_from, range_to, channel):
+    """Just the per-stage funnel table (<div class="adm-card">...<table>) —
+    factored out of admin_funnel() 2026-07-25 so /admin (the dashboard) can
+    embed the exact same table beneath its channel-filtered KPI cards,
+    without duplicating this logic. channel: "both"/"email"/"sms"/
+    "facebook", same values admin_funnel() already accepts."""
+    _funnel_opened_disabled = range_from is None or range_from < _OPENED_TRACKING_RELIABLE_FROM
+    opened_disabled_title = (
+        f"Disabled — the selected range includes dates before {_OPENED_TRACKING_RELIABLE_FROM.strftime('%d %b %Y')}, "
+        f"when open tracking wasn't yet reliable. Select a from-date on or after that to see real numbers."
+    )
+
+    bounce_event_q = db.query(EmailEventLog).filter(
+        EmailEventLog.event_type.in_(["email.bounced", "bounced"])
+    )
+    if range_from:
+        bounce_event_q = bounce_event_q.filter(EmailEventLog.created_at >= range_from)
+    if range_to:
+        bounce_event_q = bounce_event_q.filter(EmailEventLog.created_at <= range_to)
+    bounced_emails_in_range = {
+        (email_utils.parseaddr(e.to_email)[1] or e.to_email or "").strip().lower()
+        for e in bounce_event_q.all() if e.to_email
+    }
+
+    rows_html = ""
+    for stage_key, stage_label in _FUNNEL_STAGES:
+        q = db.query(OutreachTouch).filter(OutreachTouch.stage == stage_key)
+        if channel != "both":
+            q = q.filter(OutreachTouch.channel == channel)
+        if range_from:
+            q = q.filter(OutreachTouch.sent_at >= range_from)
+        if range_to:
+            q = q.filter(OutreachTouch.sent_at <= range_to)
+        touches = q.all()
+
+        prospect_ids = sorted({t.prospect_id for t in touches})
+        email_prospect_ids = {t.prospect_id for t in touches if t.channel == "email"}
+        sent_n = len(prospect_ids)
+
+        if sent_n:
+            cohort = db.query(Prospect).filter(Prospect.id.in_(prospect_ids)).all()
+            bounced_n = sum(
+                1 for p in cohort
+                if p.id in email_prospect_ids and p.email and p.email.strip().lower() in bounced_emails_in_range
+            )
+            opened_n = sum(1 for p in cohort if p.opened_at is not None)
+            clicked_n = sum(1 for p in cohort if p.clicked_at is not None)
+            cohort_lead_ids = [p.lead_id for p in cohort if p.lead_id is not None]
+            viewed_n = (
+                db.query(Generation).filter(
+                    Generation.lead_id.in_(cohort_lead_ids), Generation.view_count > 0
+                ).count()
+                if cohort_lead_ids else 0
+            )
+            paid_n = sum(1 for p in cohort if p.paid_at is not None)
+        else:
+            bounced_n = opened_n = clicked_n = viewed_n = paid_n = 0
+
+        delivered_n = sent_n - bounced_n
+        counts = [delivered_n, opened_n, clicked_n, viewed_n, paid_n]
+        pcts = [None] + [
+            _funnel_pct(counts[i], counts[i - 1]) for i in range(1, len(counts))
+        ]
+
+        sent_sub_html = ""
+        if bounced_n:
+            bounce_pct = _funnel_pct(bounced_n, sent_n)
+            sent_sub_html = (
+                f'<div style="font-size:11px;color:#9A9893;margin-top:2px;">'
+                f'{sent_n} attempted · <span style="color:#DC2626;">{bounced_n} bounced ({bounce_pct}%)</span></div>'
+            )
+
+        taut_cols = set(_tautological_columns(stage_key))
+        cells = ""
+        for i, (label, count) in enumerate(zip(_FUNNEL_STEPS, counts)):
+            if label == "Opened" and _funnel_opened_disabled:
+                cells += (
+                    f'<td style="text-align:center;opacity:.45;" title="{escape(opened_disabled_title)}">'
+                    f'<div style="font-size:15px;font-weight:700;">{count}</div>'
+                    f'<div style="font-size:10.5px;color:#9A9893;margin-top:2px;">disabled</div></td>'
+                )
+                continue
+            if i in taut_cols:
+                cells += (
+                    f'<td style="text-align:center;opacity:.45;" '
+                    f'title="This cohort is defined by already having reached this stage — not a conversion this touch caused.">'
+                    f'<div style="font-size:15px;font-weight:700;">{count}</div>'
+                    f'<div style="font-size:10.5px;color:#9A9893;margin-top:2px;">cohort def.</div></td>'
+                )
+                continue
+            pct_html = ""
+            if i == 0:
+                pct_html = sent_sub_html
+            elif pcts[i] is not None:
+                pct_html = f'<div style="font-size:11px;color:#9A9893;margin-top:2px;">{pcts[i]}%</div>'
+            cells += (
+                f'<td style="text-align:center;">'
+                f'<div style="font-size:15px;font-weight:700;">{count}</div>'
+                f'{pct_html}</td>'
+            )
+
+        rows_html += f'<tr><td style="font-weight:600;">{escape(stage_label)}</td>{cells}</tr>'
+
+    header_cells = "".join(
+        f'<th style="text-align:center;{"opacity:.45;" if s == "Opened" and _funnel_opened_disabled else ""}" '
+        f'title="{escape(opened_disabled_title) if s == "Opened" and _funnel_opened_disabled else ""}">'
+        f'{s}{" (disabled)" if s == "Opened" and _funnel_opened_disabled else ""}</th>'
+        for s in _FUNNEL_STEPS
+    )
+
+    return f"""<div class="adm-card" style="overflow-x:auto;">
+<table>
+<thead><tr><th>Stage</th>{header_cells}</tr></thead>
+<tbody>{rows_html}</tbody>
+</table>
+</div>"""
+
+
 @app.route("/admin/funnel")
 @admin_required
 def admin_funnel():
@@ -6044,18 +6258,6 @@ def admin_funnel():
         range_to = _parse_date(to_str)
         if range_to:
             range_to = range_to.replace(hour=23, minute=59, second=59)
-
-    # Shadows the module-level default with a per-request value based on
-    # the selected range — see _OPENED_TRACKING_RELIABLE_FROM's comment.
-    # No "from" date at all means the range is unbounded backwards (i.e.
-    # "all time"), which necessarily includes the unreliable pre-cutoff
-    # period, so that also disables it — only an explicit from-date on or
-    # after the cutoff counts as "reliable data only."
-    _FUNNEL_OPENED_DISABLED = range_from is None or range_from < _OPENED_TRACKING_RELIABLE_FROM
-    opened_disabled_title = (
-        f"Disabled — the selected range includes dates before {_OPENED_TRACKING_RELIABLE_FROM.strftime('%d %b %Y')}, "
-        f"when open tracking wasn't yet reliable. Select a from-date on or after that to see real numbers."
-    )
 
     db = SessionLocal()
     try:
@@ -6160,142 +6362,7 @@ def admin_funnel():
 </table>
 </div>"""
 
-        # Bounced addresses in scope for this table's date range — reused
-        # across every stage row below, same normalization as the
-        # deliverability page's source breakdown (Resend sometimes logs the
-        # quoted '"addr" <addr>' form rather than a bare address).
-        bounce_event_q = db.query(EmailEventLog).filter(
-            EmailEventLog.event_type.in_(["email.bounced", "bounced"])
-        )
-        if range_from:
-            bounce_event_q = bounce_event_q.filter(EmailEventLog.created_at >= range_from)
-        if range_to:
-            bounce_event_q = bounce_event_q.filter(EmailEventLog.created_at <= range_to)
-        bounced_emails_in_range = {
-            (email_utils.parseaddr(e.to_email)[1] or e.to_email or "").strip().lower()
-            for e in bounce_event_q.all() if e.to_email
-        }
-
-        rows_html = ""
-        any_sent_at_all = False
-
-        for stage_key, stage_label in _FUNNEL_STAGES:
-            q = db.query(OutreachTouch).filter(OutreachTouch.stage == stage_key)
-            if channel != "both":
-                q = q.filter(OutreachTouch.channel == channel)
-            if range_from:
-                q = q.filter(OutreachTouch.sent_at >= range_from)
-            if range_to:
-                q = q.filter(OutreachTouch.sent_at <= range_to)
-            touches = q.all()
-
-            prospect_ids = sorted({t.prospect_id for t in touches})
-            email_prospect_ids = {t.prospect_id for t in touches if t.channel == "email"}
-            sent_n = len(prospect_ids)
-            if sent_n:
-                any_sent_at_all = True
-
-            if sent_n:
-                cohort = db.query(Prospect).filter(Prospect.id.in_(prospect_ids)).all()
-                bounced_n = sum(
-                    1 for p in cohort
-                    if p.id in email_prospect_ids and p.email and p.email.strip().lower() in bounced_emails_in_range
-                )
-                opened_n = sum(1 for p in cohort if p.opened_at is not None)
-                # Clicked and Generated used to be separate columns, but
-                # clicking /claim/<token> synchronously kicks off generation
-                # in the same request (_kickoff_generation) — there's no
-                # persisted "clicked but not generated" state except a brief
-                # in-progress window or an outright generation failure
-                # (confirmed 2026-07-20: 0 divergence in production, 3/3
-                # clicks have a Generation row). Merged into one column
-                # rather than showing two numbers that are always identical
-                # and imply a distinction that doesn't exist yet.
-                clicked_n = sum(1 for p in cohort if p.clicked_at is not None)
-                # Viewed (added 2026-07-20) — Generation.view_count, not
-                # anything on Prospect, so this needs its own join via
-                # lead_id rather than a plain attribute check like the
-                # others above. Real signal even for later-stage cohorts —
-                # see _VIEWED_COLUMN_INDEX's comment for why it's excluded
-                # from the tautological-columns treatment.
-                cohort_lead_ids = [p.lead_id for p in cohort if p.lead_id is not None]
-                viewed_n = (
-                    db.query(Generation).filter(
-                        Generation.lead_id.in_(cohort_lead_ids), Generation.view_count > 0
-                    ).count()
-                    if cohort_lead_ids else 0
-                )
-                paid_n = sum(1 for p in cohort if p.paid_at is not None)
-            else:
-                bounced_n = opened_n = clicked_n = viewed_n = paid_n = 0
-
-            # delivered_n, not sent_n, is the headline number and the
-            # denominator for every downstream rate — same principle as the
-            # KPI strip's "emails sent" fix: a bounced send never reached an
-            # inbox, so it can't be a fair base for "did they open/click"
-            # either. sent_n (the raw OutreachTouch attempt count) is still
-            # shown, in the sub-caption, not hidden — this table is meant to
-            # carry more detail than the single KPI tile, not less.
-            delivered_n = sent_n - bounced_n
-            counts = [delivered_n, opened_n, clicked_n, viewed_n, paid_n]
-            pcts = [None] + [
-                _funnel_pct(counts[i], counts[i - 1]) for i in range(1, len(counts))
-            ]
-
-            sent_sub_html = ""
-            if bounced_n:
-                bounce_pct = _funnel_pct(bounced_n, sent_n)
-                sent_sub_html = (
-                    f'<div style="font-size:11px;color:#9A9893;margin-top:2px;">'
-                    f'{sent_n} attempted · <span style="color:#DC2626;">{bounced_n} bounced ({bounce_pct}%)</span></div>'
-                )
-
-            taut_cols = set(_tautological_columns(stage_key))
-            cells = ""
-            for i, (label, count) in enumerate(zip(_FUNNEL_STEPS, counts)):
-                if label == "Opened" and _FUNNEL_OPENED_DISABLED:
-                    # Greyed-out, not hidden — still an important metric,
-                    # just not a trustworthy one yet (see _FUNNEL_OPENED_DISABLED).
-                    # Raw count still shown so nothing's actually lost, but no
-                    # bold styling or %-of-delivered rate implying it's a
-                    # trusted, actionable number the way the other columns are.
-                    cells += (
-                        f'<td style="text-align:center;opacity:.45;" title="{escape(opened_disabled_title)}">'
-                        f'<div style="font-size:15px;font-weight:700;">{count}</div>'
-                        f'<div style="font-size:10.5px;color:#9A9893;margin-top:2px;">disabled</div></td>'
-                    )
-                    continue
-                if i in taut_cols:
-                    # ~100% by cohort definition, not real signal — see
-                    # _tautological_columns. Greyed the same way as the
-                    # disabled Opened column, with a label explaining why
-                    # rather than a misleading bold number/percentage.
-                    cells += (
-                        f'<td style="text-align:center;opacity:.45;" '
-                        f'title="This cohort is defined by already having reached this stage — not a conversion this touch caused.">'
-                        f'<div style="font-size:15px;font-weight:700;">{count}</div>'
-                        f'<div style="font-size:10.5px;color:#9A9893;margin-top:2px;">cohort def.</div></td>'
-                    )
-                    continue
-                pct_html = ""
-                if i == 0:
-                    pct_html = sent_sub_html
-                elif pcts[i] is not None:
-                    pct_html = f'<div style="font-size:11px;color:#9A9893;margin-top:2px;">{pcts[i]}%</div>'
-                cells += (
-                    f'<td style="text-align:center;">'
-                    f'<div style="font-size:15px;font-weight:700;">{count}</div>'
-                    f'{pct_html}</td>'
-                )
-
-            rows_html += f'<tr><td style="font-weight:600;">{escape(stage_label)}</td>{cells}</tr>'
-
-        header_cells = "".join(
-            f'<th style="text-align:center;{"opacity:.45;" if s == "Opened" and _FUNNEL_OPENED_DISABLED else ""}" '
-            f'title="{escape(opened_disabled_title) if s == "Opened" and _FUNNEL_OPENED_DISABLED else ""}">'
-            f'{s}{" (disabled)" if s == "Opened" and _FUNNEL_OPENED_DISABLED else ""}</th>'
-            for s in _FUNNEL_STEPS
-        )
+        funnel_table_html = _render_funnel_table_html(db, now, range_from, range_to, channel)
 
         funnel_preset_links = _render_date_preset_links(
             "/admin/funnel", preset, extra_params=f"&channel={channel}" if channel != "both" else ""
@@ -6356,12 +6423,7 @@ def admin_funnel():
   <a href="/admin/funnel" style="font-size:13px;color:#807E79;text-decoration:none;padding:9px 4px;">Reset to default (all time)</a>
 </form>
 
-<div class="adm-card" style="overflow-x:auto;">
-<table>
-<thead><tr><th>Stage</th>{header_cells}</tr></thead>
-<tbody>{rows_html}</tbody>
-</table>
-</div>
+{funnel_table_html}
 
 <h2 style="font-size:15px;font-weight:700;margin:28px 0 10px;">Currently in the pipeline ({total_in_pipeline})</h2>
 <div class="statsbar" style="justify-content:flex-start;text-align:left;">{summary_html}</div>
