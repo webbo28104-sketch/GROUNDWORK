@@ -2912,20 +2912,38 @@ def claim(token):
         db.close()
 
 
+def _claim_check_email_page(token, email):
+    inner = f"""<div class="acct-card" style="text-align:center;">
+      <h1 style="margin:0 0 10px;font-weight:800;font-size:24px;letter-spacing:-.02em;">Check your inbox</h1>
+      <p style="margin:0;font-size:15px;color:#5C5A56;line-height:1.6;">
+        We've sent a confirmation link to <strong>{escape(email)}</strong>. Click it to verify this address
+        and we'll start building your website preview — this link expires in 24 hours.
+      </p>
+      <p style="margin:16px 0 0;font-size:13px;color:#9A9893;">Didn't get it? Check spam, or
+        <a href="/claim/{escape(token)}/email">try again with a different address</a>.</p>
+    </div>"""
+    return render_template_string(_account_page(inner, "Check your inbox"))
+
+
 @app.route("/claim/<token>/email", methods=["GET", "POST"])
 def claim_email(token):
     """
     Email-capture page for phone-only prospects (has_findable_email=false,
     i.e. email_found=false — SMS-only outreach, docs/outreach-pipeline-spec.md
-    Section 9a). This is the SMS magic-link destination for that segment —
-    /claim/<token> redirects here automatically when the prospect has no
-    email on file, so /s/<short_code> needs no changes to reach this page.
+    Section 9a) and, since 2026-07-25, Facebook DM prospects using the same
+    no-email-on-file path. /claim/<token> redirects here automatically when
+    the prospect has no email on file, so /s/<short_code> needs no changes
+    to reach this page.
 
-    On submit: records the email on both Prospect and Account, flips
-    email_found (== has_findable_email) to true — making this prospect
-    eligible for the parallel email follow-up track going forward, not just
-    SMS — then reuses _claim_generate_and_redirect, the same generation
-    kickoff /claim/<token> uses, rather than a separate path.
+    Real verification (added 2026-07-25, by request): submitting this form
+    does NOT trust the typed address immediately — it emails a confirmation
+    link (same mechanism/copy as the direct-signup flow's send_verification_
+    email, reusing TOKEN_MAX_AGE/serializer) and shows a "check your inbox"
+    page. Only /claim/<token>/verify/<vtoken> below actually records the
+    email on Prospect/Account and fires generation, once the link is
+    clicked — proving they own the address before it's trusted (added to
+    the prospect's profile, used for follow-ups, etc.), the same bar the
+    direct-signup form already holds itself to.
     """
     db = SessionLocal()
     try:
@@ -2934,8 +2952,8 @@ def claim_email(token):
             return redirect("/verify-error.html?reason=invalid")
 
         if prospect.email:
-            # Already has an email on file (e.g. discovered later, or this
-            # page already ran once) — nothing left to capture here.
+            # Already has an email on file (e.g. discovered later, or
+            # already verified) — nothing left to capture here.
             return redirect(f"/claim/{token}")
 
         if request.method == "GET":
@@ -2945,14 +2963,54 @@ def claim_email(token):
         if not email or not re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', email):
             return _claim_email_form(prospect, error="Enter a valid email address.")
 
-        prospect.email = email
-        prospect.email_found = True  # has_findable_email — see Section 11's schema note
+        vtoken = serializer.dumps({"prospect_token": token, "email": email})
+        base_url = request.host_url.rstrip("/")
+        verify_url = f"{base_url}/claim/{token}/verify/{vtoken}"
+        send_verification_email(email, verify_url, prospect.business_name or "")
 
-        account = db.query(Account).filter(Account.email == email).first()
-        if account is None:
-            account = Account(email=email)
-            db.add(account)
-        db.commit()
+        return _claim_check_email_page(token, email)
+    finally:
+        db.close()
+
+
+@app.route("/claim/<token>/verify/<vtoken>")
+def claim_email_verify(token, vtoken):
+    """Confirms a claim-flow email-capture link (see claim_email above),
+    then records the address and fires generation via the same
+    _claim_generate_and_redirect every other claim path uses."""
+    try:
+        data = serializer.loads(vtoken, max_age=TOKEN_MAX_AGE)
+    except SignatureExpired:
+        return redirect("/verify-error.html?reason=expired")
+    except BadSignature:
+        return redirect("/verify-error.html?reason=invalid")
+
+    if data.get("prospect_token") != token:
+        # The outer URL token and the token embedded in the signed vtoken
+        # must agree — a cheap belt-and-braces check against a vtoken being
+        # replayed against a different prospect's claim URL, on top of the
+        # signature itself already proving it wasn't tampered with.
+        return redirect("/verify-error.html?reason=invalid")
+
+    email = (data.get("email") or "").strip().lower()
+
+    db = SessionLocal()
+    try:
+        prospect = db.query(Prospect).filter(Prospect.token == token).first()
+        if not prospect:
+            return redirect("/verify-error.html?reason=invalid")
+
+        if not prospect.email:
+            prospect.email = email
+            prospect.email_found = True  # has_findable_email — see Section 11's schema note
+
+            account = db.query(Account).filter(Account.email == email).first()
+            if account is None:
+                account = Account(email=email)
+                db.add(account)
+            db.commit()
+        # else: already verified by an earlier click on this same link
+        # (or a repeat visit) — idempotent, just proceed to generation.
 
         return _claim_generate_and_redirect(db, prospect)
     finally:
