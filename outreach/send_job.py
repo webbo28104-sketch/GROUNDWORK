@@ -34,7 +34,7 @@ for _p in (_PROJECT_ROOT, _THIS_DIR):
 
 from models import SessionLocal, Prospect, SmsDeliveryEvent, OutreachTouch, init_db
 from emails import send_outreach_email
-from outreach.sms import send_outreach_sms
+from outreach.sms import send_outreach_sms, sms_channel_eligible
 from outreach.templates import render_sms
 from outreach.ramp import (
     advance_or_hold, get_remaining_ramp_today, get_remaining_ramp_this_hour,
@@ -164,7 +164,7 @@ def send_initial_touch(db, p, now, remaining_ramp=None):
         phone_only = True
 
     if phone_only:
-        if p.phone and not p.sms_unsubscribed and (unlimited or remaining_ramp["sms"] > 0):
+        if p.phone and not p.sms_unsubscribed and sms_channel_eligible(p) and (unlimited or remaining_ramp["sms"] > 0):
             body = render_sms("initial", business_name=p.business_name, short_code=_short_code(p))
             sms_id = send_outreach_sms(p.phone, body)
             # send_outreach_sms swallows its own failures and returns None
@@ -207,8 +207,10 @@ def send_initial_touch(db, p, now, remaining_ramp=None):
                 touched = True
         # Email-track prospects get both channels in parallel, same as the
         # follow-up sequence's channel logic — SMS piggybacks on the same
-        # touch if a phone number is on record.
-        if p.phone and not p.sms_unsubscribed and (unlimited or remaining_ramp["sms"] > 0):
+        # touch if a phone number is on record AND the no_website-only SMS
+        # policy allows it (sms_channel_eligible) — a has_website prospect
+        # on the email track should only ever get the email, not both.
+        if p.phone and not p.sms_unsubscribed and sms_channel_eligible(p) and (unlimited or remaining_ramp["sms"] > 0):
             body = render_sms("initial", business_name=p.business_name, short_code=_short_code(p))
             sms_id = send_outreach_sms(p.phone, body)
             if sms_id:

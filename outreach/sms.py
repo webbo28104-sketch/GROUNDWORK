@@ -35,6 +35,21 @@ logger = logging.getLogger("outreach.sms")
 API_BASE = "https://api.esendex.com/v1.0"
 
 
+def sms_channel_eligible(prospect):
+    """SMS (and, by the same policy, Facebook DM — see
+    app.py:admin_facebook_outreach) is reserved for no_website prospects
+    only, added 2026-07-25 by explicit request: a prospect with a website
+    is reachable by email, which is the primary channel and already sends
+    enough volume — SMS/Facebook shouldn't double up on them. Checked
+    everywhere an SMS send is about to happen (outreach/send_job.py's
+    initial send, both the phone-only track and the parallel SMS leg on
+    the email track; outreach/followup.py's every SMS branch including
+    hail_mary), not just at prospect-selection time, so this stays correct
+    even if a prospect's website_status changes after they first entered
+    the pipeline."""
+    return prospect.website_status == "no_website"
+
+
 def _auth_header():
     username = os.environ.get("ESENDEX_USERNAME")
     password = os.environ.get("ESENDEX_PASSWORD")

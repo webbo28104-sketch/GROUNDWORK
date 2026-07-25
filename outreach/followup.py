@@ -29,7 +29,7 @@ from datetime import datetime
 
 from models import SessionLocal, Prospect, SmsDeliveryEvent, OutreachTouch
 from emails import send_outreach_email
-from outreach.sms import send_outreach_sms
+from outreach.sms import send_outreach_sms, sms_channel_eligible
 from outreach.templates import (
     render_email, render_sms, PRE_CLICK_STAGES, POST_CLICK_STAGES,
     branding_ps_line,
@@ -179,7 +179,7 @@ def _fire_touch(db, p, stage, now, remaining_ramp, unsubscribe_link_fn, preview_
             if email_id:
                 db.add(OutreachTouch(prospect_id=p.id, stage="hail_mary", channel="email", sent_at=now))
                 email_used = 1
-        if SMS_REPLY_CAPTURE_READY and not p.sms_unsubscribed and p.phone and remaining_ramp["sms"] > 0:
+        if SMS_REPLY_CAPTURE_READY and not p.sms_unsubscribed and p.phone and sms_channel_eligible(p) and remaining_ramp["sms"] > 0:
             body = render_sms("hail_mary", business_name=p.business_name, survey_link=survey_link_fn(p), preview_link=preview_link_fn(p))
             sms_id = send_outreach_sms(p.phone, body)
             if sms_id:
@@ -191,7 +191,7 @@ def _fire_touch(db, p, stage, now, remaining_ramp, unsubscribe_link_fn, preview_
         # (no open tracking over SMS) — Stage A copy doubles as the single
         # pre-click follow-up, collapsing A/B into one per the spec.
         sms_stage = "A" if stage in PRE_CLICK_STAGES else stage
-        if SMS_REPLY_CAPTURE_READY and not p.sms_unsubscribed and remaining_ramp["sms"] > 0:
+        if SMS_REPLY_CAPTURE_READY and not p.sms_unsubscribed and sms_channel_eligible(p) and remaining_ramp["sms"] > 0:
             body = render_sms(sms_stage, business_name=p.business_name, short_code=short_code_fn(p))
             sms_id = send_outreach_sms(p.phone, body)
             # send_outreach_sms returns None (doesn't raise) on failure — only
@@ -224,7 +224,7 @@ def _fire_touch(db, p, stage, now, remaining_ramp, unsubscribe_link_fn, preview_
                 db.add(OutreachTouch(prospect_id=p.id, stage=stage, channel="email", sent_at=now,
                                       variant_id=variant.variant_id if variant else None))
                 email_used = 1
-        if SMS_REPLY_CAPTURE_READY and not p.sms_unsubscribed and p.phone and remaining_ramp["sms"] > 0:
+        if SMS_REPLY_CAPTURE_READY and not p.sms_unsubscribed and p.phone and sms_channel_eligible(p) and remaining_ramp["sms"] > 0:
             body = render_sms(stage, business_name=p.business_name, short_code=short_code_fn(p))
             sms_id = send_outreach_sms(p.phone, body)
             if sms_id:

@@ -4666,20 +4666,20 @@ def admin_outreach():
 @app.route("/admin/facebook-outreach")
 @admin_required
 def admin_facebook_outreach():
-    """Manual Facebook DM outreach queue (added 2026-07-24) — any prospect
-    with a captured Facebook Page URL (see Prospect.facebook_page_url's
+    """Manual Facebook DM outreach queue (added 2026-07-24) — no_website
+    prospects with a captured Facebook Page URL (see Prospect.facebook_page_url's
     docstring: found during the same nightly email-discovery search that
     already runs site:facebook.com queries, kept regardless of whether that
-    search found a usable email) who hasn't had a DM logged as sent or
+    search found a usable email) who haven't had a DM logged as sent or
     dismissed yet.
 
-    Widened 2026-07-25 to drop the earlier `website_status == "no_website"`
-    restriction — that filter was excluding real, usable Facebook Pages on
-    has_website prospects for no good reason (28 of 29 pending prospects on
-    a real audit were sitting invisible in the queue purely because they
-    happened to have a website too; a captured Facebook Page is a real
-    reachable channel regardless of that). Every prospect on file with a
-    Facebook Page belongs in this queue now, not just the no-website subset.
+    Briefly widened to all website statuses on 2026-07-25, then reverted
+    the same day per an explicit policy call: SMS and Facebook are reserved
+    for no_website prospects only — a prospect with a website is reachable
+    by email, the primary channel that already carries enough volume, and
+    shouldn't also get a supplementary Facebook DM. See
+    outreach/sms.py's sms_channel_eligible() for the identical policy
+    applied to SMS sends (both initial and follow-up).
 
     Deliberately NOT automated — no Messenger API, no browser automation
     driving a logged-in Facebook session. This page's only job is to make
@@ -4694,6 +4694,7 @@ def admin_facebook_outreach():
         prospects = (
             db.query(Prospect)
             .filter(
+                Prospect.website_status == "no_website",
                 Prospect.facebook_page_url.isnot(None),
                 Prospect.facebook_page_url != "",
                 Prospect.facebook_dm_sent_at.is_(None),
@@ -4768,7 +4769,7 @@ def admin_facebook_outreach():
 @media (max-width:480px){{.fb-grid{{grid-template-columns:1fr;}}}}
 </style>
 <h1 class="adm-title">Facebook DM outreach</h1>
-<p class="adm-sub">{len(prospects)} prospect(s) with a Facebook Page found and no DM logged/dismissed yet. Sending is manual by design — this page just makes find → copy → paste → send → log fast, from a phone or a desktop. <a href="/admin/pipeline">← Back to Pipeline</a></p>
+<p class="adm-sub">{len(prospects)} no_website prospect(s) with a Facebook Page found and no DM logged/dismissed yet. Sending is manual by design — this page just makes find → copy → paste → send → log fast, from a phone or a desktop. <a href="/admin/pipeline">← Back to Pipeline</a></p>
 <div class="fb-grid">{cards_html or '<p class="muted" style="padding:16px 10px;">Nothing in the queue right now.</p>'}</div>
 <script>
 function gwCopyMsg(id) {{
