@@ -444,6 +444,21 @@ class DiscoveryImportState(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class FacebookSourcingPickupState(Base):
+    """Single-row table tracking the last Google Drive file the Facebook-
+    page sourcing pickup (outreach/pickup_facebook_sourced.py) imported —
+    same idempotency purpose/shape as DiscoveryImportState, for the
+    "Groundwork Facebook-page tradesperson sourcing" routine's Drive
+    output (added 2026-07-25). This is a genuine SOURCING channel — new
+    Prospect rows for businesses that may never have been in Google
+    Places' dataset at all, not just enrichment on already-sourced ones."""
+    __tablename__ = "facebook_sourcing_pickup_state"
+
+    id = Column(Integer, primary_key=True)
+    last_drive_file_id = Column(String(100), nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class SearchCell(Base):
     __tablename__ = "search_cells"
 
