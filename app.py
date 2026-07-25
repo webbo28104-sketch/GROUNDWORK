@@ -30,7 +30,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 from build_prompt import build_prompt, PROMPT_VERSION_HASH
 from outreach.site_extract import extract_site_assets
-from models import SessionLocal, Lead, Generation, Account, GenerationImage, Domain, Prospect, SearchCell, PendingEmailDiscovery, EmailEventLog, OutreachTouch, DailySendCount, RampState, SmsDeliveryEvent, SurveyResponse, DiscoveryRunLog, InboundReply, EmailVariant, EvidenceFinding, OptimizerRunLog, PromptApproval, init_db
+from models import SessionLocal, Lead, Generation, Account, GenerationImage, Domain, Prospect, SearchCell, PendingEmailDiscovery, EmailEventLog, OutreachTouch, DailySendCount, RampState, SmsDeliveryEvent, SurveyResponse, DiscoveryRunLog, InboundReply, EmailVariant, EvidenceFinding, OptimizerRunLog, PromptApproval, ProspectEvent, init_db
 from emails import (send_verification_email, send_resend_email, send_password_reset_email,
                     send_support_message_email, send_enquiry_email,
                     send_domain_order_admin_email, send_domain_order_customer_email,
@@ -2792,6 +2792,24 @@ def _stamp_latest_touch_outcome(db, prospect_id, field, channel=None):
         setattr(touch, field, datetime.utcnow())
 
 
+def _prospect_last_touch_channel(db, prospect_id):
+    touch = db.query(OutreachTouch).filter(OutreachTouch.prospect_id == prospect_id).order_by(
+        OutreachTouch.sent_at.desc()
+    ).first()
+    return touch.channel if touch else None
+
+
+def _log_prospect_event(db, prospect_id, event_type, channel=None, meta=None):
+    """Records one granular funnel micro-event (models.ProspectEvent — see
+    its docstring for the full event_type list and design rationale).
+    Unlike _stamp_latest_touch_outcome, this is NOT guarded by "only once"
+    — every call adds a new row, since repeat events (e.g. a second click
+    on the same magic link weeks later) are themselves real signal, not
+    noise to dedupe away. Doesn't commit — same convention as
+    _stamp_latest_touch_outcome, the caller's existing commit covers it."""
+    db.add(ProspectEvent(prospect_id=prospect_id, event_type=event_type, channel=channel, meta=meta))
+
+
 def _claim_generate_and_redirect(db, prospect):
     """
     Shared by /claim/<token> and /claim/<token>/email — the actual
@@ -2876,6 +2894,7 @@ def _claim_generate_and_redirect(db, prospect):
     job_dir = os.path.join(UPLOAD_DIR, lead.public_id)
     _try_extract_prospect_assets(prospect, lead, job_dir)
 
+    _log_prospect_event(db, prospect.id, "generation_kicked_off", channel=_prospect_last_touch_channel(db, prospect.id))
     db.commit()
 
     _kickoff_generation(lead)
@@ -2901,6 +2920,9 @@ def claim(token):
         prospect = db.query(Prospect).filter(Prospect.token == token).first()
         if not prospect:
             return redirect("/verify-error.html?reason=invalid")
+
+        _log_prospect_event(db, prospect.id, "magic_link_clicked", channel=_prospect_last_touch_channel(db, prospect.id))
+        db.commit()
 
         if not prospect.email:
             # Phone-only prospect — no email on file to create a Lead/Account
@@ -2957,16 +2979,23 @@ def claim_email(token):
             return redirect(f"/claim/{token}")
 
         if request.method == "GET":
+            _log_prospect_event(db, prospect.id, "email_capture_viewed", channel=_prospect_last_touch_channel(db, prospect.id))
+            db.commit()
             return _claim_email_form(prospect)
 
         email = (request.form.get("email") or "").strip().lower()
         if not email or not re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', email):
             return _claim_email_form(prospect, error="Enter a valid email address.")
 
+        channel = _prospect_last_touch_channel(db, prospect.id)
+        _log_prospect_event(db, prospect.id, "email_capture_submitted", channel=channel, meta={"email": email})
+
         vtoken = serializer.dumps({"prospect_token": token, "email": email})
         base_url = request.host_url.rstrip("/")
         verify_url = f"{base_url}/claim/{token}/verify/{vtoken}"
         send_verification_email(email, verify_url, prospect.business_name or "")
+        _log_prospect_event(db, prospect.id, "verification_email_sent", channel=channel, meta={"email": email})
+        db.commit()
 
         return _claim_check_email_page(token, email)
     finally:
@@ -3000,6 +3029,9 @@ def claim_email_verify(token, vtoken):
         if not prospect:
             return redirect("/verify-error.html?reason=invalid")
 
+        channel = _prospect_last_touch_channel(db, prospect.id)
+        _log_prospect_event(db, prospect.id, "verification_link_clicked", channel=channel, meta={"email": email})
+
         if not prospect.email:
             prospect.email = email
             prospect.email_found = True  # has_findable_email — see Section 11's schema note
@@ -3028,6 +3060,8 @@ def short_link(short_code):
         prospect = db.query(Prospect).filter(Prospect.short_code == short_code).first()
         if not prospect:
             return redirect("/verify-error.html?reason=invalid")
+        _log_prospect_event(db, prospect.id, "short_link_clicked", channel=_prospect_last_touch_channel(db, prospect.id))
+        db.commit()
         return redirect(f"/claim/{prospect.token}")
     finally:
         db.close()
@@ -5103,6 +5137,30 @@ def admin_prospect_detail(prospect_id):
             )
             prev_dt = dt
 
+        # Granular event log (added 2026-07-25) — every ProspectEvent row,
+        # most recent first. The coarse timeline above shows once-ever
+        # milestones; this shows every micro-event, including repeats
+        # (e.g. clicking the magic link twice) the coarse table can't.
+        events = db.query(ProspectEvent).filter(
+            ProspectEvent.prospect_id == p.id
+        ).order_by(ProspectEvent.occurred_at.desc()).all()
+        _EVENT_LABELS = {
+            "short_link_clicked": "Short link clicked",
+            "magic_link_clicked": "Magic link clicked",
+            "email_capture_viewed": "Email-capture form viewed",
+            "email_capture_submitted": "Email-capture form submitted",
+            "verification_email_sent": "Verification email sent",
+            "verification_link_clicked": "Verification link clicked",
+            "generation_kicked_off": "Generation kicked off",
+        }
+        events_log_html = "".join(
+            f'<tr><td style="padding:6px 10px;">{_fmt_dt(e.occurred_at)}</td>'
+            f'<td style="padding:6px 10px;font-weight:600;">{escape(_EVENT_LABELS.get(e.event_type, e.event_type))}</td>'
+            f'<td style="padding:6px 10px;">{escape(e.channel or "—")}</td>'
+            f'<td style="padding:6px 10px;color:#9A9893;font-size:12px;">{escape(json.dumps(e.meta)) if e.meta else ""}</td></tr>'
+            for e in events
+        ) or '<tr><td colspan="4" style="padding:10px;color:#9A9893;">No granular events logged yet.</td></tr>'
+
         touches = db.query(OutreachTouch).filter(
             OutreachTouch.prospect_id == p.id
         ).order_by(OutreachTouch.sent_at).all()
@@ -5320,6 +5378,18 @@ def admin_prospect_detail(prospect_id):
 <div class="adm-card" style="padding:16px 20px;margin-bottom:20px;">
   <p style="font-weight:700;margin:0 0 10px;">Funnel timeline</p>
   <table style="width:100%;border-collapse:collapse;font-size:13.5px;">{timeline_rows_html}</table>
+</div>
+
+<div class="adm-card" style="padding:16px 20px;margin-bottom:20px;overflow-x:auto;">
+  <p style="font-weight:700;margin:0 0 4px;">Detailed event log ({len(events)})</p>
+  <p class="muted" style="margin:0 0 10px;font-size:12px;">Every granular funnel micro-event, most recent first — includes repeats (e.g. clicking the same link twice) the timeline above can't show.</p>
+  <table style="width:100%;border-collapse:collapse;font-size:13px;">
+    <thead><tr style="color:#9A9893;font-size:11px;text-transform:uppercase;">
+      <th style="text-align:left;padding:6px 10px;">When</th><th style="text-align:left;padding:6px 10px;">Event</th>
+      <th style="text-align:left;padding:6px 10px;">Channel</th><th style="text-align:left;padding:6px 10px;">Detail</th>
+    </tr></thead>
+    <tbody>{events_log_html}</tbody>
+  </table>
 </div>
 
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px;">

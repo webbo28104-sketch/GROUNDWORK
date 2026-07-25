@@ -605,6 +605,49 @@ class HourlySendCount(Base):
     __table_args__ = (UniqueConstraint("channel", "hour_bucket", name="uq_hourly_send_counts_channel_hour"),)
 
 
+class ProspectEvent(Base):
+    """One row per discrete, granular funnel micro-event for a prospect —
+    added 2026-07-25, by request ("track every bit of data we can for all
+    channels"). Deliberately a generic, open-ended event log (event_type
+    is a free string, not an enum/dedicated column) rather than adding a
+    new Prospect timestamp column every time a new event worth tracking
+    turns up — that pattern (opened_at, clicked_at, paid_at, ...) works
+    for a handful of once-ever milestones but doesn't scale to "every
+    point possible," and repeat events (e.g. a prospect clicking the
+    magic link again days later) need more than one row per prospect
+    anyway, which a single timestamp column can't hold.
+
+    Known event_type values as of this table's creation (app.py — search
+    _log_prospect_event's call sites for the authoritative list):
+    short_link_clicked, magic_link_clicked, email_capture_viewed,
+    email_capture_submitted, verification_email_sent,
+    verification_link_clicked, generation_kicked_off. Not an enforced
+    enum on purpose — new event types can be added at any call site
+    without a migration.
+
+    channel is nullable and best-effort (inferred from the prospect's
+    most recent OutreachTouch where relevant) — some events genuinely
+    have no channel context (e.g. a repeat magic-link click long after
+    the original send). meta is a free-form JSON bag for whatever extra
+    context that specific event type wants to carry (e.g. the email
+    address just submitted, before it's trusted/verified).
+
+    Real, honest capability ceiling: SMS and Facebook DM have no read-
+    receipt/open-tracking mechanism available to this app at all (unlike
+    email's Resend webhook) — there is no "sms_opened" or
+    "facebook_dm_opened" event type here or ever likely to be one,
+    that's not a gap in this table, it's a real absence of a signal to
+    capture."""
+    __tablename__ = "prospect_events"
+
+    id = Column(Integer, primary_key=True)
+    prospect_id = Column(Integer, ForeignKey("prospects.id"), nullable=False, index=True)
+    event_type = Column(String(50), nullable=False, index=True)
+    channel = Column(String(10), nullable=True)
+    occurred_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    meta = Column(JSON, nullable=True)
+
+
 class InboundReply(Base):
     """One row per real inbound message (email or SMS) received from a
     prospect — added 2026-07-21. Before this table existed,
