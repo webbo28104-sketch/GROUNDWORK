@@ -1650,6 +1650,30 @@ a:hover{text-decoration:underline;}
 .muted{color:#9A9893;font-size:13px;}
 .badge-test{display:inline-block;background:#B8976A;color:#fff;font-size:10px;font-weight:700;letter-spacing:.04em;padding:2px 7px;border-radius:4px;margin-left:6px;vertical-align:middle;}
 .status-pill{display:inline-block;font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;letter-spacing:.02em;}
+/* Safety net so any table not already wrapped in an explicit scroll
+   container still scrolls instead of breaking the page layout on a
+   narrow screen — added 2026-07-25 as part of a general mobile pass
+   (real field use: running outreach from a phone away from the desk). */
+.adm-card{max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;}
+@media (max-width:760px){
+  .adm-header-inner{padding:0 14px;height:56px;gap:10px;}
+  .adm-logo span{font-size:16px;}
+  .adm-badge{display:none;}
+  .adm-nav{overflow-x:auto;-webkit-overflow-scrolling:touch;flex-wrap:nowrap;max-width:100%;scrollbar-width:none;}
+  .adm-nav::-webkit-scrollbar{display:none;}
+  .adm-nav a{white-space:nowrap;padding:7px 10px;font-size:12.5px;}
+  .adm-nav .adm-logout{white-space:nowrap;}
+  .adm-main{padding:16px 12px 56px;}
+  .adm-title{font-size:19px;}
+  .adm-sub{font-size:12.5px;}
+  table{font-size:12.5px;}
+  th,td{padding:8px 10px;}
+  /* Forms built as a row of inline label/input blocks (filters, etc.)
+     stack cleanly instead of squeezing — every admin filter form in this
+     file uses inline flex styles with flex-wrap already set, so this
+     just tightens the gap rather than fighting existing layout rules. */
+  input[type=date],input[type=text],input[type=email],select{font-size:16px;}
+}
 """
 
 _GW_LOGO_SVG = '<svg viewBox="0 0 48 48" width="28" height="28" fill="none"><path d="M 37 13.1 A 17 17 0 1 0 41 24 L 27 24" stroke="#3B82F6" stroke-width="4.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M 30.9 18.2 A 9 9 0 1 0 30.9 29.8" stroke="#3B82F6" stroke-width="4.6" stroke-linecap="round"/></svg>'
@@ -4509,29 +4533,38 @@ def admin_outreach():
 @app.route("/admin/facebook-outreach")
 @admin_required
 def admin_facebook_outreach():
-    """Manual Facebook DM outreach queue (added 2026-07-24) — no_website
-    prospects with a captured Facebook Page URL (see Prospect.facebook_page_url's
+    """Manual Facebook DM outreach queue (added 2026-07-24) — any prospect
+    with a captured Facebook Page URL (see Prospect.facebook_page_url's
     docstring: found during the same nightly email-discovery search that
     already runs site:facebook.com queries, kept regardless of whether that
-    search found a usable email) who haven't had a DM logged as sent yet.
+    search found a usable email) who hasn't had a DM logged as sent or
+    dismissed yet.
+
+    Widened 2026-07-25 to drop the earlier `website_status == "no_website"`
+    restriction — that filter was excluding real, usable Facebook Pages on
+    has_website prospects for no good reason (28 of 29 pending prospects on
+    a real audit were sitting invisible in the queue purely because they
+    happened to have a website too; a captured Facebook Page is a real
+    reachable channel regardless of that). Every prospect on file with a
+    Facebook Page belongs in this queue now, not just the no-website subset.
 
     Deliberately NOT automated — no Messenger API, no browser automation
     driving a logged-in Facebook session. This page's only job is to make
-    the manual find→copy→paste→send→log loop fast: open the Page, copy a
-    pre-filled message with their real magic link merged in, send it
-    yourself inside Facebook, then log it here so it feeds the same
-    funnel/touch tracking as email and SMS. Automating the actual send
-    would risk the Facebook account, which isn't a tradeoff worth making
-    for this channel."""
+    the manual find→copy→paste→send→log loop fast, on a phone as easily as
+    a desktop: open the Page, copy a pre-filled message with their real
+    magic link merged in, send it yourself inside Facebook, then log it
+    here so it feeds the same funnel/touch tracking as email and SMS.
+    Automating the actual send would risk the Facebook account, which
+    isn't a tradeoff worth making for this channel."""
     db = SessionLocal()
     try:
         prospects = (
             db.query(Prospect)
             .filter(
-                Prospect.website_status == "no_website",
                 Prospect.facebook_page_url.isnot(None),
                 Prospect.facebook_page_url != "",
                 Prospect.facebook_dm_sent_at.is_(None),
+                Prospect.facebook_dm_dismissed_at.is_(None),
             )
             .order_by(Prospect.score.desc().nullslast())
             .limit(200)
@@ -4551,41 +4584,59 @@ def admin_facebook_outreach():
         if touched:
             db.commit()
 
-        rows_html = ""
+        cards_html = ""
         for p in prospects:
             message = render_facebook_dm(business_name=p.business_name or "there", short_code=p.short_code)
             fb_url = escape(p.facebook_page_url)
             biz = escape(p.business_name or "—")
             trade = escape(p.trade or "—")
             location = escape(p.location or "—")
-            rows_html += f"""<tr>
-  <td style="padding:10px;"><a href="/admin/prospects/{p.id}">{biz}</a><div class="muted" style="font-size:12px;">{trade} · {location}</div></td>
-  <td style="padding:10px;"><a href="{fb_url}" target="_blank" rel="noopener">Open Facebook Page →</a></td>
-  <td style="padding:10px;max-width:340px;">
-    <textarea readonly id="msg-{p.id}" style="width:100%;min-height:80px;font-size:12.5px;font-family:inherit;padding:8px;border:1px solid #E2E0DA;border-radius:8px;resize:vertical;">{escape(message)}</textarea>
-    <button type="button" onclick="gwCopyMsg({p.id})" style="margin-top:6px;background:#3B82F6;color:#fff;border:0;border-radius:7px;padding:6px 12px;font-size:12.5px;font-weight:600;cursor:pointer;">Copy message</button>
-  </td>
-  <td style="padding:10px;">
+            website_badge = (
+                '<span class="status-pill" style="background:#9A989322;color:#5C5A56;">has website</span>'
+                if p.website_status == "has_website" else
+                '<span class="status-pill" style="background:#3B82F622;color:#3B82F6;">no website</span>'
+            )
+            cards_html += f"""
+<div class="adm-card fb-card">
+  <div class="fb-card-head">
+    <div>
+      <a href="/admin/prospects/{p.id}" style="font-weight:700;font-size:14.5px;">{biz}</a>
+      <div class="muted" style="font-size:12px;margin-top:2px;">{trade} · {location}</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;">
+      {website_badge}
+      <form method="post" action="/admin/prospects/{p.id}/facebook-dm-dismissed" onsubmit="return confirm('Remove this prospect from the Facebook queue? (Link invalid / not a real match — this does not delete the prospect.)');">
+        <button type="submit" class="fb-x-btn" title="Remove — link invalid or not a match" aria-label="Remove from queue">✕</button>
+      </form>
+    </div>
+  </div>
+  <a href="{fb_url}" target="_blank" rel="noopener" class="fb-open-link">Open Facebook Page →</a>
+  <textarea readonly id="msg-{p.id}" class="fb-msg">{escape(message)}</textarea>
+  <div class="fb-card-actions">
+    <button type="button" onclick="gwCopyMsg({p.id})" class="fb-copy-btn">Copy message</button>
     <form method="post" action="/admin/prospects/{p.id}/facebook-dm-sent" onsubmit="return confirm('Confirm you\\'ve actually sent this DM inside Facebook?');">
-      <button type="submit" style="background:#1C1C1C;color:#fff;border:0;border-radius:7px;padding:7px 14px;font-size:12.5px;font-weight:600;cursor:pointer;">Mark as sent</button>
+      <button type="submit" class="fb-sent-btn">Mark as sent</button>
     </form>
-  </td>
-</tr>"""
+  </div>
+</div>"""
 
         content = f"""
+<style>
+.fb-grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px;}}
+.fb-card{{padding:14px;display:flex;flex-direction:column;gap:10px;}}
+.fb-card-head{{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;}}
+.fb-x-btn{{background:#F5F3EE;color:#9A9893;border:1px solid #E2E0DA;border-radius:8px;width:32px;height:32px;font-size:15px;line-height:1;cursor:pointer;flex-shrink:0;}}
+.fb-x-btn:hover{{background:#FEE2E2;color:#DC2626;border-color:#FCA5A5;}}
+.fb-open-link{{font-size:13px;font-weight:600;}}
+.fb-msg{{width:100%;min-height:100px;font-size:13px;font-family:inherit;padding:10px;border:1px solid #E2E0DA;border-radius:8px;resize:vertical;box-sizing:border-box;}}
+.fb-card-actions{{display:flex;gap:8px;flex-wrap:wrap;}}
+.fb-copy-btn{{background:#3B82F6;color:#fff;border:0;border-radius:8px;padding:10px 16px;font-size:13.5px;font-weight:600;cursor:pointer;flex:1;min-width:120px;}}
+.fb-sent-btn{{background:#1C1C1C;color:#fff;border:0;border-radius:8px;padding:10px 16px;font-size:13.5px;font-weight:600;cursor:pointer;width:100%;}}
+@media (max-width:480px){{.fb-grid{{grid-template-columns:1fr;}}}}
+</style>
 <h1 class="adm-title">Facebook DM outreach</h1>
-<p class="adm-sub">{len(prospects)} no_website prospect(s) with a Facebook Page found and no DM logged yet. Sending is manual by design — this page just makes find → copy → paste → send → log fast. <a href="/admin/pipeline">← Back to Pipeline</a></p>
-<div class="adm-card" style="overflow-x:auto;">
-<table>
-<thead><tr>
-  <th style="text-align:left;padding:10px;">Business</th>
-  <th style="text-align:left;padding:10px;">Facebook Page</th>
-  <th style="text-align:left;padding:10px;">Message (copy &amp; paste into Messenger)</th>
-  <th style="text-align:left;padding:10px;">Log</th>
-</tr></thead>
-<tbody>{rows_html or '<tr><td colspan="4" style="padding:16px 10px;color:#9A9893;">Nothing in the queue right now.</td></tr>'}</tbody>
-</table>
-</div>
+<p class="adm-sub">{len(prospects)} prospect(s) with a Facebook Page found and no DM logged/dismissed yet. Sending is manual by design — this page just makes find → copy → paste → send → log fast, from a phone or a desktop. <a href="/admin/pipeline">← Back to Pipeline</a></p>
+<div class="fb-grid">{cards_html or '<p class="muted" style="padding:16px 10px;">Nothing in the queue right now.</p>'}</div>
 <script>
 function gwCopyMsg(id) {{
   var el = document.getElementById('msg-' + id);
@@ -4632,6 +4683,32 @@ def admin_mark_facebook_dm_sent(prospect_id):
         db.commit()
 
         app.logger.info(f"Facebook DM marked sent: prospect {prospect_id} ({p.business_name})")
+        return redirect("/admin/facebook-outreach")
+    finally:
+        db.close()
+
+
+@app.route("/admin/prospects/<int:prospect_id>/facebook-dm-dismissed", methods=["POST"])
+@admin_required
+def admin_dismiss_facebook_dm(prospect_id):
+    """Removes a prospect from the Facebook DM queue without sending
+    anything — for a captured facebook_page_url that turns out to be
+    invalid, a mismatch, or otherwise not usable (added 2026-07-25).
+    Doesn't touch facebook_page_url itself or any other prospect field —
+    purely excludes it from future /admin/facebook-outreach listings, and
+    leaves a record of why (as opposed to silently deleting the prospect
+    or clearing the URL, which would lose the fact that a match was ever
+    found)."""
+    db = SessionLocal()
+    try:
+        p = db.get(Prospect, prospect_id)
+        if not p:
+            return jsonify({"error": "not found"}), 404
+
+        p.facebook_dm_dismissed_at = datetime.utcnow()
+        db.commit()
+
+        app.logger.info(f"Facebook DM dismissed: prospect {prospect_id} ({p.business_name})")
         return redirect("/admin/facebook-outreach")
     finally:
         db.close()

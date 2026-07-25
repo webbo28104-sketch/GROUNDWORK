@@ -328,6 +328,12 @@ class Prospect(Base):
     # design (see outreach-pipeline-spec.md).
     facebook_page_url = Column(String(500), nullable=True)
     facebook_dm_sent_at = Column(DateTime, nullable=True)
+    # Set when an admin dismisses a queue row as unusable (added 2026-07-25,
+    # e.g. the captured URL 404s, isn't really this business, or isn't a
+    # DM-able Page) — excluded from the queue going forward without
+    # clearing facebook_page_url itself, so there's still a record of what
+    # was found and why it was rejected, rather than silently forgetting it.
+    facebook_dm_dismissed_at = Column(DateTime, nullable=True)
     funnel_stage = Column(String(50), default="sourced")
     funnel_substage = Column(String(30), nullable=True)
     last_touch_at = Column(DateTime, nullable=True)
@@ -878,6 +884,7 @@ def init_db():
     _ensure_column(Prospect.__tablename__, "email_found", "BOOLEAN DEFAULT FALSE")
     _ensure_column(Prospect.__tablename__, "facebook_page_url", "VARCHAR(500)")
     _ensure_column(Prospect.__tablename__, "facebook_dm_sent_at", "TIMESTAMP")
+    _ensure_column(Prospect.__tablename__, "facebook_dm_dismissed_at", "TIMESTAMP")
     _ensure_column(Prospect.__tablename__, "funnel_stage", "VARCHAR(50)")
     _ensure_column(Prospect.__tablename__, "approval_status", "VARCHAR(20)")
     _ensure_column(Prospect.__tablename__, "approved_at", "TIMESTAMP")
