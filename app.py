@@ -5187,6 +5187,66 @@ def admin_facebook_website_found(prospect_id):
         db.close()
 
 
+@app.route("/admin/survey-responses")
+@admin_required
+def admin_survey_responses():
+    """Read-only view of every SurveyResponse row — both entry points
+    write into this one table (the full 6-question /survey/<token> form
+    and the one-click /claim/<token>/why buttons, added 2026-07-26 — see
+    _apply_survey_answer_effects), so this page is genuinely the
+    complete picture of "why didn't this prospect convert," not just one
+    channel's slice of it. Didn't exist before this page — the data was
+    accumulating with nowhere to actually look at it."""
+    db = SessionLocal()
+    try:
+        responses = (
+            db.query(SurveyResponse)
+            .join(Prospect, Prospect.id == SurveyResponse.prospect_id)
+            .order_by(SurveyResponse.id.desc())
+            .limit(300)
+            .all()
+        )
+        prospects_by_id = {p.id: p for p in db.query(Prospect).filter(
+            Prospect.id.in_([r.prospect_id for r in responses])).all()} if responses else {}
+
+        reason_counts = {}
+        for r in responses:
+            reason_counts[r.primary_reason] = reason_counts.get(r.primary_reason, 0) + 1
+        summary_html = "".join(
+            f'<span class="status-pill" style="background:#3B82F622;color:#3B82F6;margin:0 6px 6px 0;">{escape(reason)}: {count}</span>'
+            for reason, count in sorted(reason_counts.items(), key=lambda x: -x[1])
+        )
+
+        rows_html = ""
+        for r in responses:
+            p = prospects_by_id.get(r.prospect_id)
+            biz = escape(p.business_name or "—") if p else "—"
+            detail = escape((r.reason_detail or "")[:200])
+            trial = f'{p.trial_days_earned}d trial' if p and p.trial_days_earned else "—"
+            rows_html += f"""<tr>
+  <td>{r.id}</td>
+  <td><a href="/admin/prospects/{r.prospect_id}">{biz}</a></td>
+  <td>{escape(r.primary_reason or "—")}</td>
+  <td style="max-width:280px;">{detail}</td>
+  <td>{trial}</td>
+</tr>"""
+
+        content = f"""
+<h1 class="adm-title">Survey responses</h1>
+<p class="adm-sub">Every answer from both the full 6-question form and the one-click "why not yet" question — {len(responses)} total (most recent 300). <a href="/admin/pipeline">← Back to Pipeline</a></p>
+<div style="margin:0 0 20px;">{summary_html or '<span class="muted">No responses yet.</span>'}</div>
+<div class="adm-card" style="overflow-x:auto;">
+<table>
+<thead><tr><th>ID</th><th>Business</th><th>Reason</th><th>Detail</th><th>Trial earned</th></tr></thead>
+<tbody>{rows_html or '<tr><td colspan="5" class="muted" style="padding:16px;">No survey responses yet.</td></tr>'}</tbody>
+</table>
+</div>
+"""
+        return render_template_string(_admin_page("Survey responses", content, active="pipeline"))
+    finally:
+        db.close()
+
+
 @app.route("/admin/pipeline")
 @admin_required
 def admin_pipeline():
@@ -5259,7 +5319,7 @@ def admin_pipeline():
 
 <h2 style="font-size:16px;font-weight:800;margin:24px 0 8px;">Send queue</h2>
 <div style="display:flex;gap:28px;flex-wrap:wrap;margin-bottom:8px;">{queue_strip}</div>
-<p class="muted" style="font-size:12px;margin:0 0 20px;"><a href="/admin/outreach" style="color:#2257CC;">Browse/filter all prospects →</a> · <a href="/admin/facebook-outreach" style="color:#2257CC;">Facebook DM queue →</a></p>
+<p class="muted" style="font-size:12px;margin:0 0 20px;"><a href="/admin/outreach" style="color:#2257CC;">Browse/filter all prospects →</a> · <a href="/admin/facebook-outreach" style="color:#2257CC;">Facebook DM queue →</a> · <a href="/admin/survey-responses" style="color:#2257CC;">Survey responses →</a></p>
 
 {_render_discovery_section(db)}
 {_render_followups_section(db)}
