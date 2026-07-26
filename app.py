@@ -1416,6 +1416,25 @@ def _run_and_persist(job_id, lead_id, email, business_name, prompt, logo_b64, lo
                 preview_url=f"{SITE_URL}/preview.html?id={job_id}",
                 account_login_url=f"{SITE_URL}/account/login",
             )
+            # Fixed 2026-07-26: this auto-skip path (already-approved
+            # prompt hash, or a non-outreach direct-signup generation)
+            # sends the real "your site is ready" email but was never
+            # marking customer_notified_at on the Generation row — so an
+            # already-notified customer's generation still showed up in
+            # the admin "awaiting approval" queue forever, indistinguishable
+            # from one genuinely waiting on a first review. Confirmed via
+            # real Resend delivery webhooks: several already-approved
+            # generations had a real email.delivered event while sitting
+            # in that queue. gen_id/db were already closed above, so this
+            # needs its own short-lived session.
+            db2 = SessionLocal()
+            try:
+                gen2 = db2.get(Generation, gen_id)
+                if gen2 and not gen2.customer_notified_at:
+                    gen2.customer_notified_at = datetime.utcnow()
+                    db2.commit()
+            finally:
+                db2.close()
 
 
 def _client_ip():
