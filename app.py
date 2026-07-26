@@ -4669,9 +4669,8 @@ def admin_facebook_outreach():
     """Manual Facebook DM outreach queue (added 2026-07-24) — no_website
     prospects with a captured Facebook Page URL (see Prospect.facebook_page_url's
     docstring: found during the same nightly email-discovery search that
-    already runs site:facebook.com queries, kept regardless of whether that
-    search found a usable email) who haven't had a DM logged as sent or
-    dismissed yet.
+    already runs site:facebook.com queries) who haven't had a DM logged as
+    sent or dismissed yet, AND don't already have a usable email on file.
 
     Briefly widened to all website statuses on 2026-07-25, then reverted
     the same day per an explicit policy call: SMS and Facebook are reserved
@@ -4680,6 +4679,16 @@ def admin_facebook_outreach():
     shouldn't also get a supplementary Facebook DM. See
     outreach/sms.py's sms_channel_eligible() for the identical policy
     applied to SMS sends (both initial and follow-up).
+
+    Fixed 2026-07-26: the email_found exclusion below was missing entirely —
+    a no_website prospect with a genuinely corroborated email (e.g. found
+    published on their own Facebook Page) is already reachable by the fully
+    automated email channel (send_job.py's phone_only = not p.email_found
+    check doesn't care about website_status), so showing them here too was
+    the exact same "already reachable by email, don't also DM" mistake the
+    docstring above already argues against for has_website prospects — it
+    just wasn't applied to this case. Caught after the user manually sent 7
+    DMs to prospects who already had an email captured on file.
 
     Deliberately NOT automated — no Messenger API, no browser automation
     driving a logged-in Facebook session. This page's only job is to make
@@ -4699,6 +4708,7 @@ def admin_facebook_outreach():
                 Prospect.facebook_page_url != "",
                 Prospect.facebook_dm_sent_at.is_(None),
                 Prospect.facebook_dm_dismissed_at.is_(None),
+                Prospect.email_found.isnot(True),
             )
             .order_by(Prospect.score.desc().nullslast())
             .limit(200)
