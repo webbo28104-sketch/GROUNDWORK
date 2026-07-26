@@ -4876,16 +4876,24 @@ def admin_facebook_email_found(prospect_id):
     login screen, not the page). A human already logged into Facebook in
     their own browser sees the real thing.
 
-    Reuses the exact same validation and finalize logic as the CCR
-    routines' /api/admin/outreach/g/apply-email path (is_valid_email,
-    looks_like_guess, has_deliverable_domain, _outreach_finalize) so an
-    admin-submitted email is held to the same corroboration bar as an
-    automated one — this is a "found it, really there" field, not a
-    guess. Setting email_found=True also removes this prospect from the
+    Reuses is_valid_email/has_deliverable_domain and _outreach_finalize
+    from the CCR routines' /api/admin/outreach/g/apply-email path, but
+    deliberately skips looks_like_guess — that heuristic exists to catch
+    an LLM hallucinating a plausible-looking address it never actually
+    saw published anywhere. It doesn't apply here: a human admin is
+    reporting an address they personally read off the real page, which
+    is exactly the kind of direct sighting the heuristic exists to
+    approximate for an automated agent that can't do that. Real business
+    emails routinely follow predictable patterns (enquiries@/info@ +
+    business name) precisely because that's how businesses set them up
+    — flagging that pattern here would reject genuine sightings, not
+    guesses. Format/deliverability checks still apply since a fat-
+    fingered email is possible even when typing something you can see.
+    Setting email_found=True also removes this prospect from the
     Facebook DM queue on the next page load (admin_facebook_outreach's
     filter already excludes email_found=True), so it becomes a normal
     automated email send instead of a manual DM."""
-    from outreach.email_discovery import is_valid_email, looks_like_guess, clean_email
+    from outreach.email_discovery import is_valid_email, clean_email
     from outreach.email_verify import has_deliverable_domain
 
     db = SessionLocal()
@@ -4901,8 +4909,6 @@ def admin_facebook_email_found(prospect_id):
         error = None
         if not is_valid_email(email):
             error = f"'{email}' isn't a valid email address."
-        elif looks_like_guess(email, p.business_name, p.website):
-            error = f"'{email}' looks like a guessed pattern for '{p.business_name}', not something actually seen on the page — only submit addresses you can actually see."
         elif not has_deliverable_domain(email):
             error = f"'{email}' has no MX or mail record — it would hard-bounce."
 
