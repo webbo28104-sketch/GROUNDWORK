@@ -17,7 +17,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from sqlalchemy import func
 from functools import wraps
-from urllib.parse import urlparse as _urlparse
+from urllib.parse import urlparse as _urlparse, quote
 
 import anthropic
 import stripe
@@ -4762,6 +4762,10 @@ def admin_facebook_outreach():
       <button type="submit" class="fb-sent-btn">Mark as sent</button>
     </form>
   </div>
+  <form method="post" action="/admin/prospects/{p.id}/facebook-email-found" class="fb-email-form">
+    <input type="email" name="email" placeholder="Saw an email on the page? Paste it here" class="fb-email-input" required>
+    <button type="submit" class="fb-email-btn">Use email instead</button>
+  </form>
 </div>"""
 
         content = f"""
@@ -4776,10 +4780,14 @@ def admin_facebook_outreach():
 .fb-card-actions{{display:flex;gap:8px;flex-wrap:wrap;}}
 .fb-copy-btn{{background:#3B82F6;color:#fff;border:0;border-radius:8px;padding:10px 16px;font-size:13.5px;font-weight:600;cursor:pointer;flex:1;min-width:120px;}}
 .fb-sent-btn{{background:#1C1C1C;color:#fff;border:0;border-radius:8px;padding:10px 16px;font-size:13.5px;font-weight:600;cursor:pointer;width:100%;}}
+.fb-email-form{{display:flex;gap:8px;border-top:1px solid #E2E0DA;padding-top:10px;}}
+.fb-email-input{{flex:1;min-width:0;font-size:13px;padding:9px 10px;border:1px solid #E2E0DA;border-radius:8px;box-sizing:border-box;}}
+.fb-email-btn{{background:#fff;color:#1C1C1C;border:1px solid #1C1C1C;border-radius:8px;padding:9px 14px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;}}
 @media (max-width:480px){{.fb-grid{{grid-template-columns:1fr;}}}}
 </style>
 <h1 class="adm-title">Facebook DM outreach</h1>
-<p class="adm-sub">{len(prospects)} no_website prospect(s) with a Facebook Page found and no DM logged/dismissed yet. Sending is manual by design — this page just makes find → copy → paste → send → log fast, from a phone or a desktop. <a href="/admin/pipeline">← Back to Pipeline</a></p>
+<p class="adm-sub">{len(prospects)} no_website prospect(s) with a Facebook Page found and no DM logged/dismissed yet. Sending is manual by design — this page just makes find → copy → paste → send → log fast, from a phone or a desktop. If you can see a real email on the page yourself (Facebook blocks our automated tools from reading it, but not you), paste it in instead of sending a DM — it'll go through the normal automated email channel from then on. <a href="/admin/pipeline">← Back to Pipeline</a></p>
+{f'<p style="background:#FEE2E2;color:#991B1B;padding:10px 14px;border-radius:8px;font-size:13.5px;margin-bottom:14px;">{escape(request.args.get("email_error"))}</p>' if request.args.get("email_error") else ""}
 <div class="fb-grid">{cards_html or '<p class="muted" style="padding:16px 10px;">Nothing in the queue right now.</p>'}</div>
 <script>
 function gwCopyMsg(id) {{
@@ -4853,6 +4861,63 @@ def admin_dismiss_facebook_dm(prospect_id):
         db.commit()
 
         app.logger.info(f"Facebook DM dismissed: prospect {prospect_id} ({p.business_name})")
+        return redirect("/admin/facebook-outreach")
+    finally:
+        db.close()
+
+
+@app.route("/admin/prospects/<int:prospect_id>/facebook-email-found", methods=["POST"])
+@admin_required
+def admin_facebook_email_found(prospect_id):
+    """Lets an admin paste an email they spotted by eye on a Facebook Page
+    (added 2026-07-26) — the one path around Facebook's login wall that
+    blocks WebFetch from ever reading real Page content (confirmed via a
+    real test: an unauthenticated fetch gets served Facebook's logged-out
+    login screen, not the page). A human already logged into Facebook in
+    their own browser sees the real thing.
+
+    Reuses the exact same validation and finalize logic as the CCR
+    routines' /api/admin/outreach/g/apply-email path (is_valid_email,
+    looks_like_guess, has_deliverable_domain, _outreach_finalize) so an
+    admin-submitted email is held to the same corroboration bar as an
+    automated one — this is a "found it, really there" field, not a
+    guess. Setting email_found=True also removes this prospect from the
+    Facebook DM queue on the next page load (admin_facebook_outreach's
+    filter already excludes email_found=True), so it becomes a normal
+    automated email send instead of a manual DM."""
+    from outreach.email_discovery import is_valid_email, looks_like_guess, clean_email
+    from outreach.email_verify import has_deliverable_domain
+
+    db = SessionLocal()
+    try:
+        p = db.get(Prospect, prospect_id)
+        if not p:
+            return jsonify({"error": "not found"}), 404
+
+        email = clean_email((request.form.get("email") or "").strip())
+        if not email:
+            return redirect("/admin/facebook-outreach")
+
+        error = None
+        if not is_valid_email(email):
+            error = f"'{email}' isn't a valid email address."
+        elif looks_like_guess(email, p.business_name, p.website):
+            error = f"'{email}' looks like a guessed pattern for '{p.business_name}', not something actually seen on the page — only submit addresses you can actually see."
+        elif not has_deliverable_domain(email):
+            error = f"'{email}' has no MX or mail record — it would hard-bounce."
+
+        if error:
+            return redirect(f"/admin/facebook-outreach?email_error={quote(error)}&pid={p.id}")
+
+        p.email = email
+        p.email_source = "facebook_page_manual"
+        p.email_found = True
+        db.query(PendingEmailDiscovery).filter(PendingEmailDiscovery.prospect_id == prospect_id).delete()
+        _outreach_finalize(db, p)
+        _log_prospect_event(db, p.id, "email_found_manual", channel="facebook", meta={"source": "facebook_page_manual"})
+        db.commit()
+
+        app.logger.info(f"Facebook Page email captured manually: prospect {prospect_id} ({p.business_name}) -> {email}")
         return redirect("/admin/facebook-outreach")
     finally:
         db.close()
