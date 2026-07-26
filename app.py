@@ -4766,6 +4766,10 @@ def admin_facebook_outreach():
     <input type="email" name="email" placeholder="Saw an email on the page? Paste it here" class="fb-email-input" required>
     <button type="submit" class="fb-email-btn">Use email instead</button>
   </form>
+  <form method="post" action="/admin/prospects/{p.id}/facebook-website-found" class="fb-email-form">
+    <input type="text" name="website" placeholder="Actually has a website? Paste the URL" class="fb-email-input" required>
+    <button type="submit" class="fb-email-btn">Website found</button>
+  </form>
 </div>"""
 
         content = f"""
@@ -4924,6 +4928,75 @@ def admin_facebook_email_found(prospect_id):
         db.commit()
 
         app.logger.info(f"Facebook Page email captured manually: prospect {prospect_id} ({p.business_name}) -> {email}")
+        return redirect("/admin/facebook-outreach")
+    finally:
+        db.close()
+
+
+@app.route("/admin/prospects/<int:prospect_id>/facebook-website-found", methods=["POST"])
+@admin_required
+def admin_facebook_website_found(prospect_id):
+    """Lets an admin flag that a Facebook-sourced "no_website" prospect
+    actually has a real website — visible to a human on the Page (a
+    link, a mention, a Linktree pointing to it) that the sourcing
+    routine's WebSearch-only verification missed. Two purposes (both by
+    request, 2026-07-26):
+
+    1. Correct the record: website_status flips to has_website, which
+       automatically removes this prospect from the Facebook DM queue
+       (admin_facebook_outreach's filter already requires
+       website_status == "no_website") and from SMS eligibility
+       (sms_channel_eligible, same field) — matching the existing policy
+       that a has_website prospect is an email-only prospect.
+    2. Build a dataset for pattern-spotting: every correction logs a
+       ProspectEvent (event_type="website_found_manual") with both the
+       Facebook Page URL and the discovered website in its meta field.
+       Nothing analyzes this automatically yet — the point is to
+       accumulate real corrections so a future pass (human or an agent)
+       can look for what these misses have in common (a Linktree URL
+       pattern, a website mentioned in a photo caption rather than the
+       About field, etc.) and improve the sourcing routine's own
+       verification step accordingly, rather than guessing blind.
+
+    Also queues a fresh PendingEmailDiscovery row if this prospect still
+    has no email — a real website we didn't know about is a genuine new
+    Tier-1 scrape target (outreach/email_discovery_job.py), not just a
+    data point to file away."""
+    db = SessionLocal()
+    try:
+        p = db.get(Prospect, prospect_id)
+        if not p:
+            return jsonify({"error": "not found"}), 404
+
+        website = (request.form.get("website") or "").strip()
+        if not website:
+            return redirect("/admin/facebook-outreach")
+        if not website.lower().startswith(("http://", "https://")):
+            website = "https://" + website
+        parsed = _urlparse(website)
+        if not parsed.netloc or "." not in parsed.netloc:
+            error = f"'{website}' doesn't look like a real website URL."
+            return redirect(f"/admin/facebook-outreach?email_error={quote(error)}&pid={p.id}")
+
+        old_website = p.website
+        p.website = website
+        p.website_status = "has_website"
+        _log_prospect_event(db, p.id, "website_found_manual", channel="facebook", meta={
+            "facebook_page_url": p.facebook_page_url,
+            "website": website,
+            "previous_website": old_website,
+            "previous_website_status": "no_website",
+        })
+
+        if not p.email_found:
+            existing_pending = db.query(PendingEmailDiscovery).filter(
+                PendingEmailDiscovery.prospect_id == prospect_id).first()
+            if not existing_pending:
+                db.add(PendingEmailDiscovery(prospect_id=prospect_id))
+
+        db.commit()
+
+        app.logger.info(f"Facebook Page website corrected manually: prospect {prospect_id} ({p.business_name}) -> {website}")
         return redirect("/admin/facebook-outreach")
     finally:
         db.close()
