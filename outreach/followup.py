@@ -27,7 +27,7 @@ import os
 import logging
 from datetime import datetime
 
-from models import SessionLocal, Prospect, SmsDeliveryEvent, OutreachTouch
+from models import SessionLocal, Prospect, SmsDeliveryEvent, OutreachTouch, SurveyResponse
 from emails import send_outreach_email
 from outreach.sms import send_outreach_sms, sms_channel_eligible
 from outreach.templates import (
@@ -96,6 +96,13 @@ STAGE_LABELS = {
 CATCH_ALL_MIN_DAYS = 14
 CATCH_ALL_MAX_DAYS = 21
 
+# Quick one-click "what's stopping you" nudge (added 2026-07-26) — fires
+# once, well before the 14-21 day hail-mary catch-all, since the whole
+# point is catching a fresh reason while it's still fresh in mind. 1 day
+# gives someone a moment to actually consider the preview before being
+# asked, rather than firing the instant they close the tab.
+QUICK_SURVEY_MIN_DAYS_AFTER_CLICK = 1
+
 
 def _days_since(dt, now):
     if dt is None:
@@ -123,7 +130,8 @@ def _is_catch_all(p, now):
     return first_send_days is not None and CATCH_ALL_MIN_DAYS <= first_send_days <= CATCH_ALL_MAX_DAYS
 
 
-def _fire_touch(db, p, stage, now, remaining_ramp, unsubscribe_link_fn, preview_link_fn, short_code_fn, survey_link_fn):
+def _fire_touch(db, p, stage, now, remaining_ramp, unsubscribe_link_fn, preview_link_fn, short_code_fn, survey_link_fn,
+                 quick_survey_link_fn=None):
     """Send the due stage on whichever channels apply and still have ramp
     budget, then update state. Returns (email_used, sms_used) — 0/1 each."""
     email_used = 0
@@ -151,6 +159,60 @@ def _fire_touch(db, p, stage, now, remaining_ramp, unsubscribe_link_fn, preview_
         )
         db.commit()
         phone_only = True
+
+    # Quick one-click "what's stopping you" nudge — an independent, early,
+    # single-fire touch, checked and returned before any of the regular
+    # A/B/C/D/hail_mary logic below runs, so it can't disturb that state
+    # machine. Fires once, for any prospect who's clicked (real site
+    # exists), hasn't paid, hasn't already answered (SurveyResponse), and
+    # hasn't already been asked (OutreachTouch.stage="quick_survey" —
+    # deliberately not any funnel_substage flag, keeping this fully
+    # orthogonal to the regular stage state). Falls through to the normal
+    # per-stage logic below if nothing actually sent (ramp exhausted,
+    # bounced-before, etc.) rather than silently skipping this cycle's
+    # touch entirely.
+    if (quick_survey_link_fn is not None and p.clicked_at is not None and p.paid_at is None
+            and (_days_since(p.clicked_at, now) or 0) >= QUICK_SURVEY_MIN_DAYS_AFTER_CLICK):
+        already_asked = db.query(OutreachTouch).filter(
+            OutreachTouch.prospect_id == p.id, OutreachTouch.stage == "quick_survey").first() is not None
+        already_answered = db.query(SurveyResponse).filter(SurveyResponse.prospect_id == p.id).first() is not None
+        if not already_asked and not already_answered:
+            if not phone_only and EMAIL_REPLY_CAPTURE_READY and not p.email_unsubscribed and remaining_ramp["email"] > 0 \
+                    and not has_bounced_before(db, p.email) and has_delivery_confirmed(db, p.email):
+                msg = render_email(
+                    "quick_survey",
+                    business_name=p.business_name,
+                    quick_survey_link=quick_survey_link_fn(p),
+                    unsubscribe_link=unsubscribe_link_fn(p),
+                )
+                email_id = send_outreach_email(p.email, msg["subject"], msg["body"], unsubscribe_link_fn(p))
+                if email_id:
+                    db.add(OutreachTouch(prospect_id=p.id, stage="quick_survey", channel="email", sent_at=now))
+                    email_used = 1
+            if SMS_REPLY_CAPTURE_READY and not p.sms_unsubscribed and p.phone and sms_channel_eligible(p) and remaining_ramp["sms"] > 0:
+                body = render_sms("quick_survey", business_name=p.business_name, quick_survey_link=quick_survey_link_fn(p))
+                sms_id = send_outreach_sms(p.phone, body)
+                if sms_id:
+                    db.add(SmsDeliveryEvent(message_sid=sms_id, to_phone=p.phone, status="submitted"))
+                    db.add(OutreachTouch(prospect_id=p.id, stage="quick_survey", channel="sms", sent_at=now))
+                    sms_used = 1
+            if email_used or sms_used:
+                p.last_touch_at = now
+                p.touch_count = (p.touch_count or 0) + 1
+                db.commit()
+                return email_used, sms_used
+
+    # A prospect can reach this function with stage=None — the loop in
+    # run_followups() calls _fire_touch whenever EITHER a regular stage is
+    # due OR the quick-survey window is open, and the latter doesn't imply
+    # the former. If the quick-survey send above didn't actually fire
+    # (ramp exhausted, already asked/answered, bounced-before, etc.) and
+    # there's no regular stage due either, there's nothing safe left to do
+    # — every branch below indexes template dicts by stage letter and
+    # would KeyError/AttributeError on None. Bail out cleanly instead;
+    # the loop's existing "nothing sent -> continue" handling covers this.
+    if stage is None:
+        return 0, 0
 
     # Hail Mary — the last-resort survey/discount push, is a fully
     # standalone send (HAIL_MARY_EMAIL/HAIL_MARY_SMS, outreach/templates.py)
@@ -241,7 +303,8 @@ def _fire_touch(db, p, stage, now, remaining_ramp, unsubscribe_link_fn, preview_
     return email_used, sms_used
 
 
-def run_followups(remaining_ramp, unsubscribe_link_fn, preview_link_fn, short_code_fn, survey_link_fn, now=None):
+def run_followups(remaining_ramp, unsubscribe_link_fn, preview_link_fn, short_code_fn, survey_link_fn, now=None,
+                   quick_survey_link_fn=None):
     """
     Queue due follow-up touches, first-priority against remaining_ramp — a
     dict {"email": N, "sms": M}, how many sends of each channel are still
@@ -252,6 +315,13 @@ def run_followups(remaining_ramp, unsubscribe_link_fn, preview_link_fn, short_co
     unsubscribe_link_fn/preview_link_fn/short_code_fn/survey_link_fn: callables
     taking a Prospect and returning the per-prospect URL/code strings, since
     those depend on routing/token logic that lives outside this module.
+    quick_survey_link_fn: same shape, optional (defaults to None, which
+    fully disables the quick-survey touch below rather than erroring) —
+    threaded through to _fire_touch. Needed as its own independent
+    eligibility check in the loop below, not just inside _fire_touch,
+    because _due_stage's MIN_DAYS_BY_SUBSTAGE timing (2-4 days) would
+    otherwise gate a prospect out of ever reaching _fire_touch at all
+    before the quick survey's much shorter 1-day-after-click window.
 
     A prospect due for a touch where BOTH applicable channels are out of
     ramp budget is left untouched (still due) — it'll be picked up on a
@@ -295,11 +365,16 @@ def run_followups(remaining_ramp, unsubscribe_link_fn, preview_link_fn, short_co
                 continue
 
             stage = _due_stage(p, now)
-            if not stage:
+            quick_survey_due = (
+                quick_survey_link_fn is not None and p.clicked_at is not None and p.paid_at is None
+                and (_days_since(p.clicked_at, now) or 0) >= QUICK_SURVEY_MIN_DAYS_AFTER_CLICK
+            )
+            if not stage and not quick_survey_due:
                 continue
 
             email_used, sms_used = _fire_touch(
-                db, p, stage, now, remaining_ramp, unsubscribe_link_fn, preview_link_fn, short_code_fn, survey_link_fn
+                db, p, stage, now, remaining_ramp, unsubscribe_link_fn, preview_link_fn, short_code_fn, survey_link_fn,
+                quick_survey_link_fn=quick_survey_link_fn,
             )
             if not (email_used or sms_used):
                 continue

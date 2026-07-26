@@ -3141,12 +3141,49 @@ textarea.gwsvy-text{width:100%;padding:12px 14px;border:1px solid #D9D7D0;border
 _SURVEY_PRIMARY_REASONS = [
     ("price", "The price"),
     ("dont_see_need", "Didn't feel like I needed a new website"),
+    ("already_has_website", "I already have a website"),
     ("using_someone_else", "Already using/planning to use someone else"),
     ("still_deciding", "Still deciding, haven't ruled it out"),
     ("technical_issue", "Ran into a problem trying to go live"),
     ("design_not_right", "The site itself wasn't right for my business"),
     ("other", "Other"),
 ]
+
+# Trial-days-earned tiers, applied at checkout (create_checkout_session)
+# instead of the old flat 30-days-for-everyone default. Only "price" earns
+# a free-trial response — every other reason gets acknowledged but no
+# discount, since a free month doesn't address "I don't have time" or "not
+# sure this is legit" and offering one anyway reads as a generic bribe
+# rather than a genuine answer to what was actually said.
+_SURVEY_PRICE_TRIAL_DAYS = 30
+
+
+def _apply_survey_answer_effects(db, prospect, primary_reason):
+    """Shared by both survey entry points (the full /survey/<token> form
+    and the one-click /claim/<token>/why buttons) so a given answer has
+    the same real effect regardless of which path it came through.
+
+    - "price": earns the real trial-days incentive, applied at checkout —
+      never downgrades an existing higher value (e.g. don't undo hail-mary's
+      90 days if this fires after it for some reason).
+    - "already_has_website": the prospect is telling us directly that our
+      website_status data is wrong (added 2026-07-26, same correction the
+      admin "website found on Facebook page" button makes, just
+      self-reported instead of admin-spotted — arguably higher-confidence
+      since it's the business itself). Flips website_status to
+      has_website, which — via the existing sms_channel_eligible/Facebook
+      DM queue filters — correctly stops any further SMS/Facebook contact
+      for this prospect going forward. Logged as a ProspectEvent for the
+      same future pattern-analysis reason as the admin correction.
+    Every other reason is recorded as-is with no side effect — the answer
+    itself is the value, not a trigger for anything further."""
+    if primary_reason == "price":
+        prospect.trial_days_earned = max(prospect.trial_days_earned or 0, _SURVEY_PRICE_TRIAL_DAYS)
+    elif primary_reason == "already_has_website" and prospect.website_status != "has_website":
+        prospect.website_status = "has_website"
+        _log_prospect_event(db, prospect.id, "website_found_manual", channel=None, meta={
+            "source": "prospect_self_reported_survey",
+        })
 _SURVEY_DECISION_MAKERS = [("owner", "Yes, it's my decision"), ("employee", "No, someone else decides"), ("other", "Other")]
 _SURVEY_CUSTOMER_SOURCES = [
     ("word_of_mouth", "Word of mouth / referrals"), ("google_search", "Google search"),
@@ -3190,20 +3227,28 @@ def _survey_form_page(prospect, error=None):
       <span class="gwsvy-label">What would make going live an easy yes? <span class="gwsvy-optional">(optional)</span></span>
       <textarea class="gwsvy-text" name="what_would_change_mind" maxlength="1000"></textarea>
     </div>
-    <button type="submit" class="acct-btn" style="width:100%;">Submit and get my code</button>
+    <button type="submit" class="acct-btn" style="width:100%;">Submit</button>
   </form>
 </div>"""
     return render_template_string(_account_page(inner, "Quick survey"))
 
 
-def _survey_confirmation_page(response):
+def _survey_confirmation_page(response, prospect=None):
     # No setup-fee discount code any more (the setup fee itself was removed
-    # 2026-07-23) — this used to show an "X% off your setup fee" code here;
-    # nothing left for a code to discount, so just a plain thanks.
+    # 2026-07-23) — this used to show an "X% off your setup fee" code here.
+    # Real offer text now reflects prospect.trial_days_earned (set by
+    # _apply_survey_answer_effects) instead of a blanket claim that used to
+    # be shown to everyone regardless of what they answered.
+    trial_days = (prospect.trial_days_earned if prospect else 0) or 0
+    if trial_days >= 30:
+        months = trial_days // 30
+        offer_line = f"Since price was the thing — your site's free to go live on today, and now the first {months} month{'s' if months != 1 else ''} are free too, £24.99/month after that."
+    else:
+        offer_line = "Remember — your site's still free to go live on whenever you're ready, no setup fee, no obligation."
     inner = f"""<div class="acct-card" style="text-align:center;">
       <h1 style="margin:0 0 10px;font-weight:800;font-size:24px;letter-spacing:-.02em;">Thanks — that's genuinely useful</h1>
       <p style="margin:0 0 14px;font-size:15px;color:#5C5A56;line-height:1.6;">We read every response.</p>
-      <p style="margin:0;font-size:15px;color:#5C5A56;line-height:1.6;">Remember — your site's free to go live on today, £24.99/month after your first month.</p>
+      <p style="margin:0;font-size:15px;color:#5C5A56;line-height:1.6;">{offer_line}</p>
     </div>"""
     return render_template_string(_account_page(inner, "Thanks"))
 
@@ -3236,7 +3281,7 @@ def prospect_survey(token):
 
         existing = db.query(SurveyResponse).filter(SurveyResponse.prospect_id == prospect.id).first()
         if existing:
-            return _survey_confirmation_page(existing)
+            return _survey_confirmation_page(existing, prospect)
 
         if request.method == "GET":
             return _survey_form_page(prospect)
@@ -3279,21 +3324,142 @@ def prospect_survey(token):
             what_would_change_mind=(request.form.get("what_would_change_mind") or "").strip()[:1000] or None,
         )
         db.add(response)
-        db.flush()  # need response.id-adjacent prospect fields available before commit below
-
-        try:
-            code, expires_at = _issue_survey_discount_code(prospect)
-            response.discount_code_issued = code
-            response.discount_expires_at = expires_at
-            prospect.discount_code = code
-            prospect.discount_expiry = expires_at
-        except Exception:
-            app.logger.exception("prospect_survey: failed to issue Stripe promo code for prospect %s — "
-                                  "response saved regardless, code needs manual follow-up", prospect.id)
-
+        _apply_survey_answer_effects(db, prospect, primary_reason)
         db.commit()
         db.refresh(response)
-        return _survey_confirmation_page(response)
+        return _survey_confirmation_page(response, prospect)
+    finally:
+        db.close()
+
+
+# One-click "why not yet" question (added 2026-07-26) — a much lower-
+# friction sibling to the full 6-question /survey/<token> form, meant to
+# fire early (shortly after a prospect clicks and sees their preview, not
+# only as a 14-21-day last resort like hail_mary) since the whole point is
+# catching people while their reason is still fresh, not after it's faded.
+# One click, no typing, writes into the same SurveyResponse table/unique
+# constraint as the full form — either path answers the same underlying
+# question, so they share one source of truth and the same
+# _apply_survey_answer_effects side effects.
+_QUICK_SURVEY_ANSWERS = {
+    "too_expensive": {"label": "Too expensive", "primary_reason": "price"},
+    "not_legit": {"label": "Not sure this is legit", "primary_reason": "trust_skepticism"},
+    "no_time": {"label": "Don't have time right now", "primary_reason": "no_time"},
+    "dont_need": {"label": "Don't think I need a website", "primary_reason": "dont_see_need"},
+    "has_website": {"label": "I already have a website", "primary_reason": "already_has_website"},
+    "other": {"label": "Something else", "primary_reason": "other"},
+}
+
+
+def _quick_survey_form_page(token, prospect):
+    buttons = "".join(
+        f'<a href="/claim/{escape(token)}/why/{key}" class="acct-btn" '
+        f'style="display:block;width:100%;margin:0 0 10px;text-align:center;background:#fff;color:#1C1C1C;'
+        f'border:1px solid #D9D7D0;font-weight:600;">{escape(a["label"])}</a>'
+        for key, a in _QUICK_SURVEY_ANSWERS.items()
+    )
+    inner = f"""<div class="acct-card">
+  <h1 style="margin:0 0 6px;font-weight:800;font-size:22px;letter-spacing:-.02em;">What's stopping you, {escape(prospect.business_name or "there")}?</h1>
+  <p style="margin:0 0 20px;font-size:14.5px;color:#5C5A56;line-height:1.6;">One click, no typing — genuinely helps, no obligation either way.</p>
+  {buttons}
+</div>"""
+    return render_template_string(_account_page(inner, "Quick question"))
+
+
+def _quick_survey_other_form_page(token, error=None):
+    error_html = f'<p style="color:#DC2626;font-weight:600;margin:0 0 16px;">{escape(error)}</p>' if error else ""
+    inner = f"""<div class="acct-card">
+  <h1 style="margin:0 0 6px;font-weight:800;font-size:22px;letter-spacing:-.02em;">What's the reason?</h1>
+  {error_html}
+  <form method="post">
+    <textarea name="detail" maxlength="1000" rows="4" style="width:100%;padding:12px;border:1px solid #D9D7D0;border-radius:10px;font-family:inherit;font-size:15px;box-sizing:border-box;margin:0 0 14px;" placeholder="A sentence is plenty"></textarea>
+    <button type="submit" class="acct-btn" style="width:100%;">Submit</button>
+  </form>
+</div>"""
+    return render_template_string(_account_page(inner, "Quick question"))
+
+
+def _quick_survey_confirmation_page(answer, response, prospect):
+    """Branches the response by what was actually said — a discount only
+    ever appears for "too_expensive", since money doesn't answer "not sure
+    this is legit" or "don't have time", and offering one anyway would
+    read as a blind bribe rather than a real answer (see
+    _apply_survey_answer_effects's docstring)."""
+    if answer == "too_expensive":
+        months = (prospect.trial_days_earned or 0) // 30
+        body = (f"No problem — your first {months} month{'s' if months != 1 else ''} are free instead of the usual 1, "
+                f"£24.99/month after that, still no setup fee. <a href=\"/claim/{escape(prospect.token)}\">Take another look</a> whenever you're ready.")
+    elif answer == "not_legit":
+        body = ("Fair to be cautious — happy to talk it through directly, just reply to any of our emails or "
+                "call/message us, a real person answers. Your preview isn't going anywhere either way.")
+    elif answer == "no_time":
+        body = "There's nothing left to do on your end — the site's already built. One click whenever you get a minute and it's live."
+    elif answer == "dont_need":
+        body = "Fair enough — no further emails pushing it. Your preview stays up if you ever change your mind."
+    elif answer == "has_website":
+        body = "Thanks for the heads up — updated our records so we've got that right for next time."
+    else:
+        body = "Thanks — genuinely useful, we read every one of these."
+    inner = f"""<div class="acct-card" style="text-align:center;">
+  <h1 style="margin:0 0 10px;font-weight:800;font-size:22px;letter-spacing:-.02em;">Thanks — got it</h1>
+  <p style="margin:0;font-size:15px;color:#5C5A56;line-height:1.6;">{body}</p>
+</div>"""
+    return render_template_string(_account_page(inner, "Thanks"))
+
+
+@app.route("/claim/<token>/why")
+def claim_why(token):
+    db = SessionLocal()
+    try:
+        prospect = db.query(Prospect).filter(Prospect.token == token).first()
+        if not prospect or not prospect.clicked_at:
+            abort(404)
+        existing = db.query(SurveyResponse).filter(SurveyResponse.prospect_id == prospect.id).first()
+        if existing:
+            return _survey_confirmation_page(existing, prospect)
+        return _quick_survey_form_page(token, prospect)
+    finally:
+        db.close()
+
+
+@app.route("/claim/<token>/why/<answer>", methods=["GET", "POST"])
+def claim_why_answer(token, answer):
+    if answer not in _QUICK_SURVEY_ANSWERS:
+        abort(404)
+    db = SessionLocal()
+    try:
+        prospect = db.query(Prospect).filter(Prospect.token == token).first()
+        if not prospect or not prospect.clicked_at:
+            abort(404)
+        existing = db.query(SurveyResponse).filter(SurveyResponse.prospect_id == prospect.id).first()
+        if existing:
+            return _survey_confirmation_page(existing, prospect)
+
+        if answer == "other":
+            if request.method == "GET":
+                return _quick_survey_other_form_page(token)
+            detail = (request.form.get("detail") or "").strip()[:1000] or None
+        else:
+            detail = None
+
+        primary_reason = _QUICK_SURVEY_ANSWERS[answer]["primary_reason"]
+        decision = "went_live" if prospect.paid_at else "not_yet"
+        already_pays = (
+            True if prospect.website_status == "has_website"
+            else False if prospect.website_status == "no_website"
+            else None
+        )
+        response = SurveyResponse(
+            prospect_id=prospect.id, decision=decision, primary_reason=primary_reason,
+            reason_detail=detail, already_pays_for_website=already_pays,
+        )
+        db.add(response)
+        _apply_survey_answer_effects(db, prospect, primary_reason)
+        db.commit()
+        db.refresh(response)
+
+        app.logger.info(f"Quick survey answered: prospect {prospect.id} ({prospect.business_name}) -> {answer}")
+        return _quick_survey_confirmation_page(answer, response, prospect)
     finally:
         db.close()
 
@@ -9353,27 +9519,36 @@ def create_checkout_session():
         # same as before; this call just needs to not error.
         business_name = (gen.lead.form_data or {}).get("business_name", "")
 
-        # Setup-fee discount codes are retired along with the setup fee
-        # itself (2026-07-23) — there's nothing left for a code to
-        # discount. Still accepted here (rather than erroring) so a code
-        # already in someone's inbox from before this change doesn't block
-        # checkout; it just no longer has any effect on the line items.
-        submitted_code = (data.get("discount_code") or "").strip().upper()
+        # Trial length is now real, per-prospect data (added 2026-07-26),
+        # not a flat 30-days-for-everyone default — see
+        # Prospect.trial_days_earned's docstring. An outreach-sourced
+        # prospect (one with a Prospect row behind this lead) earns free
+        # trial days only from a real answer (the quick "why not" survey's
+        # "too expensive" -> 30, or reaching the hail-mary stage -> 90);
+        # otherwise 0, full price from day one. A direct/organic self-signup
+        # (no Prospect at all — the only channel with a real paying
+        # customer so far) keeps the original 30-day default unchanged;
+        # this restructure is specifically about outreach pricing, not
+        # organic signups that were never part of this conversation.
+        outreach_prospect = db.query(Prospect).filter(Prospect.lead_id == gen.lead_id).first()
+        trial_days = outreach_prospect.trial_days_earned or 0 if outreach_prospect else 30
     finally:
         db.close()
 
     # No setup fee (removed 2026-07-23, until break-even). Reactivation and
     # first-time purchase are both just the recurring price now; the only
-    # remaining difference is the first-month-free trial, which only makes
-    # sense on a genuine first-time signup.
+    # remaining difference is the trial, which only makes sense on a
+    # genuine first-time signup.
     line_items = [{"price": recurring_price_id, "quantity": 1}]
     if is_reactivation:
         subscription_data = {}
+    elif plan == "monthly" and trial_days > 0:
+        # Trial is a monthly-only promo — annual customers already get the
+        # discounted rate, so trial_period_days isn't stacked on top of
+        # that (see design_handoff_marketing_consistency notes).
+        subscription_data = {"trial_period_days": trial_days}
     else:
-        # First-month-free trial is a monthly-only promo — annual customers
-        # already get the discounted rate, so trial_period_days isn't stacked
-        # on top of that (see design_handoff_marketing_consistency notes).
-        subscription_data = {"trial_period_days": 30} if plan == "monthly" else {}
+        subscription_data = {}
 
     cs = stripe.checkout.Session.create(
         mode="subscription",

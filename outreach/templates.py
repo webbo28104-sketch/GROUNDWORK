@@ -80,7 +80,7 @@ INITIAL_EMAIL = {
       </td></tr>
 
       <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:15.5px;line-height:1.65;color:#2A2A28;padding:0 0 8px;">
-        If you like what you see, you can get {business_name}'s site live today, completely free — no setup fee, first month free, £24.99/month after that. Most other website services charge around £89 a month alone. Any questions, just reply to this email.
+        If you like what you see, you can get {business_name}'s site live today for £24.99/month, no setup fee. Most other website services charge around £89 a month alone. Any questions, just reply to this email.
       </td></tr>
       <tr><td style="padding:6px 0 26px;">
         <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;font-family:Arial,Helvetica,sans-serif;">
@@ -126,7 +126,7 @@ INITIAL_EMAIL = {
 INITIAL_SMS = (
     "Hi {business_name}, this is Groundwork — we build affordable websites for UK trades. "
     "See a free preview built for you: groundworkbuild.com/s/{short_code}\n"
-    "Live free today, £24.99/mo after your 1st month free. No setup fee.\n"
+    "Live today for £24.99/mo, no setup fee.\n"
     "Reply STOP to opt out."
 )
 
@@ -139,7 +139,7 @@ INITIAL_SMS = (
 INITIAL_FACEBOOK_DM = (
     "Hi {business_name}, this is Charlie from Groundwork — we build affordable websites for UK trades. "
     "I've actually already put together a free preview website for you, no cost: groundworkbuild.com/s/{short_code}\n"
-    "Free to go live today too — first month free, £24.99/mo after, no setup fee. Let me know if you've got any questions!"
+    "Free to go live today too — £24.99/mo, no setup fee. Let me know if you've got any questions!"
 )
 
 # ── Follow-up stages ──────────────────────────────────────────────────────────
@@ -396,7 +396,7 @@ FOLLOWUP_EMAIL = {
         Just checking in — your website's built and waiting.
       </td></tr>
       <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:15.5px;line-height:1.65;color:#2A2A28;padding:0 0 30px;">
-        Go live completely free today — no setup fee, first month free, £24.99/month after.
+        Go live today for £24.99/month, no setup fee.
       </td></tr>
 
       <!-- CTA: single button, reused as-is across all 8 templates. Table-based
@@ -498,7 +498,7 @@ FOLLOWUP_EMAIL = {
         Your account's set up and your site's ready to go — just needs switching on.
       </td></tr>
       <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:15.5px;line-height:1.65;color:#2A2A28;padding:0 0 30px;">
-        Free to go live today — no setup fee, first month free, £24.99/month after.
+        Free to go live today — £24.99/month, no setup fee.
       </td></tr>
 
       <!-- CTA: single button, reused as-is across all 8 templates. Table-based
@@ -671,8 +671,96 @@ HAIL_MARY_EMAIL = {
 }
 
 HAIL_MARY_SMS = (
-    "Hi {{business_name}}, last chance — your Groundwork site is free to go live today, "
-    "no setup fee: {{preview_link}}\n"
+    "Hi {business_name}, last chance — your Groundwork site is free to go live today, "
+    "no setup fee: {preview_link}\n"
+    "Reply STOP to opt out."
+)
+
+# Quick one-click "what's stopping you" nudge (added 2026-07-26) — fires
+# early (outreach/followup.py, shortly after clicked_at, not a 14-21-day
+# last resort like hail_mary) since the whole point is catching a fresh
+# reason, not one that's faded. Links to /claim/<token>/why — one click,
+# no typing, no separate multi-question form. Pre-click stage rules don't
+# apply here (see docs/outreach-pipeline-spec.md Section 10c) since this
+# only ever fires after clicked_at is already set.
+QUICK_SURVEY_EMAIL = {
+    "subject": "Quick one, {business_name} — what's stopping you?",
+    "body": """<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<title>Quick one, {business_name}</title>
+</head>
+<body style="margin:0;padding:0;background:#EDEAE2;font-family:Arial,Helvetica,sans-serif;">
+<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;">One click, no typing — genuinely helps.</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#EDEAE2;">
+<tbody><tr><td align="center" style="padding:40px 16px;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;background:#FFFFFF;">
+  <tbody><tr><td style="padding:28px 32px 18px;border-bottom:2px solid #3B82F6;">
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+      <tbody><tr>
+        <td style="padding:0 9px 0 0;vertical-align:middle;">
+          <img src="https://groundworkbuild.com/assets/email/groundwork-mark-22.png" width="22" height="22" alt="" style="display:block;border-radius:5px;">
+        </td>
+        <td style="vertical-align:middle;">
+          <span style="font-family:Arial,Helvetica,sans-serif;font-size:17px;font-weight:bold;color:#1C1C1C;letter-spacing:-.01em;">Groundwork</span>
+        </td>
+      </tr>
+    </tbody></table>
+  </td></tr>
+  <tr><td style="padding:32px 32px 8px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+      <tbody>
+      <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:22px;font-weight:800;letter-spacing:-.01em;line-height:1.3;color:#1C1C1C;padding:0 0 14px;">
+        Quick one, {business_name} — what's stopping you?
+      </td></tr>
+      <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:15.5px;line-height:1.65;color:#2A2A28;padding:0 0 24px;">
+        You checked out your free site preview a bit ago — no pressure, just curious what's holding you back. One click, no typing needed.
+      </td></tr>
+      <tr><td style="padding:0 0 20px;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+          <tbody><tr><td bgcolor="#3B82F6" style="border-radius:8px;">
+            <a href="{quick_survey_link}" target="_blank" style="display:inline-block;padding:13px 24px;font-family:Arial,Helvetica,sans-serif;font-size:15px;font-weight:bold;color:#FFFFFF;text-decoration:none;border-radius:8px;">Tell us in one click →</a>
+          </td></tr>
+        </tbody></table>
+      </td></tr>
+      <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:15.5px;line-height:1.65;color:#2A2A28;padding:0 0 8px;">
+        Any questions, just reply to this email.
+      </td></tr>
+      <tr><td style="padding:6px 0 26px;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;font-family:Arial,Helvetica,sans-serif;">
+        <tbody><tr>
+          <td valign="middle" style="padding:0 18px 0 0;vertical-align:middle;">
+            <img src="https://groundworkbuild.com/assets/email/groundwork-mark-48.png" width="48" height="48" alt="Groundwork" style="display:block;border-radius:10px;">
+          </td>
+          <td valign="middle" style="border-left:2px solid #3B82F6;padding:0 0 0 18px;vertical-align:middle;">
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
+              <tbody><tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:16px;font-weight:bold;color:#1C1C1C;padding:0 0 2px;line-height:1.3;">Charlie</td></tr>
+              <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5C5A56;padding:0 0 10px;line-height:1.3;">Founder, Groundwork</td></tr>
+              <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:1.3;padding:0;">
+                <a href="https://groundworkbuild.com" style="color:#2257CC;text-decoration:none;">groundworkbuild.com</a><span style="color:#D9D7D0;padding:0 8px;">|</span><a href="mailto:reply@groundworkbuild.com" style="color:#2257CC;text-decoration:none;">reply@groundworkbuild.com</a>
+              </td></tr>
+            </tbody></table>
+      </td></tr>
+    </tbody></table>
+  </td></tr>
+  <tr><td style="padding:26px 32px 28px;border-top:1px solid #E2E0DA;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+      <tbody><tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:11.5px;font-weight:bold;letter-spacing:.06em;text-transform:uppercase;color:#9A9893;padding:0 0 8px;">
+        Groundwork
+      </td></tr>
+      <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:12.5px;line-height:1.65;color:#9A9893;">
+        <a href="{unsubscribe_link}" style="color:#9A9893;text-decoration:underline;">Unsubscribe</a> or reply and let me know and I won't email again.
+      </td></tr>
+    </tbody></table>
+  </td></tr>
+</tbody></table>
+</td></tr></tbody></table></body></html>""",
+}
+
+QUICK_SURVEY_SMS = (
+    "Hi {business_name}, quick one — what's stopping you going live? One click, no typing: {quick_survey_link}\n"
     "Reply STOP to opt out."
 )
 
@@ -729,7 +817,7 @@ PRICE_DROP_ANNOUNCEMENT_EMAIL = {
         The setup fee is gone — {business_name}'s site is still waiting
       </td></tr>
       <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:15.5px;line-height:1.65;color:#2A2A28;padding:0 0 18px;">
-        Last time you looked, going live meant a setup fee on top of monthly hosting. That's changed — <b>we've dropped it completely.</b> Nothing to pay upfront, first month free, £24.99/month after that.
+        Last time you looked, going live meant a setup fee on top of monthly hosting. That's changed — <b>we've dropped it completely.</b> Nothing to pay upfront, £24.99/month, that's it.
       </td></tr>
       <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:15.5px;line-height:1.65;color:#2A2A28;padding:0 0 30px;">
         Your website's exactly where you left it — same design, same content. If the price was what held you back, that reason's gone now.
@@ -871,13 +959,15 @@ def branding_ps_line(extraction_quality):
 
 
 def render_email(stage_key, **kwargs):
-    """stage_key: 'initial', 'hail_mary', 'price_drop', or one of 'A'/'B'/'C'/'D'."""
+    """stage_key: 'initial', 'hail_mary', 'price_drop', 'quick_survey', or one of 'A'/'B'/'C'/'D'."""
     if stage_key == "initial":
         template = INITIAL_EMAIL
     elif stage_key == "hail_mary":
         template = HAIL_MARY_EMAIL
     elif stage_key == "price_drop":
         template = PRICE_DROP_ANNOUNCEMENT_EMAIL
+    elif stage_key == "quick_survey":
+        template = QUICK_SURVEY_EMAIL
     else:
         template = FOLLOWUP_EMAIL[stage_key]
     return {
@@ -887,11 +977,13 @@ def render_email(stage_key, **kwargs):
 
 
 def render_sms(stage_key, **kwargs):
-    """stage_key: 'initial', 'hail_mary', or one of 'A'/'B'/'C'/'D'."""
+    """stage_key: 'initial', 'hail_mary', 'quick_survey', or one of 'A'/'B'/'C'/'D'."""
     if stage_key == "initial":
         template = INITIAL_SMS
     elif stage_key == "hail_mary":
         template = HAIL_MARY_SMS
+    elif stage_key == "quick_survey":
+        template = QUICK_SURVEY_SMS
     else:
         template = FOLLOWUP_SMS[stage_key]
     return template.format(**kwargs)

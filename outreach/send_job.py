@@ -68,6 +68,10 @@ def _survey_link(p):
     return f"{BASE_URL}/survey/{p.token}"
 
 
+def _quick_survey_link(p):
+    return f"{BASE_URL}/claim/{p.token}/why"
+
+
 def _record_sms_submitted(db, message_id, to_phone):
     """
     Log the initial 'submitted' state for a sent SMS, keyed by Esendex's
@@ -331,7 +335,8 @@ def run_daily_send(now=None):
         "email": float("inf") if in_window else 0,
         "sms": 0 if os.environ.get("SMS_SENDS_PAUSED", "").lower() == "true" else float("inf"),
     }
-    _, n_followups = run_followups(followup_budget, _unsubscribe_link, _preview_link, _short_code, _survey_link, now)
+    _, n_followups = run_followups(followup_budget, _unsubscribe_link, _preview_link, _short_code, _survey_link, now,
+                                    quick_survey_link_fn=_quick_survey_link)
     n_initial = fill_initial_sends(remaining, now)
 
     summary = {

@@ -348,8 +348,30 @@ class Prospect(Base):
     email_version_sent = Column(String(50), nullable=True)
     sms_version_sent = Column(String(50), nullable=True)
     touch_count = Column(Integer, default=0)
+    # RETIRED 2026-07-26: discount_code/discount_expiry backed a setup-fee
+    # percentage-discount code (_issue_survey_discount_code), issued on
+    # every /survey/<token> submission regardless of the stated reason.
+    # It stopped doing anything the moment the setup fee itself was
+    # removed (2026-07-23) — create_checkout_session() has no setup-fee
+    # line item left to discount, and never actually read the submitted
+    # code back in anyway (confirmed: the captured value was dead-end,
+    # never referenced again). Columns kept (old rows/tests may still
+    # reference them) but nothing writes to them going forward — replaced
+    # by trial_days_earned below, applied only when relevant to what a
+    # prospect actually said (price objection or the standalone hail-mary
+    # push), not handed out unconditionally.
     discount_code = Column(String(50), nullable=True)
     discount_expiry = Column(DateTime, nullable=True)
+    # How many free trial days this prospect has actually earned, applied
+    # at checkout (create_checkout_session) instead of the old flat
+    # 30-days-for-everyone default. 0/None = no free trial, full price
+    # from day one. Set to 30 when the quick one-click survey's "too
+    # expensive" answer is given (a real response to a real stated
+    # objection, not a blind incentive to click), 90 when the standalone
+    # hail-mary stage fires (outreach/followup.py) — matching what
+    # HAIL_MARY_EMAIL/HAIL_MARY_SMS actually promise, which nothing
+    # enforced before this field existed.
+    trial_days_earned = Column(Integer, nullable=True, default=0)
     sent_at = Column(DateTime, nullable=True)
     sent_at_dow = Column(Integer, nullable=True)
     sent_at_hour = Column(Integer, nullable=True)
@@ -970,6 +992,7 @@ def init_db():
     _ensure_column(Prospect.__tablename__, "raw_data", "JSON")
     _ensure_column(Prospect.__tablename__, "error_notes", "TEXT")
     _ensure_column(Prospect.__tablename__, "processed_at", "TIMESTAMP")
+    _ensure_column(Prospect.__tablename__, "trial_days_earned", "INTEGER DEFAULT 0")
     _ensure_column(Prospect.__tablename__, "funnel_substage", "VARCHAR(30)")
     _ensure_column(Prospect.__tablename__, "last_touch_at", "TIMESTAMP")
     _ensure_column(Prospect.__tablename__, "short_code", "VARCHAR(12)")
