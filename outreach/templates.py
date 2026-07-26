@@ -569,7 +569,7 @@ SURVEY_DISCOUNT_PERCENT = 50
 # OutreachTouch.stage="hail_mary" (outreach/followup.py), with the offer
 # as the actual headline rather than a postscript.
 HAIL_MARY_EMAIL = {
-    "subject": "Last chance — get {{business_name}}'s site live, free",
+    "subject": "Last chance — get {business_name}'s site live, free",
     "body": """<!DOCTYPE html>
 <html lang="en"><head>
 <meta charset="utf-8">
@@ -612,7 +612,7 @@ HAIL_MARY_EMAIL = {
         We built you a free website preview a while back and haven't heard from you since — so this is genuinely the last email you'll get about it.
       </td></tr>
       <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:15.5px;line-height:1.65;color:#2A2A28;padding:0 0 30px;">
-        There's no setup fee and no cost to go live — first month free, £24.99/month after that. If two minutes to tell us why now isn't the right time is easier than deciding, that works too — we read every response ourselves.
+        There's no setup fee and no cost to go live — first 3 months free, £24.99/month after that. If two minutes to tell us why now isn't the right time is easier than deciding, that works too — we read every response ourselves.
       </td></tr>
 
       <!-- CTA -->
@@ -667,7 +667,7 @@ HAIL_MARY_EMAIL = {
 
 
 
-</td></tr></tbody></table></body></html>""".format(pct=SURVEY_DISCOUNT_PERCENT),
+</td></tr></tbody></table></body></html>""".format(),
 }
 
 HAIL_MARY_SMS = (
@@ -842,6 +842,14 @@ _BRANDING_PS_TEXT = {
 # now always its own standalone send (HAIL_MARY_EMAIL/HAIL_MARY_SMS,
 # fired via render_email("hail_mary", ...)/render_sms("hail_mary", ...)
 # in outreach/followup.py), never a postscript on another template.
+#
+# As of 2026-07-26, HAIL_MARY_EMAIL/HAIL_MARY_SMS no longer reference a
+# discount at all (the hail-mary incentive is "no setup fee, first 3
+# months free" — a fee/duration waiver, not a percentage discount).
+# SURVEY_DISCOUNT_PERCENT is kept only because app.py's retention-offer
+# discount-code generator (SETUP<pct><code>, a separate feature for
+# existing customers considering cancelling) still imports and uses it —
+# do not remove this constant without checking that usage first.
 
 
 def branding_ps_line(extraction_quality):
