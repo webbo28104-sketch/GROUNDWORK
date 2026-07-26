@@ -737,7 +737,7 @@ class OutreachTouch(Base):
 
     id = Column(Integer, primary_key=True)
     prospect_id = Column(Integer, ForeignKey("prospects.id"), nullable=False, index=True)
-    stage = Column(String(10), nullable=False)  # "initial" / "A" / "B" / "C" / "D" / "hail_mary"
+    stage = Column(String(20), nullable=False)  # "initial" / "A" / "B" / "C" / "D" / "hail_mary" / "quick_survey"
     channel = Column(String(10), nullable=False)  # "email" / "sms"
     sent_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
     variant_id = Column(String(30), nullable=True, index=True)
@@ -903,6 +903,13 @@ def init_db():
     # StringDataRightTruncation incident this session already hit once on
     # search_cells.postcode_area for the same underlying reason.
     _ensure_column_width(EmailVariant.__tablename__, "status", 20)
+    # Same failure class again (2026-07-26): OutreachTouch.stage was
+    # VARCHAR(10), too narrow for the new "quick_survey" stage (12 chars)
+    # — caught live in production (send-job-cron crashing on every
+    # quick_survey touch insert) minutes after deploy. Manually widened
+    # in production immediately; this line makes it safe on every other
+    # environment/redeploy too.
+    _ensure_column_width(OutreachTouch.__tablename__, "stage", 20)
     _ensure_column(Lead.__tablename__, "is_test", "BOOLEAN NOT NULL DEFAULT FALSE")
     _ensure_column(Generation.__tablename__, "stripe_customer_id", "VARCHAR(255)")
     _ensure_column(Generation.__tablename__, "stripe_setup_invoice_id", "VARCHAR(255)")
