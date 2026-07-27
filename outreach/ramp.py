@@ -91,19 +91,47 @@ SMS_FLOOR = SMS_RAMP_TABLE[1]
 # both need to agree or the cron simply won't invoke this code in the
 # newly-added hours at all. 22 is exclusive, so this is 03:00 through
 # 22:00 UTC inclusive-start.
-EMAIL_SEND_WINDOW_START_HOUR = 3
+# Start hour corrected 3 -> 4 (2026-07-27): send-job-cron's live Railway
+# schedule is "*/15 4-22 * * *" — it has never actually fired during the
+# 03:00 hour despite this code-level guard allowing it, so that hour's
+# floor/weight allocation was being computed for a slot that could never
+# send. Keep this in sync with the real cron schedule (checked via Railway,
+# not assumed) rather than the other way around — the cron is what actually
+# controls whether this code runs at all in a given hour.
+EMAIL_SEND_WINDOW_START_HOUR = 4
 EMAIL_SEND_WINDOW_END_HOUR_EXCLUSIVE = 23
 
-# Send cadence (changed 2026-07-23, by request): email now sends in fixed
-# 15-minute slices — 5 emails per 15-minute slot — instead of one big
-# per-hour ramp figure from EMAIL_HOURLY_RAMP_TABLE. The window itself
-# (EMAIL_SEND_WINDOW_START_HOUR/END_HOUR_EXCLUSIVE above) is unchanged;
-# only how often send-job-cron fires and how much it's allowed to send per
-# firing changed. send-job-cron's Railway Cron schedule must be updated to
-# match ("*/15 3-22 * * *" UTC) — same "code-level guard + cron schedule
-# have to agree" relationship as the window check above.
+# Send cadence (changed 2026-07-27, by request): email is now capped at a
+# fixed EMAIL_DAILY_TOTAL for the whole day, split across 15-minute slots
+# weighted by each slot's own real open/click engagement rate — instead of
+# either one lump daily ramp figure (the original EMAIL_HOURLY_RAMP_TABLE
+# design) or a flat per-slot cap applied evenly regardless of time of day
+# (the 2026-07-23 fixed-5-per-slot design this replaces). Every slot still
+# gets at least EMAIL_SLOT_FLOOR sends regardless of how it's performed —
+# by request, so we keep collecting real data across the whole window
+# rather than the engagement weighting starving a slot down to zero and
+# making it permanently unable to prove itself. See _slot_plan() below for
+# the actual allocation.
 EMAIL_SLOT_MINUTES = 15
-EMAIL_PER_SLOT_CAP = 5
+EMAIL_DAILY_TOTAL = 192
+EMAIL_SLOT_FLOOR = 1
+# A slot needs at least this many of its own real sends before its own
+# engagement rate is trusted over the whole-window average — same principle
+# as MIN_EMAIL_SAMPLE_SIZE below, just scoped to one slot instead of the
+# whole channel.
+MIN_SLOT_SAMPLE_SIZE = 10
+# A slot counts as "top tier" (used to decide whether a priority prospect —
+# see PRIORITY_SCORE_THRESHOLD — sends now or waits for a better slot) if
+# its weight is at/above this percentile of today's slot weights.
+PRIORITY_TOP_TIER_PERCENTILE = 0.75
+# A score in this range from a genuinely human-sighted email (see
+# outreach/send_job.py's _is_priority_prospect) is treated as too valuable
+# to burn on a middling slot — held for the next top-tier slot instead of
+# sent in strict arrival order. Never held indefinitely: after this long,
+# send anyway rather than let a real, ready lead go stale chasing a
+# statistically-better hour that may not come today.
+PRIORITY_SCORE_THRESHOLD = 95
+PRIORITY_MAX_HOLD = timedelta(hours=24)
 
 EMAIL_SPAM_RATE_TRIGGER = 0.001  # 0.1% — genuine spam complaints only, per Section 15.
 # Bounces are tracked and trip the breaker separately from complaints (added
@@ -386,7 +414,7 @@ def get_remaining_ramp_today(channel, now=None):
 
 
 def is_within_email_send_window(now=None):
-    """True during the 08:00-19:00 UTC hourly send window — see
+    """True during the email send window — see
     EMAIL_SEND_WINDOW_START_HOUR/END_HOUR_EXCLUSIVE above. Outside this
     window, email initial sends and follow-ups are held entirely (not
     queued/delayed — the next hourly cron run inside the window picks up
@@ -405,13 +433,129 @@ def _slot_bucket(channel, now):
     return now.strftime("%Y-%m-%d-%H")
 
 
+def _slot_index(hour, minute):
+    return hour * (60 // EMAIL_SLOT_MINUTES) + (minute // EMAIL_SLOT_MINUTES)
+
+
+def _window_slot_indices():
+    return [
+        h * (60 // EMAIL_SLOT_MINUTES) + s
+        for h in range(EMAIL_SEND_WINDOW_START_HOUR, EMAIL_SEND_WINDOW_END_HOUR_EXCLUSIVE)
+        for s in range(60 // EMAIL_SLOT_MINUTES)
+    ]
+
+
+def _slot_plan(now=None):
+    """Single source of truth for email's per-slot send cap AND for whether
+    the current slot counts as "top tier" for priority-prospect holding
+    (outreach/send_job.py) — one query, shared by both, so the two can never
+    disagree about what "today's best slots" means.
+
+    Cap: EMAIL_SLOT_FLOOR guaranteed per slot (so every hour keeps
+    collecting real engagement data, never gets starved to zero), plus a
+    share of (EMAIL_DAILY_TOTAL - floor*n_slots) proportional to this
+    slot's own engagement rate (opened_at/clicked_at ever set, over all
+    Prospect sends ever recorded in that slot) — falls back to the
+    all-slots average rate for any slot that doesn't yet have
+    MIN_SLOT_SAMPLE_SIZE real sends of its own, so early on (or for a
+    rarely-hit slot) this degrades to roughly-even allocation rather than
+    a confident-looking number built on noise, and naturally sharpens
+    toward real peak/trough hours as more data comes in.
+
+    Top tier: this slot's weight is at/above PRIORITY_TOP_TIER_PERCENTILE
+    of today's full set of slot weights.
+    """
+    now = now or datetime.utcnow()
+    window_indices = _window_slot_indices()
+
+    db = SessionLocal()
+    try:
+        rows = db.query(
+            Prospect.sent_at_hour, Prospect.sent_at_slot, Prospect.opened_at, Prospect.clicked_at
+        ).filter(
+            Prospect.sent_at.isnot(None),
+            Prospect.sent_at_hour.isnot(None),
+            Prospect.sent_at_slot.isnot(None),
+        ).all()
+    finally:
+        db.close()
+
+    per_slot = {}
+    for hour, slot, opened, clicked in rows:
+        idx = _slot_index(hour, slot * EMAIL_SLOT_MINUTES)
+        counts = per_slot.setdefault(idx, [0, 0])  # [sent, engaged]
+        counts[0] += 1
+        if opened is not None or clicked is not None:
+            counts[1] += 1
+
+    total_sent = sum(c[0] for c in per_slot.values())
+    total_engaged = sum(c[1] for c in per_slot.values())
+    # No real data anywhere yet -> neutral weight (1.0 for everyone) so the
+    # allocation is a plain even split until real engagement data exists.
+    overall_rate = (total_engaged / total_sent) if total_sent else 1.0
+
+    def _weight(idx):
+        counts = per_slot.get(idx)
+        if counts and counts[0] >= MIN_SLOT_SAMPLE_SIZE:
+            return counts[1] / counts[0]
+        return overall_rate
+
+    weights = {idx: _weight(idx) for idx in window_indices}
+    total_weight = sum(weights.values()) or 1.0
+    n_slots = len(window_indices) or 1
+    bonus_pool = max(0, EMAIL_DAILY_TOTAL - EMAIL_SLOT_FLOOR * n_slots)
+
+    # Largest-remainder apportionment, not independent per-slot round() —
+    # rounding each slot's share separately can (and, verified, does: with
+    # no engagement data yet every slot ties on the same fractional share,
+    # so every single one rounds the same direction) drift the whole day's
+    # total away from EMAIL_DAILY_TOTAL by several slots' worth. This
+    # guarantees sum(caps) == EMAIL_DAILY_TOTAL exactly: give every slot
+    # its floor() share, then hand the few leftover units (bonus_pool -
+    # sum of floors) one each to the slots with the largest fractional
+    # remainder, highest first.
+    raw_shares = {idx: bonus_pool * weights[idx] / total_weight for idx in window_indices}
+    caps = {idx: int(raw_shares[idx]) for idx in window_indices}
+    leftover = bonus_pool - sum(caps.values())
+    if leftover > 0:
+        by_remainder = sorted(window_indices, key=lambda idx: raw_shares[idx] - caps[idx], reverse=True)
+        for idx in by_remainder[:leftover]:
+            caps[idx] += 1
+    caps = {idx: EMAIL_SLOT_FLOOR + caps[idx] for idx in window_indices}
+
+    sorted_weights = sorted(weights.values())
+    cutoff_pos = min(int(len(sorted_weights) * PRIORITY_TOP_TIER_PERCENTILE), len(sorted_weights) - 1)
+    top_tier_cutoff = sorted_weights[cutoff_pos] if sorted_weights else overall_rate
+
+    this_idx = _slot_index(now.hour, now.minute)
+    this_weight = weights.get(this_idx, overall_rate)
+
+    return {
+        "cap": caps.get(this_idx, EMAIL_SLOT_FLOOR),
+        "is_top_tier": this_weight >= top_tier_cutoff,
+    }
+
+
+def is_top_engagement_slot_now(now=None):
+    """True if the current 15-minute slot is one of today's best-performing
+    sending times so far (see _slot_plan) — used by outreach/send_job.py to
+    decide whether a priority prospect (score >= PRIORITY_SCORE_THRESHOLD,
+    manually-sighted email) should send now or wait for a better slot."""
+    if not is_within_email_send_window(now):
+        return False
+    return _slot_plan(now)["is_top_tier"]
+
+
 def get_remaining_ramp_this_hour(channel, now=None):
     """How many more sends of this channel are allowed right now. For
-    email, this is a fixed EMAIL_PER_SLOT_CAP per 15-minute slot (not
-    RampState.daily_volume/the ramp table — see EMAIL_SLOT_MINUTES above);
-    for every other channel it's unchanged (RampState.daily_volume minus
-    this hour's HourlySendCount bucket). Returns 0 outside the email send
-    window regardless of remaining budget."""
+    email, this is the engagement-weighted per-slot cap from _slot_plan
+    (out of EMAIL_DAILY_TOTAL/day total — see EMAIL_SLOT_MINUTES above),
+    forced to 0 if email's circuit breaker is currently tripped regardless
+    of the computed cap (a bounce/complaint spike should actually stop
+    sends, not just reset a ramp-table number nothing else reads). For
+    every other channel it's unchanged (RampState.daily_volume minus this
+    hour's HourlySendCount bucket). Returns 0 outside the email send window
+    regardless of remaining budget."""
     now = now or datetime.utcnow()
     if channel == "email" and not is_within_email_send_window(now):
         return 0
@@ -424,7 +568,11 @@ def get_remaining_ramp_this_hour(channel, now=None):
         ).first()
         sent_this_slot = row.count if row else 0
         if channel == "email":
-            return max(0, EMAIL_PER_SLOT_CAP - sent_this_slot)
+            state = _get_or_create_state(db, "email")
+            if state.circuit_breaker_tripped:
+                return 0
+            cap = _slot_plan(now)["cap"]
+            return max(0, cap - sent_this_slot)
         state = _get_or_create_state(db, channel)
         return max(0, state.daily_volume - sent_this_slot)
     finally:

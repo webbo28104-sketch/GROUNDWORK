@@ -38,7 +38,8 @@ from outreach.sms import send_outreach_sms, sms_channel_eligible
 from outreach.templates import render_sms
 from outreach.ramp import (
     advance_or_hold, get_remaining_ramp_today, get_remaining_ramp_this_hour,
-    is_within_email_send_window, record_sends,
+    is_within_email_send_window, is_top_engagement_slot_now, record_sends,
+    PRIORITY_SCORE_THRESHOLD, PRIORITY_MAX_HOLD,
 )
 from outreach.followup import run_followups
 from outreach.link_identity import ensure_link_identity
@@ -240,25 +241,64 @@ def send_initial_touch(db, p, now, remaining_ramp=None):
     return {"touched": True, "email_id": email_id}
 
 
+def _is_priority_prospect(p):
+    """A prospect worth holding for a better send slot rather than sending
+    in strict arrival order (2026-07-27, by request): score in the top
+    band AND a real email on file. Deliberately not restricted to any one
+    email_source — a score this high with a confirmed email is worth the
+    same "best chance of engagement" treatment regardless of exactly which
+    manual-entry path it came in through (e.g. admin_facebook_email_found's
+    email_source='facebook_page_manual')."""
+    return (
+        p.score is not None and p.score >= PRIORITY_SCORE_THRESHOLD
+        and p.email_found
+    )
+
+
 def fill_initial_sends(remaining_ramp, now):
     """Consume whatever's left of remaining_ramp on new initial sends,
-    top-scored first."""
+    top-scored first.
+
+    Priority hold (2026-07-27, by request): a priority prospect
+    (_is_priority_prospect — score >= PRIORITY_SCORE_THRESHOLD, real email
+    on file) is skipped THIS run if the current slot isn't one of today's
+    top-tier engagement slots (is_top_engagement_slot_now), UNLESS it's
+    already been waiting longer than PRIORITY_MAX_HOLD — a real, ready lead
+    shouldn't go stale indefinitely chasing a better hour that may not come.
+    Nothing is removed from the query or persisted as "held" — it's simply
+    left in the eligible pool, still sorted score-first, so the very next
+    run (this slot or the next) re-evaluates it fresh with no extra state
+    to keep in sync. Held prospects don't block the rest of the queue from
+    sending — the loop just keeps going to the next candidate instead of
+    breaking, so a bad-timing VIP never stalls an otherwise-healthy slot."""
     db = SessionLocal()
     sent = 0
+    held = 0
     try:
         candidates = _eligible_initial_send_query(db).all()
+        top_tier = is_top_engagement_slot_now(now)
 
         for p in candidates:
             if remaining_ramp["email"] <= 0 and remaining_ramp["sms"] <= 0:
                 break
+
+            if _is_priority_prospect(p) and not top_tier:
+                waited_since = p.processed_at or p.created_at
+                still_fresh = waited_since is not None and (now - waited_since) < PRIORITY_MAX_HOLD
+                if still_fresh:
+                    held += 1
+                    continue
+
             result = send_initial_touch(db, p, now, remaining_ramp)
             if result["touched"]:
                 sent += 1
                 if result["email_id"]:
                     logger.info("Prospect %s: email sent, resend id=%s", p.id, result["email_id"])
 
-        logger.info("Initial sends: %d, ramp remaining after — email: %d, sms: %d",
-                    sent, remaining_ramp["email"], remaining_ramp["sms"])
+        logger.info(
+            "Initial sends: %d (held for a better slot: %d), ramp remaining after — email: %d, sms: %d",
+            sent, held, remaining_ramp["email"], remaining_ramp["sms"],
+        )
     finally:
         db.close()
 
@@ -269,13 +309,13 @@ def run_daily_send(now=None):
     """Despite the name (kept for the existing send-job-cron entry point),
     this now runs hourly, not daily — Railway Cron needs its schedule
     updated to fire every hour, e.g. "0 8-19 * * *" (UTC), not once a day.
-    Email sends (initial + follow-up) only happen inside the 08:00-19:00
-    UTC window (outreach/ramp.py's EMAIL_SEND_WINDOW_*), evenly capped per
-    hour via get_remaining_ramp_this_hour rather than one lump daily
-    budget — the point is to spread sends across the day so we build real
-    data on which hours perform best, with sourcing-cron (free to run as
-    often as we like) as the actual volume limiter, not an artificially
-    low per-hour cap. SMS is untouched: still one daily budget, no window."""
+    Email sends (initial + follow-up) only happen inside the email send
+    window (outreach/ramp.py's EMAIL_SEND_WINDOW_*), capped per 15-minute
+    slot via get_remaining_ramp_this_hour — out of a fixed
+    EMAIL_DAILY_TOTAL/day, weighted toward whichever slots have shown the
+    best real open/click engagement so far (see outreach/ramp.py's
+    _slot_plan), not spread evenly. SMS is untouched: still one daily
+    budget, no window."""
     now = now or datetime.utcnow()
     init_db()
     _seed_db = SessionLocal()
