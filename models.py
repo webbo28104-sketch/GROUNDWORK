@@ -265,6 +265,24 @@ class Prospect(Base):
     __tablename__ = "prospects"
 
     id = Column(Integer, primary_key=True)
+    # Where this prospect was originally FOUND (added 2026-07-27, by
+    # request) — a real, persisted column, deliberately NOT derived from
+    # google_place_id/facebook_page_url at read time, and set exactly once
+    # at creation ("google_places" in outreach/sourcer.py's upsert_prospect,
+    # "socials" in outreach/pickup_facebook_sourced.py's _import_one).
+    # Explicit policy: this never changes after creation, even if the
+    # prospect later picks up Facebook/social data by some other means
+    # (e.g. the nightly email-discovery job's incidental site:facebook.com
+    # search attaching a facebook_page_url to a google_places-sourced row)
+    # — sourcing channel answers "how was the BUSINESS itself found", which
+    # is independent of OutreachTouch.channel ("how are they being
+    # contacted" — email/sms/facebook) and independent of email_source
+    # ("how was THIS EMAIL specifically found", which can itself be
+    # socially-sourced on a google_places prospect without that prospect
+    # becoming socials-sourced). Nullable for every row that predates this
+    # column; see outreach/sourcing_channel_backfill.py for the one-off
+    # backfill pass run against existing rows.
+    sourcing_channel = Column(String(30), nullable=True, index=True)
     google_place_id = Column(String(255), unique=True, index=True)
     business_name = Column(String(255))
     trade = Column(String(100))
@@ -957,6 +975,7 @@ def init_db():
     _ensure_column(Prospect.__tablename__, "earliest_review_date", "TIMESTAMP")
     _ensure_column(Prospect.__tablename__, "google_photos_count", "INTEGER")
     _ensure_column(Prospect.__tablename__, "opening_hours_complete", "BOOLEAN")
+    _ensure_column(Prospect.__tablename__, "sourcing_channel", "VARCHAR(30)")
     _ensure_column(Prospect.__tablename__, "website_status", "VARCHAR(30)")
     _ensure_column(Prospect.__tablename__, "vision_flag_layout", "BOOLEAN")
     _ensure_column(Prospect.__tablename__, "vision_flag_design", "BOOLEAN")

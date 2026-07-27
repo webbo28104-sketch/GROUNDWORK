@@ -60,10 +60,12 @@ try:
     from outreach.trade_categories import get_trade_by_term, AREA_INCOME_TIER
     from outreach.scorer import score_prospect
     from outreach.email_discovery import is_valid_email, looks_like_guess
+    from outreach.sourcing_channels import SOCIALS
 except ImportError:
     from trade_categories import get_trade_by_term, AREA_INCOME_TIER
     from scorer import score_prospect
     from email_discovery import is_valid_email, looks_like_guess
+    from sourcing_channels import SOCIALS
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("outreach.pickup_facebook_sourced")
@@ -145,6 +147,7 @@ def _import_one(db, entry):
     postcode_area = (entry.get("postcode_area") or "").strip() or None
 
     prospect = Prospect(
+        sourcing_channel=SOCIALS,
         business_name=business_name,
         trade=canonical_trade,
         trade_search_term=trade_term or None,

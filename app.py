@@ -45,6 +45,7 @@ from outreach.ramp import (
     get_health_signal, get_remaining_ramp_today, EMAIL_SPAM_RATE_TRIGGER,
     EMAIL_BOUNCE_RATE_TRIGGER, MIN_EMAIL_SAMPLE_SIZE, CIRCUIT_BREAKER_RECOVERY_DAYS,
 )
+from outreach.sourcing_channels import SOURCING_CHANNEL_LABELS
 
 app = Flask(__name__, static_folder="frontend", static_url_path="")
 app.logger.setLevel(logging.INFO)
@@ -3671,9 +3672,18 @@ def _render_date_preset_links(base_url: str, active_preset: str, extra_params: s
 # Same "both"/"email"/"sms"/"facebook" values admin_funnel() already
 # accepts — shared here so /admin's channel buttons and /admin/funnel's
 # channel <select> can never drift apart on what values are valid.
+# "Facebook" relabeled "Social DM" (2026-07-27) to read correctly now that
+# a SEPARATE sourcing-channel axis exists (below) — this one is strictly
+# outreach METHOD (how a prospect is contacted), not where they came from.
 _CHANNEL_FILTERS = [
-    ("both", "All channels"), ("email", "Email"), ("sms", "SMS"), ("facebook", "Facebook"),
+    ("both", "All channels"), ("email", "Email"), ("sms", "SMS"), ("facebook", "Social DM"),
 ]
+
+# Sourcing-channel filter values, independent of outreach method above —
+# "how was this prospect originally found" (Prospect.sourcing_channel).
+# Sourced from outreach/sourcing_channels.py so a future sourcing method
+# only needs registering there to show up here automatically.
+_SOURCE_FILTERS = [("all", "All sources")] + list(SOURCING_CHANNEL_LABELS.items())
 
 
 def _render_channel_filter_links(base_url: str, active_channel: str, extra_params: str = "") -> str:
@@ -3684,6 +3694,20 @@ def _render_channel_filter_links(base_url: str, active_channel: str, extra_param
         f'<a href="{base_url}?channel={key}{extra_params}" style="padding:6px 13px;border-radius:999px;font-size:12.5px;font-weight:700;'
         f'text-decoration:none;{"background:#3B82F6;color:#fff;" if active_channel == key else "background:#fff;color:#5C5A56;border:1px solid #D8D5CE;"}">{label}</a>'
         for key, label in _CHANNEL_FILTERS
+    )
+
+
+def _render_source_filter_links(base_url: str, active_source: str, extra_params: str = "") -> str:
+    """Pill-style SOURCING-channel filter buttons (added 2026-07-27, by
+    request) — sits above _render_channel_filter_links's outreach-method
+    row, so the click order on the page matches how the two axes actually
+    relate: pick where they came from first, then narrow by how they were
+    contacted. Same visual language, a darker fill so the two rows read as
+    a clear hierarchy rather than two identical-looking button groups."""
+    return "".join(
+        f'<a href="{base_url}?source={key}{extra_params}" style="padding:6px 13px;border-radius:999px;font-size:12.5px;font-weight:700;'
+        f'text-decoration:none;{"background:#1C1C1C;color:#fff;" if active_source == key else "background:#fff;color:#5C5A56;border:1px solid #D8D5CE;"}">{label}</a>'
+        for key, label in _SOURCE_FILTERS
     )
 
 
@@ -3711,6 +3735,9 @@ def admin_dashboard():
     channel = request.args.get("channel", "both").strip().lower()
     if channel not in ("email", "sms", "facebook", "both"):
         channel = "both"
+    source = request.args.get("source", "all").strip().lower()
+    if source not in SOURCING_CHANNEL_LABELS:
+        source = "all"
 
     def _parse_date(s):
         try:
@@ -3729,22 +3756,29 @@ def admin_dashboard():
 
     db = SessionLocal()
     try:
-        kpis = _compute_kpis(db, range_from=range_from, range_to=range_to, channel=channel)
+        kpis = _compute_kpis(db, range_from=range_from, range_to=range_to, channel=channel, source=source)
         strip = _render_kpi_strip(kpis)
-        funnel_table_html = _render_funnel_table_html(db, now, range_from, range_to, channel)
+        funnel_table_html = _render_funnel_table_html(db, now, range_from, range_to, channel, source=source)
     finally:
         db.close()
 
     banner = ""
 
-    _channel_qs = f"&channel={channel}" if channel != "both" else ""
-    channel_links = _render_channel_filter_links("/admin", channel, extra_params=(f"&preset={preset}" if preset else ""))
+    _source_qs = f"&source={source}" if source != "all" else ""
+    _channel_qs = (f"&channel={channel}" if channel != "both" else "") + _source_qs
+    source_links = _render_source_filter_links("/admin", source, extra_params=(f"&preset={preset}" if preset else ""))
+    channel_links = _render_channel_filter_links(
+        "/admin", channel, extra_params=(f"&preset={preset}" if preset else "") + _source_qs
+    )
     preset_links = _render_date_preset_links("/admin", preset, extra_params=_channel_qs)
 
     content = f"""
 <h1 class="adm-title">Dashboard</h1>
-<p class="adm-sub">Headline KPIs for <strong>{escape(kpis["period_label"])}</strong> · <strong>{escape(kpis["channel_label"])}</strong>, computed fresh from real data on every load.</p>
+<p class="adm-sub">Headline KPIs for <strong>{escape(kpis["period_label"])}</strong> · <strong>{escape(kpis["source_label"])}</strong> · <strong>{escape(kpis["channel_label"])}</strong>, computed fresh from real data on every load.</p>
 
+<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">
+  {source_links}
+</div>
 <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
   {channel_links}
 </div>
@@ -3753,6 +3787,7 @@ def admin_dashboard():
 </div>
 <form method="get" style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-bottom:22px;">
   <input type="hidden" name="channel" value="{escape(channel)}">
+  <input type="hidden" name="source" value="{escape(source)}">
   <div>
     <label style="display:block;font-size:12px;font-weight:600;color:#5C5A56;margin-bottom:4px;">From</label>
     <input type="date" name="from" value="{escape(from_str)}" style="padding:8px 10px;border:1px solid #D8D5CE;border-radius:7px;font-size:13.5px;">
@@ -4667,6 +4702,7 @@ def admin_generation_toggle_internal(gen_id):
 # ---------------------------------------------------------------------------
 _OUTREACH_TRADE_TIERS = [("high", "High"), ("medium", "Medium"), ("low", "Low")]
 _OUTREACH_INCOME_TIERS = [("high", "High"), ("medium", "Medium"), ("low", "Low")]
+_OUTREACH_SOURCING_CHANNELS = list(SOURCING_CHANNEL_LABELS.items())
 _OUTREACH_WEBSITE_STATUSES = [("no_website", "No website"), ("has_website", "Has website")]
 _OUTREACH_WEBSITE_QUALITIES = [("modern", "Modern"), ("dated", "Dated")]
 _OUTREACH_FUNNEL_STAGES = [
@@ -4698,6 +4734,7 @@ def admin_outreach():
 
     trade_tier = _arg("trade_tier")
     income_tier = _arg("income_tier")
+    sourcing_channel = _arg("sourcing_channel")
     website_status = _arg("website_status")
     website_quality = _arg("website_quality")
     funnel_stage = _arg("funnel_stage")
@@ -4716,6 +4753,8 @@ def admin_outreach():
             q = q.filter(Prospect.trade_tier == trade_tier)
         if income_tier:
             q = q.filter(Prospect.income_tier == income_tier)
+        if sourcing_channel:
+            q = q.filter(Prospect.sourcing_channel == sourcing_channel)
         if website_status:
             q = q.filter(Prospect.website_status == website_status)
         if website_quality:
@@ -4779,6 +4818,7 @@ def admin_outreach():
   <td style="padding:8px 10px;">{escape(p.funnel_stage or "—")}{f" / {escape(p.funnel_substage)}" if p.funnel_substage else ""}</td>
   <td style="padding:8px 10px;">{"✓" if p.email else "—"}</td>
   <td style="padding:8px 10px;">{"✓" if p.phone else "—"}</td>
+  <td style="padding:8px 10px;">{escape(SOURCING_CHANNEL_LABELS.get(p.sourcing_channel, p.sourcing_channel or "—"))}</td>
   <td style="padding:8px 10px;">{_fmt_dt(p.created_at) or "—"}</td>
 </tr>""" for p in prospects)
 
@@ -4793,6 +4833,8 @@ def admin_outreach():
 <p class="muted" style="font-size:12.5px;margin:0 0 12px;">Filter any tracked metric, click a row for the full profile. <a href="/admin/pipeline" style="color:#2257CC;">← Pipeline</a></p>
 
 <form method="get" class="adm-card" style="padding:16px 20px;margin-bottom:18px;display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;">
+  <div><label style="display:block;font-size:11px;color:#9A9893;margin-bottom:4px;">Sourcing channel</label>
+    <select name="sourcing_channel">{opts("sourcing_channel", _OUTREACH_SOURCING_CHANNELS, sourcing_channel)}</select></div>
   <div><label style="display:block;font-size:11px;color:#9A9893;margin-bottom:4px;">Trade tier</label>
     <select name="trade_tier">{opts("trade_tier", _OUTREACH_TRADE_TIERS, trade_tier)}</select></div>
   <div><label style="display:block;font-size:11px;color:#9A9893;margin-bottom:4px;">Income tier (area)</label>
@@ -4837,9 +4879,10 @@ def admin_outreach():
   <th style="text-align:left;padding:6px 10px;">Funnel</th>
   <th style="text-align:left;padding:6px 10px;">Email</th>
   <th style="text-align:left;padding:6px 10px;">Phone</th>
+  <th style="text-align:left;padding:6px 10px;">Source</th>
   <th style="text-align:left;padding:6px 10px;">Sourced</th>
 </tr></thead>
-<tbody>{rows_html or '<tr><td colspan="12" style="padding:16px 10px;color:#9A9893;">No prospects match these filters.</td></tr>'}</tbody>
+<tbody>{rows_html or '<tr><td colspan="13" style="padding:16px 10px;color:#9A9893;">No prospects match these filters.</td></tr>'}</tbody>
 </table>
 </div>
 """
@@ -4849,6 +4892,17 @@ def admin_outreach():
 
 
 @app.route("/admin/facebook-outreach")
+@admin_required
+def admin_facebook_outreach_redirect():
+    """Old URL, kept as a redirect (renamed to /admin/socials-outreach
+    2026-07-27, by request — "Facebook" on the nav/Pipeline page was
+    conflating the outreach-method queue with a sourcing-channel concept;
+    see outreach/sourcing_channels.py for the actual split). Any existing
+    bookmark/link to the old path still works."""
+    return redirect("/admin/socials-outreach")
+
+
+@app.route("/admin/socials-outreach")
 @admin_required
 def admin_facebook_outreach():
     """Manual Facebook DM outreach queue (added 2026-07-24) — no_website
@@ -4974,7 +5028,7 @@ def admin_facebook_outreach():
 .fb-email-btn{{background:#fff;color:#1C1C1C;border:1px solid #1C1C1C;border-radius:8px;padding:9px 14px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;}}
 @media (max-width:480px){{.fb-grid{{grid-template-columns:1fr;}}}}
 </style>
-<h1 class="adm-title">Facebook DM outreach</h1>
+<h1 class="adm-title">Socials outreach</h1>
 <p class="adm-sub">{len(prospects)} no_website prospect(s) with a Facebook Page found and no DM logged/dismissed yet. Sending is manual by design — this page just makes find → copy → paste → send → log fast, from a phone or a desktop. If you can see a real email on the page yourself (Facebook blocks our automated tools from reading it, but not you), paste it in instead of sending a DM — it'll go through the normal automated email channel from then on. <a href="/admin/pipeline">← Back to Pipeline</a></p>
 {f'<p style="background:#FEE2E2;color:#991B1B;padding:10px 14px;border-radius:8px;font-size:13.5px;margin-bottom:14px;">{escape(request.args.get("email_error"))}</p>' if request.args.get("email_error") else ""}
 <div class="fb-grid">{cards_html or '<p class="muted" style="padding:16px 10px;">Nothing in the queue right now.</p>'}</div>
@@ -4986,7 +5040,7 @@ function gwCopyMsg(id) {{
 }}
 </script>
 """
-        return render_template_string(_admin_page("Facebook DM outreach", content, active="pipeline"))
+        return render_template_string(_admin_page("Socials outreach", content, active="pipeline"))
     finally:
         db.close()
 
@@ -5024,7 +5078,7 @@ def admin_mark_facebook_dm_sent(prospect_id):
         db.commit()
 
         app.logger.info(f"Facebook DM marked sent: prospect {prospect_id} ({p.business_name})")
-        return redirect("/admin/facebook-outreach")
+        return redirect("/admin/socials-outreach")
     finally:
         db.close()
 
@@ -5050,7 +5104,7 @@ def admin_dismiss_facebook_dm(prospect_id):
         db.commit()
 
         app.logger.info(f"Facebook DM dismissed: prospect {prospect_id} ({p.business_name})")
-        return redirect("/admin/facebook-outreach")
+        return redirect("/admin/socials-outreach")
     finally:
         db.close()
 
@@ -5093,7 +5147,7 @@ def admin_facebook_email_found(prospect_id):
 
         email = clean_email((request.form.get("email") or "").strip())
         if not email:
-            return redirect("/admin/facebook-outreach")
+            return redirect("/admin/socials-outreach")
 
         error = None
         if not is_valid_email(email):
@@ -5102,7 +5156,7 @@ def admin_facebook_email_found(prospect_id):
             error = f"'{email}' has no MX or mail record — it would hard-bounce."
 
         if error:
-            return redirect(f"/admin/facebook-outreach?email_error={quote(error)}&pid={p.id}")
+            return redirect(f"/admin/socials-outreach?email_error={quote(error)}&pid={p.id}")
 
         p.email = email
         p.email_source = "facebook_page_manual"
@@ -5113,7 +5167,7 @@ def admin_facebook_email_found(prospect_id):
         db.commit()
 
         app.logger.info(f"Facebook Page email captured manually: prospect {prospect_id} ({p.business_name}) -> {email}")
-        return redirect("/admin/facebook-outreach")
+        return redirect("/admin/socials-outreach")
     finally:
         db.close()
 
@@ -5155,13 +5209,13 @@ def admin_facebook_website_found(prospect_id):
 
         website = (request.form.get("website") or "").strip()
         if not website:
-            return redirect("/admin/facebook-outreach")
+            return redirect("/admin/socials-outreach")
         if not website.lower().startswith(("http://", "https://")):
             website = "https://" + website
         parsed = _urlparse(website)
         if not parsed.netloc or "." not in parsed.netloc:
             error = f"'{website}' doesn't look like a real website URL."
-            return redirect(f"/admin/facebook-outreach?email_error={quote(error)}&pid={p.id}")
+            return redirect(f"/admin/socials-outreach?email_error={quote(error)}&pid={p.id}")
 
         old_website = p.website
         p.website = website
@@ -5182,7 +5236,7 @@ def admin_facebook_website_found(prospect_id):
         db.commit()
 
         app.logger.info(f"Facebook Page website corrected manually: prospect {prospect_id} ({p.business_name}) -> {website}")
-        return redirect("/admin/facebook-outreach")
+        return redirect("/admin/socials-outreach")
     finally:
         db.close()
 
@@ -5319,7 +5373,7 @@ def admin_pipeline():
 
 <h2 style="font-size:16px;font-weight:800;margin:24px 0 8px;">Send queue</h2>
 <div style="display:flex;gap:28px;flex-wrap:wrap;margin-bottom:8px;">{queue_strip}</div>
-<p class="muted" style="font-size:12px;margin:0 0 20px;"><a href="/admin/outreach" style="color:#2257CC;">Browse/filter all prospects →</a> · <a href="/admin/facebook-outreach" style="color:#2257CC;">Facebook DM queue →</a> · <a href="/admin/survey-responses" style="color:#2257CC;">Survey responses →</a></p>
+<p class="muted" style="font-size:12px;margin:0 0 20px;"><a href="/admin/outreach" style="color:#2257CC;">Browse/filter all prospects →</a> · <a href="/admin/socials-outreach" style="color:#2257CC;">Socials queue →</a> · <a href="/admin/survey-responses" style="color:#2257CC;">Survey responses →</a></p>
 
 {_render_discovery_section(db)}
 {_render_followups_section(db)}
@@ -5884,7 +5938,8 @@ def admin_prospect_detail(prospect_id):
 _KPI_INSTRUMENTATION_START = datetime(2026, 7, 14)
 
 
-def _compute_kpis(db, range_from: datetime = None, range_to: datetime = None, channel: str = "both") -> dict:
+def _compute_kpis(db, range_from: datetime = None, range_to: datetime = None, channel: str = "both",
+                   source: str = "all") -> dict:
     """
     The 5 main KPIs, computed fresh every call (cheap — small tables, no
     caching needed yet). Each entry carries enough (value + raw counts) for
@@ -5929,6 +5984,16 @@ def _compute_kpis(db, range_from: datetime = None, range_to: datetime = None, ch
     # first reached this person," not per-touch attribution — a prospect
     # touched on multiple channels counts toward each one's membership set,
     # same as /admin/funnel's per-channel cohort logic.
+    # Sourcing-channel scoping (added 2026-07-27, by request) — a second,
+    # independent axis alongside outreach-method (channel) above: "how was
+    # this prospect originally found" (Prospect.sourcing_channel — see
+    # outreach/sourcing_channels.py) rather than "how are they being
+    # contacted." When both a channel and a source are selected, the two
+    # membership sets are intersected below so every downstream metric
+    # respects both filters at once, without any of the ~6 usage sites past
+    # this point needing to know two filters exist — they just keep reading
+    # channel_prospect_ids/channel_lead_ids as they always have.
+    scoped = channel != "both" or source != "all"
     channel_prospect_ids = None
     channel_lead_ids = None
     if channel != "both":
@@ -5937,6 +6002,14 @@ def _compute_kpis(db, range_from: datetime = None, range_to: datetime = None, ch
                 OutreachTouch.channel == channel, OutreachTouch.stage == "initial",
             ).distinct().all()
         }
+    if source != "all":
+        source_prospect_ids = {
+            pid for (pid,) in db.query(Prospect.id).filter(Prospect.sourcing_channel == source).all()
+        }
+        channel_prospect_ids = source_prospect_ids if channel_prospect_ids is None else (
+            channel_prospect_ids & source_prospect_ids
+        )
+    if scoped:
         channel_lead_ids = {
             lid for (lid,) in db.query(Prospect.lead_id).filter(
                 Prospect.id.in_(channel_prospect_ids), Prospect.lead_id.isnot(None),
@@ -5962,6 +6035,8 @@ def _compute_kpis(db, range_from: datetime = None, range_to: datetime = None, ch
     )
     if channel != "both":
         sent_touch_q = sent_touch_q.filter(OutreachTouch.channel == channel)
+    if source != "all":
+        sent_touch_q = sent_touch_q.filter(OutreachTouch.prospect_id.in_(channel_prospect_ids or []))
     emails_attempted = sent_touch_q.count()
     if channel in ("all", "email"):
         bounced_n = db.query(EmailEventLog.resend_email_id).filter(
@@ -5993,7 +6068,7 @@ def _compute_kpis(db, range_from: datetime = None, range_to: datetime = None, ch
     }
     sent_q = db.query(Prospect).filter(Prospect.sent_at.isnot(None))
     sent_q = sent_q.filter(Prospect.sent_at >= period_start, Prospect.sent_at <= period_end)
-    if channel != "both":
+    if scoped:
         sent_q = sent_q.filter(Prospect.id.in_(channel_prospect_ids or []))
     if channel in ("all", "email") and bounced_emails_in_period:
         sent_q = sent_q.filter(~func.lower(Prospect.email).in_(bounced_emails_in_period))
@@ -6020,7 +6095,7 @@ def _compute_kpis(db, range_from: datetime = None, range_to: datetime = None, ch
         ~Prospect.lead_id.in_(internal_prospect_lead_ids),
     )
     gen_cohort_q = gen_cohort_q.filter(Prospect.clicked_at >= period_start, Prospect.clicked_at <= period_end)
-    if channel != "both":
+    if scoped:
         gen_cohort_q = gen_cohort_q.filter(Prospect.id.in_(channel_prospect_ids or []))
     gen_cohort_n = gen_cohort_q.count()
     gen_paid_n = gen_cohort_q.filter(Prospect.paid_at.isnot(None)).count()
@@ -6036,7 +6111,7 @@ def _compute_kpis(db, range_from: datetime = None, range_to: datetime = None, ch
     # fix).
     period_gens_q = db.query(Generation).filter(Generation.status == "live", Generation.is_internal == False)
     period_gens_q = period_gens_q.filter(Generation.created_at >= period_start, Generation.created_at <= period_end)
-    if channel != "both":
+    if scoped:
         period_gens_q = period_gens_q.filter(Generation.lead_id.in_(channel_lead_ids or []))
     period_gens = period_gens_q.all()
     domain_conv_denom = len(period_gens)
@@ -6067,7 +6142,7 @@ def _compute_kpis(db, range_from: datetime = None, range_to: datetime = None, ch
         query when a specific channel is selected — small helper so the
         many Generation-based queries below (churn, edit rate, checkout
         abandonment) don't each repeat the same conditional."""
-        if channel != "both":
+        if scoped:
             return q.filter(Generation.lead_id.in_(channel_lead_ids or []))
         return q
 
@@ -6159,12 +6234,15 @@ def _compute_kpis(db, range_from: datetime = None, range_to: datetime = None, ch
         f'{period_start.strftime("%d %b %Y")} – {period_end.strftime("%d %b %Y")}'
         if filtering else now.strftime("%B %Y")
     )
-    _CHANNEL_LABELS = {"both": "all channels", "email": "email", "sms": "SMS", "facebook": "Facebook"}
+    _CHANNEL_LABELS = {"both": "all channels", "email": "email", "sms": "SMS", "facebook": "Social DM"}
+    _source_labels = {"all": "all sourcing channels", **SOURCING_CHANNEL_LABELS}
 
     return {
         "period_label": period_label,
         "channel": channel,
         "channel_label": _CHANNEL_LABELS.get(channel, channel),
+        "source": source,
+        "source_label": _source_labels.get(source, source),
         "emails_sent_month": {
             "value": emails_sent,
             "attempted": emails_attempted,
@@ -6463,12 +6541,18 @@ in Stage C/D follow-ups (docs/outreach-pipeline-spec.md Section 11), sent to cli
 """
 
 
-def _render_funnel_table_html(db, now, range_from, range_to, channel):
+def _render_funnel_table_html(db, now, range_from, range_to, channel, source="all"):
     """Just the per-stage funnel table (<div class="adm-card">...<table>) —
     factored out of admin_funnel() 2026-07-25 so /admin (the dashboard) can
     embed the exact same table beneath its channel-filtered KPI cards,
     without duplicating this logic. channel: "both"/"email"/"sms"/
-    "facebook", same values admin_funnel() already accepts."""
+    "facebook", same values admin_funnel() already accepts — this is
+    OUTREACH METHOD (how a prospect was contacted). source (added
+    2026-07-27): "all" or one of outreach.sourcing_channels'
+    SOURCING_CHANNEL_LABELS keys (currently "google_places"/"socials") —
+    this is SOURCING CHANNEL (how the prospect was originally found), a
+    fully independent axis from channel — see Prospect.sourcing_channel's
+    docstring in models.py for why these two are deliberately kept apart."""
     _funnel_opened_disabled = range_from is None or range_from < _OPENED_TRACKING_RELIABLE_FROM
     opened_disabled_title = (
         f"Disabled — the selected range includes dates before {_OPENED_TRACKING_RELIABLE_FROM.strftime('%d %b %Y')}, "
@@ -6496,6 +6580,10 @@ def _render_funnel_table_html(db, now, range_from, range_to, channel):
             q = q.filter(OutreachTouch.sent_at >= range_from)
         if range_to:
             q = q.filter(OutreachTouch.sent_at <= range_to)
+        if source != "all":
+            q = q.join(Prospect, OutreachTouch.prospect_id == Prospect.id).filter(
+                Prospect.sourcing_channel == source
+            )
         touches = q.all()
 
         prospect_ids = sorted({t.prospect_id for t in touches})
@@ -6637,6 +6725,9 @@ def admin_funnel():
     channel = request.args.get("channel", "both").strip().lower()
     if channel not in ("email", "sms", "facebook", "both"):
         channel = "both"
+    source = request.args.get("source", "all").strip().lower()
+    if source not in SOURCING_CHANNEL_LABELS:
+        source = "all"
 
     def _parse_date(s):
         try:
@@ -6762,10 +6853,11 @@ def admin_funnel():
 </table>
 </div>"""
 
-        funnel_table_html = _render_funnel_table_html(db, now, range_from, range_to, channel)
+        funnel_table_html = _render_funnel_table_html(db, now, range_from, range_to, channel, source=source)
 
+        _funnel_extra_qs = (f"&channel={channel}" if channel != "both" else "") + (f"&source={source}" if source != "all" else "")
         funnel_preset_links = _render_date_preset_links(
-            "/admin/funnel", preset, extra_params=f"&channel={channel}" if channel != "both" else ""
+            "/admin/funnel", preset, extra_params=_funnel_extra_qs
         )
 
         # Summary strip: live snapshot of current funnel_substage distribution —
@@ -6811,12 +6903,18 @@ def admin_funnel():
     <input type="date" name="to" value="{escape(to_str)}" style="padding:8px 10px;border:1px solid #D8D5CE;border-radius:7px;font-size:13.5px;">
   </div>
   <div>
-    <label style="display:block;font-size:12px;font-weight:600;color:#5C5A56;margin-bottom:4px;">Channel</label>
+    <label style="display:block;font-size:12px;font-weight:600;color:#5C5A56;margin-bottom:4px;">Sourcing channel</label>
+    <select name="source" style="padding:8px 10px;border:1px solid #D8D5CE;border-radius:7px;font-size:13.5px;">
+      {"".join(f'<option value="{key}" {"selected" if source == key else ""}>{escape(label)}</option>' for key, label in _SOURCE_FILTERS)}
+    </select>
+  </div>
+  <div>
+    <label style="display:block;font-size:12px;font-weight:600;color:#5C5A56;margin-bottom:4px;">Outreach method</label>
     <select name="channel" style="padding:8px 10px;border:1px solid #D8D5CE;border-radius:7px;font-size:13.5px;">
-      <option value="both" {"selected" if channel == "both" else ""}>All channels</option>
+      <option value="both" {"selected" if channel == "both" else ""}>All methods</option>
       <option value="email" {"selected" if channel == "email" else ""}>Email only</option>
       <option value="sms" {"selected" if channel == "sms" else ""}>SMS only</option>
-      <option value="facebook" {"selected" if channel == "facebook" else ""}>Facebook only</option>
+      <option value="facebook" {"selected" if channel == "facebook" else ""}>Social DM only</option>
     </select>
   </div>
   <button type="submit" style="background:#3B82F6;color:#fff;border:0;font-weight:700;padding:9px 18px;border-radius:7px;font-size:13.5px;cursor:pointer;">Apply</button>

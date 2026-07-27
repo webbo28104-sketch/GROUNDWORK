@@ -22,9 +22,11 @@ from sqlalchemy import func
 try:
     from models import Prospect, SearchCell, GooglePlacesApiUsage
     from outreach.trade_categories import TRADE_CATEGORIES, UK_AREAS, AREA_INCOME_TIER, get_trade_by_term
+    from outreach.sourcing_channels import GOOGLE_PLACES
 except ImportError:  # pragma: no cover — supports `python outreach/sourcer.py` style imports
     from models import Prospect, SearchCell, GooglePlacesApiUsage
     from trade_categories import TRADE_CATEGORIES, UK_AREAS, AREA_INCOME_TIER, get_trade_by_term
+    from sourcing_channels import GOOGLE_PLACES
 
 logger = logging.getLogger("outreach.sourcer")
 
@@ -395,6 +397,7 @@ def upsert_prospect(db, place_data):
     funnel_stage = "excluded_closed" if status == "CLOSED_PERMANENTLY" else "sourced"
 
     prospect = Prospect(
+        sourcing_channel=GOOGLE_PLACES,
         google_place_id=place_id,
         business_name=place_data.get("business_name"),
         trade=place_data.get("trade"),
