@@ -450,6 +450,39 @@ class SurveyResponse(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class PreGenSurveyResponse(Base):
+    """One row per completed PRE-generation survey (added 2026-07-27, by
+    request) — shown instead of immediately firing generation for
+    prospects with an existing website who were sourced via Google Places
+    (Prospect.website_status == "has_website" and .sourcing_channel ==
+    "google_places" — see outreach/sourcing_channels.py), the specific
+    segment with the lowest observed click-to-generate conversion. The
+    point isn't to gate everyone — it's that THIS segment is already
+    converting so poorly that a real, structured "why" from every clicker
+    (even the ones who bail here and never generate) is worth more than
+    another instant-gen click, and app.py's _needs_pregen_survey_gate is
+    the single place this is decided so the gate only ever applies to this
+    one cohort. Distinct from the older post-generation SurveyResponse
+    (offered to prospects who already have a site but haven't paid) —
+    this fires earlier, before any Lead/Generation exists, and asks a
+    different kind of question (about their CURRENT external website, not
+    about the Groundwork site they were just shown).
+
+    Multi-select, "Other" free-text per question — answers stored
+    generically as {question_key: {"picked": [...], "other": str|null}}
+    against app.py's _PREGEN_SURVEY_QUESTIONS rather than one column per
+    question, so the question set can be edited without a migration every
+    time. One response per prospect; idempotent same as SurveyResponse — a
+    repeat /claim/<token>/survey visit after submitting skips straight
+    back into the normal claim flow instead of re-asking."""
+    __tablename__ = "pregen_survey_responses"
+
+    id = Column(Integer, primary_key=True)
+    prospect_id = Column(Integer, ForeignKey("prospects.id"), nullable=False, unique=True, index=True)
+    answers = Column(JSON, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class DiscoveryRunLog(Base):
     """One row per run of the nightly free email-discovery routine (added
     2026-07-18, replaced the paid Tier 2 API-based discovery — see

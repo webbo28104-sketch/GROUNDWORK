@@ -101,7 +101,7 @@ SMS_FLOOR = SMS_RAMP_TABLE[1]
 EMAIL_SEND_WINDOW_START_HOUR = 4
 EMAIL_SEND_WINDOW_END_HOUR_EXCLUSIVE = 23
 
-# Send cadence (changed 2026-07-27, by request): email is now capped at a
+# Send cadence (changed 2026-07-27, by request): email is capped at a
 # fixed EMAIL_DAILY_TOTAL for the whole day, split across 15-minute slots
 # weighted by each slot's own real open/click engagement rate — instead of
 # either one lump daily ramp figure (the original EMAIL_HOURLY_RAMP_TABLE
@@ -112,8 +112,18 @@ EMAIL_SEND_WINDOW_END_HOUR_EXCLUSIVE = 23
 # rather than the engagement weighting starving a slot down to zero and
 # making it permanently unable to prove itself. See _slot_plan() below for
 # the actual allocation.
+#
+# EMAIL_DAILY_TOTAL raised 192 -> 380 the same day (2026-07-27, by request)
+# once the pre-generation survey shipped for the has_website/google_places
+# cohort (see PreGenSurveyResponse) — the original 192 cut was made because
+# a click that didn't convert to a generation was pure sunk cost; now that
+# segment's clicks pull real, structured survey data even when they don't
+# generate, so the same volume that felt wasteful before is worth sending
+# again. 380 = EMAIL_SLOT_FLOOR(1) x 76 window slots + a 5/slot-equivalent
+# bonus pool, i.e. "just under 400" — the exact ceiling the old fixed-5-
+# per-slot design produced over this same 76-slot window, not a new number.
 EMAIL_SLOT_MINUTES = 15
-EMAIL_DAILY_TOTAL = 192
+EMAIL_DAILY_TOTAL = 380
 EMAIL_SLOT_FLOOR = 1
 # A slot needs at least this many of its own real sends before its own
 # engagement rate is trusted over the whole-window average — same principle

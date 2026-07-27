@@ -30,7 +30,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 from build_prompt import build_prompt, PROMPT_VERSION_HASH
 from outreach.site_extract import extract_site_assets
-from models import SessionLocal, Lead, Generation, Account, GenerationImage, Domain, Prospect, SearchCell, PendingEmailDiscovery, EmailEventLog, OutreachTouch, DailySendCount, RampState, SmsDeliveryEvent, SurveyResponse, DiscoveryRunLog, InboundReply, EmailVariant, EvidenceFinding, OptimizerRunLog, PromptApproval, ProspectEvent, init_db
+from models import SessionLocal, Lead, Generation, Account, GenerationImage, Domain, Prospect, SearchCell, PendingEmailDiscovery, EmailEventLog, OutreachTouch, DailySendCount, RampState, SmsDeliveryEvent, SurveyResponse, PreGenSurveyResponse, DiscoveryRunLog, InboundReply, EmailVariant, EvidenceFinding, OptimizerRunLog, PromptApproval, ProspectEvent, init_db
 from emails import (send_verification_email, send_resend_email, send_password_reset_email,
                     send_support_message_email, send_enquiry_email,
                     send_domain_order_admin_email, send_domain_order_customer_email,
@@ -2830,16 +2830,34 @@ def _log_prospect_event(db, prospect_id, event_type, channel=None, meta=None):
     db.add(ProspectEvent(prospect_id=prospect_id, event_type=event_type, channel=channel, meta=meta))
 
 
+def _needs_pregen_survey_gate(db, prospect):
+    """True if this prospect should see the pre-generation survey
+    (/claim/<token>/survey) instead of going straight into generation —
+    added 2026-07-27, by request. Scoped to exactly one cohort: an
+    existing website AND sourced via Google Places (see
+    outreach/sourcing_channels.py) — the segment with the lowest observed
+    click-to-generate conversion, where a real structured "why" from every
+    clicker is worth more than an instant-gen click that mostly doesn't
+    convert anyway. Only ever consulted for a prospect that has no lead_id
+    yet (see _claim_generate_and_redirect) — a prospect already past their
+    first claim never gets gated retroactively."""
+    if prospect.website_status != "has_website" or prospect.sourcing_channel != "google_places":
+        return False
+    already_answered = db.query(PreGenSurveyResponse).filter(
+        PreGenSurveyResponse.prospect_id == prospect.id
+    ).first()
+    return already_answered is None
+
+
 def _claim_generate_and_redirect(db, prospect):
     """
     Shared by /claim/<token> and /claim/<token>/email — the actual
     "generate on click, not upfront" moment. No password/account barrier:
     per the current design, a first-time claim goes straight into
-    generation, and funnel_substage moves to clicked_generated here (not
-    account_created — that only happens later, when a password is actually
-    set, via the existing /account/login flow). Idempotent: a repeat visit
-    for a prospect that's already generated just redirects to the result
-    instead of creating a second Lead/generation.
+    generation (or, for the gated cohort below, into the pre-gen survey
+    first), and funnel_substage moves to clicked_generated in
+    _finish_claim (not account_created — that only happens later, when a
+    password is actually set, via the existing /account/login flow).
     """
     if prospect.clicked_at is None:
         prospect.clicked_at = datetime.utcnow()
@@ -2852,12 +2870,35 @@ def _claim_generate_and_redirect(db, prospect):
         # (send_admin_payment_received_email, below) — that one's rare and
         # worth an instant ping.
 
+    # Gate only ever applies pre-first-claim (no lead_id yet) — a repeat
+    # visitor who already has a lead/generation in flight always falls
+    # through to _finish_claim unchanged, regardless of website_status/
+    # sourcing_channel, since they already passed (or were never subject
+    # to) this check on their real first click.
+    if prospect.lead_id is None and _needs_pregen_survey_gate(db, prospect):
+        db.commit()
+        return redirect(f"/claim/{prospect.token}/survey")
+
+    return redirect(_finish_claim(db, prospect))
+
+
+def _finish_claim(db, prospect):
+    """The actual Lead-creation/generation-kickoff logic, factored out of
+    _claim_generate_and_redirect (2026-07-27) so the pre-gen survey's POST
+    handler can call this directly after saving a response, without going
+    back through the gate check a second time. Returns the target URL as a
+    plain string (not a Response) so both callers — one returning a real
+    redirect, the survey's fetch()-based submit returning JSON — can use
+    it as-is. Idempotent: a repeat visit for a prospect that's already
+    generated just points at the result instead of creating a second
+    Lead/generation.
+    """
     if prospect.lead_id:
         lead = db.get(Lead, prospect.lead_id)
         existing_gen = db.query(Generation).filter(Generation.lead_id == lead.id).first()
         db.commit()
         if existing_gen:
-            return redirect(f"/api/generate/{lead.public_id}/html")
+            return f"/api/generate/{lead.public_id}/html"
         # A lead can exist with no Generation yet for two reasons: generation
         # is genuinely still running in its background thread, or a prior
         # attempt crashed before ever producing one (e.g. the build_prompt
@@ -2879,7 +2920,7 @@ def _claim_generate_and_redirect(db, prospect):
             _try_extract_prospect_assets(prospect, lead, job_dir)
             db.commit()
             _kickoff_generation(lead)
-        return redirect(f"/loading.html?id={lead.public_id}")
+        return f"/loading.html?id={lead.public_id}"
 
     # First-time claim for this prospect, but the email itself may already
     # have a generation from an unrelated path (e.g. they used the direct
@@ -2897,7 +2938,7 @@ def _claim_generate_and_redirect(db, prospect):
             prospect.lead_id = existing_gen.lead_id
             db.commit()
             existing_lead = db.get(Lead, existing_gen.lead_id)
-            return redirect(f"/api/generate/{existing_lead.public_id}/html")
+            return f"/api/generate/{existing_lead.public_id}/html"
 
     lead = Lead(
         public_id=uuid.uuid4().hex[:10],
@@ -2918,7 +2959,323 @@ def _claim_generate_and_redirect(db, prospect):
     db.commit()
 
     _kickoff_generation(lead)
-    return redirect(f"/loading.html?id={lead.public_id}")
+    return f"/loading.html?id={lead.public_id}"
+
+
+# Pre-generation survey question set (2026-07-27) — see
+# PreGenSurveyResponse's docstring in models.py for the full rationale.
+# Keyed by `key` (stable identifier stored in PreGenSurveyResponse.answers,
+# independent of question wording so copy can be tweaked without breaking
+# old rows) — multi-select, every question also allows a free-text "Other"
+# on top of its listed options. Shared between the GET (renders these into
+# the page) and POST (validates submitted answers against this exact set)
+# handlers below so they can never drift apart.
+_PREGEN_SURVEY_QUESTIONS = [
+    {
+        "key": "no_update_reason",
+        "q": "What's the main reason you haven't updated your website recently?",
+        "opts": ["Happy with what I have", "Too busy / not a priority", "Cost of a new site", "Don't know where to start", "Someone else handles it, not me"],
+    },
+    {
+        "key": "who_manages",
+        "q": "Who looks after your current website?",
+        "opts": ["I do it myself", "A web designer / agency", "Family member or employee", "Nobody really — it's just there"],
+    },
+    {
+        "key": "monthly_cost",
+        "q": "Roughly what do you pay for your website each month?",
+        "opts": ["Nothing / one-off only", "Under £15", "£15–£40", "£40+", "Not sure"],
+    },
+    {
+        "key": "switch_trigger",
+        "q": "What would actually make you consider switching?",
+        "opts": ["A lower price", "It looking more modern/professional", "Better Google ranking", "Nothing — I'm happy as is"],
+    },
+    {
+        "key": "satisfaction",
+        "q": "How happy are you with your current website?",
+        "opts": ["Very happy", "It's fine, not great", "Not happy but haven't dealt with it", "Actively looking to replace it"],
+    },
+]
+
+
+def _render_pregen_survey_page(token):
+    """The pre-gen survey itself — deliberately styled to match
+    frontend/loading.html exactly (flat, borderless, dark, same tokens),
+    since it visually leads straight into that page once submitted, and
+    deliberately carries NO framing/instructional copy (no "before we
+    build your site", no explanation of why it's here) — by request, just
+    the question. Client-side only knows the question text/options/keys
+    (embedded as JSON below); all validation happens again server-side in
+    claim_pregen_survey's POST branch regardless of what this renders."""
+    questions_json = json.dumps([{"key": q["key"], "q": q["q"], "opts": q["opts"]} for q in _PREGEN_SURVEY_QUESTIONS])
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Groundwork</title>
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
+<link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@700;800&display=swap" rel="stylesheet">
+<style>
+*{{box-sizing:border-box;}}
+html,body{{margin:0;height:100%;background:#1C1C1C;}}
+h1,h2,h3,h4{{font-family:'Plus Jakarta Sans','Inter',sans-serif;}}
+body{{font-family:Inter,sans-serif;background:#1C1C1C;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px 24px;position:relative;color:#FAFAF8;}}
+@keyframes gw-fade{{from{{opacity:0;transform:translateY(4px);}}to{{opacity:1;transform:translateY(0);}}}}
+@keyframes gw-pop{{0%{{transform:scale(1);}}40%{{transform:scale(.97);}}100%{{transform:scale(1);}}}}
+@media (prefers-reduced-motion:reduce){{*{{animation-duration:.001ms !important;animation-iteration-count:1 !important;transition-duration:.001ms !important;}}}}
+.stage{{width:100%;max-width:480px;}}
+.survey-top{{display:flex;align-items:center;justify-content:center;position:relative;margin-bottom:26px;}}
+.survey-back{{position:absolute;left:0;width:28px;height:28px;border:0;background:transparent;color:#4A4A48;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:16px;visibility:hidden;}}
+.survey-back.show{{visibility:visible;}}
+.survey-back:hover{{color:#9A9893;}}
+.dots{{display:flex;gap:6px;}}
+.dot{{width:6px;height:6px;border-radius:999px;background:#33332F;transition:background .25s,width .25s;}}
+.dot.done{{background:#3B82F6;}}
+.dot.active{{background:#3B82F6;width:16px;}}
+.q-title{{font-weight:400;font-size:clamp(20px,4vw,26px);line-height:1.4;color:#FAFAF8;margin:0 0 26px;letter-spacing:-.01em;text-align:center;}}
+.opts{{display:flex;flex-direction:column;gap:9px;}}
+.opt{{text-align:left;width:100%;background:#2C2C2C;border:0;color:#FAFAF8;border-radius:11px;padding:14px 17px;font-size:14.5px;font-family:inherit;cursor:pointer;transition:background .15s,transform .1s;display:flex;align-items:center;justify-content:space-between;gap:10px;}}
+.opt:hover{{background:#3B82F61F;}}
+.opt:focus-visible{{outline:2px solid #3B82F6;outline-offset:2px;}}
+.opt.picked{{background:#3B82F61F;animation:gw-pop .28s ease;}}
+.opt .tick{{width:17px;height:17px;border-radius:5px;border:1.5px solid #4A4A48;flex-shrink:0;position:relative;}}
+.opt.picked .tick{{border-color:#3B82F6;background:#3B82F6;}}
+.opt.picked .tick::after{{content:"";position:absolute;left:4.5px;top:1.5px;width:4px;height:8px;border-right:2px solid #1C1C1C;border-bottom:2px solid #1C1C1C;transform:rotate(40deg);}}
+.other-wrap{{margin-top:9px;display:none;}}
+.other-wrap.show{{display:block;animation:gw-fade .2s ease both;}}
+.other-input{{width:100%;background:#2C2C2C;border:0;color:#FAFAF8;border-radius:10px;padding:12px 14px;font-size:14px;font-family:inherit;}}
+.other-input::placeholder{{color:#4A4A48;}}
+.other-input:focus{{outline:2px solid #3B82F6;outline-offset:1px;}}
+.continue-row{{margin-top:18px;}}
+.continue-btn{{width:100%;background:#3B82F6;color:#fff;border:0;border-radius:11px;padding:14px 16px;font-weight:700;font-size:14.5px;cursor:pointer;font-family:inherit;transition:background .15s,opacity .15s;}}
+.continue-btn:hover:not(:disabled){{background:#2563EB;}}
+.continue-btn:disabled{{opacity:.35;cursor:default;}}
+.err-msg{{margin-top:14px;font-size:13px;color:#F87171;text-align:center;display:none;}}
+.err-msg.show{{display:block;}}
+.footer-brand{{position:absolute;bottom:26px;left:0;right:0;text-align:center;}}
+.footer-brand span{{font-size:12.5px;color:#4A4A48;letter-spacing:.02em;}}
+</style>
+</head>
+<body>
+<div class="stage">
+  <div id="survey">
+    <div class="survey-top">
+      <button class="survey-back" id="back-btn" type="button" aria-label="Previous question">←</button>
+      <div class="dots" id="dots"></div>
+    </div>
+    <h2 class="q-title" id="q-title"></h2>
+    <div class="opts" id="opts"></div>
+    <div class="other-wrap" id="other-wrap">
+      <input class="other-input" id="other-input" type="text" placeholder="Type your answer…" maxlength="140">
+    </div>
+    <div class="continue-row">
+      <button class="continue-btn" id="continue-btn" type="button" disabled>Continue</button>
+    </div>
+    <p class="err-msg" id="err-msg"></p>
+  </div>
+</div>
+<div class="footer-brand"><span>Powered by Groundwork</span></div>
+<script>
+const TOKEN = {json.dumps(token)};
+const QUESTIONS = {questions_json};
+let step = 0;
+const answers = QUESTIONS.map(() => ({{picked: new Set(), other: ''}}));
+
+const dotsEl = document.getElementById('dots');
+const titleEl = document.getElementById('q-title');
+const optsEl = document.getElementById('opts');
+const otherWrap = document.getElementById('other-wrap');
+const otherInput = document.getElementById('other-input');
+const continueBtn = document.getElementById('continue-btn');
+const backBtn = document.getElementById('back-btn');
+const errEl = document.getElementById('err-msg');
+
+function renderDots(){{
+  dotsEl.innerHTML = '';
+  QUESTIONS.forEach((_, i) => {{
+    const d = document.createElement('div');
+    d.className = 'dot' + (i < step ? ' done' : i === step ? ' active' : '');
+    dotsEl.appendChild(d);
+  }});
+}}
+
+function updateContinueState(){{
+  const a = answers[step];
+  const hasOther = a.picked.has('Other') && a.other.trim().length > 0;
+  const hasNonOther = [...a.picked].some(v => v !== 'Other');
+  continueBtn.disabled = !(hasNonOther || hasOther);
+}}
+
+function renderQuestion(){{
+  const item = QUESTIONS[step];
+  const a = answers[step];
+  titleEl.textContent = item.q;
+  optsEl.innerHTML = '';
+  otherInput.value = a.other;
+  otherWrap.classList.toggle('show', a.picked.has('Other'));
+  backBtn.classList.toggle('show', step > 0);
+  errEl.classList.remove('show');
+  renderDots();
+
+  [...item.opts, 'Other'].forEach(label => {{
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'opt' + (a.picked.has(label) ? ' picked' : '');
+    b.innerHTML = `<span>${{label}}</span><span class="tick"></span>`;
+    b.addEventListener('click', () => toggle(label, b));
+    optsEl.appendChild(b);
+  }});
+
+  updateContinueState();
+}}
+
+function toggle(label, btnEl){{
+  const a = answers[step];
+  if (a.picked.has(label)) {{
+    a.picked.delete(label);
+    btnEl.classList.remove('picked');
+  }} else {{
+    a.picked.add(label);
+    btnEl.classList.add('picked');
+  }}
+  if (label === 'Other') {{
+    otherWrap.classList.toggle('show', a.picked.has('Other'));
+    if (a.picked.has('Other')) otherInput.focus();
+  }}
+  updateContinueState();
+}}
+
+otherInput.addEventListener('input', () => {{
+  answers[step].other = otherInput.value;
+  updateContinueState();
+}});
+
+backBtn.addEventListener('click', () => {{
+  if (step === 0) return;
+  step -= 1;
+  renderQuestion();
+}});
+
+continueBtn.addEventListener('click', () => {{
+  if (step < QUESTIONS.length - 1) {{
+    step += 1;
+    renderQuestion();
+  }} else {{
+    submitSurvey();
+  }}
+}});
+
+async function submitSurvey(){{
+  continueBtn.disabled = true;
+  continueBtn.textContent = 'Building your website…';
+  errEl.classList.remove('show');
+
+  const payload = {{}};
+  QUESTIONS.forEach((q, i) => {{
+    const a = answers[i];
+    payload[q.key] = {{
+      picked: [...a.picked],
+      other: a.picked.has('Other') ? a.other.trim() : null,
+    }};
+  }});
+
+  try {{
+    const res = await fetch(`/claim/${{TOKEN}}/survey`, {{
+      method: 'POST',
+      headers: {{'Content-Type': 'application/json'}},
+      body: JSON.stringify({{answers: payload}}),
+    }});
+    const data = await res.json();
+    if (res.ok && data.redirect) {{
+      window.location.href = data.redirect;
+    }} else {{
+      throw new Error(data.error || 'Something went wrong.');
+    }}
+  }} catch (e) {{
+    errEl.textContent = 'Something went wrong — please try again.';
+    errEl.classList.add('show');
+    continueBtn.disabled = false;
+    continueBtn.textContent = 'Continue';
+  }}
+}}
+
+renderQuestion();
+</script>
+</body>
+</html>"""
+
+
+@app.route("/claim/<token>/survey", methods=["GET", "POST"])
+def claim_pregen_survey(token):
+    """Pre-generation survey gate (added 2026-07-27, by request) — the
+    ONLY entry point into this page is _claim_generate_and_redirect
+    redirecting here for the gated cohort (see _needs_pregen_survey_gate);
+    never linked directly from an outreach send. GET renders the
+    interactive survey; POST validates + saves the submission
+    (PreGenSurveyResponse) then calls _finish_claim directly — same
+    Lead-creation/generation-kickoff logic a normal claim uses, just
+    reached one step later — and hands the resulting URL back as JSON
+    for the page's fetch()-based submit to navigate to (a plain redirect
+    Response doesn't fit that flow the way it does for a normal form
+    post/GET navigation)."""
+    db = SessionLocal()
+    try:
+        prospect = db.query(Prospect).filter(Prospect.token == token).first()
+        if not prospect:
+            return redirect("/verify-error.html?reason=invalid")
+
+        if not _needs_pregen_survey_gate(db, prospect):
+            # Already answered, or doesn't actually qualify (e.g. the link
+            # was hit directly rather than via the real gate) — fall
+            # through to the normal claim flow instead of re-asking or
+            # asking a prospect who was never supposed to see this.
+            return redirect(_finish_claim(db, prospect))
+
+        if request.method == "GET":
+            _log_prospect_event(db, prospect.id, "pregen_survey_viewed", channel=_prospect_last_touch_channel(db, prospect.id))
+            db.commit()
+            return _render_pregen_survey_page(token)
+
+        payload = request.get_json(silent=True) or {}
+        raw_answers = payload.get("answers")
+        if not isinstance(raw_answers, dict):
+            return jsonify({"error": "Malformed submission"}), 400
+
+        cleaned = {}
+        for q in _PREGEN_SURVEY_QUESTIONS:
+            entry = raw_answers.get(q["key"]) or {}
+            valid_labels = set(q["opts"]) | {"Other"}
+            picked = [p for p in (entry.get("picked") or []) if isinstance(p, str) and p in valid_labels]
+            other = None
+            if "Other" in picked:
+                other = (entry.get("other") or "").strip()[:300] or None
+                if not other:
+                    picked = [p for p in picked if p != "Other"]
+            cleaned[q["key"]] = {"picked": picked, "other": other}
+
+        # Require at least one real answer somewhere in the survey — an
+        # empty/malformed submission (bot, direct POST) shouldn't count as
+        # "answered" and silently exempt this prospect from the gate going
+        # forward.
+        if not any(v["picked"] for v in cleaned.values()):
+            return jsonify({"error": "Please answer at least one question."}), 400
+
+        db.add(PreGenSurveyResponse(prospect_id=prospect.id, answers=cleaned))
+        _log_prospect_event(
+            db, prospect.id, "pregen_survey_submitted",
+            channel=_prospect_last_touch_channel(db, prospect.id),
+        )
+        db.commit()
+
+        target = _finish_claim(db, prospect)
+        return jsonify({"redirect": target})
+    finally:
+        db.close()
 
 
 @app.route("/claim/<token>")
@@ -5301,6 +5658,89 @@ def admin_survey_responses():
         db.close()
 
 
+@app.route("/admin/pregen-survey-responses")
+@admin_required
+def admin_pregen_survey_responses():
+    """Read-only view of every PreGenSurveyResponse row (added 2026-07-27)
+    — the pre-generation survey shown to the has_website/google_places
+    cohort instead of firing generation immediately (see
+    _needs_pregen_survey_gate). This is the answer to "where do I find
+    these answers": every submission lands here, most recent first, plus
+    the same breakdown on each individual prospect's profile page
+    (/admin/prospects/<id>)."""
+    db = SessionLocal()
+    try:
+        responses = (
+            db.query(PreGenSurveyResponse)
+            .order_by(PreGenSurveyResponse.id.desc())
+            .limit(300)
+            .all()
+        )
+        prospects_by_id = {p.id: p for p in db.query(Prospect).filter(
+            Prospect.id.in_([r.prospect_id for r in responses])).all()} if responses else {}
+
+        # Per-question, per-option counts across every response shown —
+        # the quick "what are people actually saying" summary, same spirit
+        # as the reason_counts pill strip on /admin/survey-responses.
+        option_counts = {q["key"]: {} for q in _PREGEN_SURVEY_QUESTIONS}
+        for r in responses:
+            for q in _PREGEN_SURVEY_QUESTIONS:
+                entry = (r.answers or {}).get(q["key"]) or {}
+                for label in (entry.get("picked") or []):
+                    if label == "Other":
+                        continue
+                    option_counts[q["key"]][label] = option_counts[q["key"]].get(label, 0) + 1
+
+        summary_sections = ""
+        for q in _PREGEN_SURVEY_QUESTIONS:
+            counts = option_counts[q["key"]]
+            if not counts:
+                continue
+            pills = "".join(
+                f'<span class="status-pill" style="background:#3B82F622;color:#3B82F6;margin:0 6px 6px 0;">{escape(label)}: {n}</span>'
+                for label, n in sorted(counts.items(), key=lambda x: -x[1])
+            )
+            summary_sections += (
+                f'<p style="font-size:12.5px;font-weight:700;color:#5C5A56;margin:12px 0 6px;">{escape(q["q"])}</p>'
+                f'<div>{pills}</div>'
+            )
+
+        rows_html = ""
+        for r in responses:
+            p = prospects_by_id.get(r.prospect_id)
+            biz = escape(p.business_name or "—") if p else "—"
+            answer_bits = []
+            for q in _PREGEN_SURVEY_QUESTIONS:
+                entry = (r.answers or {}).get(q["key"]) or {}
+                picked = [v for v in (entry.get("picked") or []) if v != "Other"]
+                if entry.get("other"):
+                    picked = picked + [f'"{entry["other"]}"']
+                if picked:
+                    answer_bits.append(f'<b>{escape(q["key"])}:</b> {escape(", ".join(picked))}')
+            answers_summary = "<br>".join(answer_bits) or "—"
+            rows_html += f"""<tr>
+  <td>{r.id}</td>
+  <td><a href="/admin/prospects/{r.prospect_id}">{biz}</a></td>
+  <td style="max-width:420px;font-size:12.5px;line-height:1.7;">{answers_summary}</td>
+  <td>{_fmt_dt(r.created_at)}</td>
+</tr>"""
+
+        content = f"""
+<h1 class="adm-title">Pre-generation survey responses</h1>
+<p class="adm-sub">Shown to the has_website + Google Places cohort instead of firing generation immediately — {len(responses)} total (most recent 300). <a href="/admin/pipeline">← Back to Pipeline</a></p>
+<div style="margin:0 0 20px;">{summary_sections or '<span class="muted">No responses yet.</span>'}</div>
+<div class="adm-card" style="overflow-x:auto;">
+<table>
+<thead><tr><th>ID</th><th>Business</th><th>Answers</th><th>Submitted</th></tr></thead>
+<tbody>{rows_html or '<tr><td colspan="4" class="muted" style="padding:16px;">No responses yet.</td></tr>'}</tbody>
+</table>
+</div>
+"""
+        return render_template_string(_admin_page("Pre-gen survey responses", content, active="pipeline"))
+    finally:
+        db.close()
+
+
 @app.route("/admin/pipeline")
 @admin_required
 def admin_pipeline():
@@ -5373,7 +5813,7 @@ def admin_pipeline():
 
 <h2 style="font-size:16px;font-weight:800;margin:24px 0 8px;">Send queue</h2>
 <div style="display:flex;gap:28px;flex-wrap:wrap;margin-bottom:8px;">{queue_strip}</div>
-<p class="muted" style="font-size:12px;margin:0 0 20px;"><a href="/admin/outreach" style="color:#2257CC;">Browse/filter all prospects →</a> · <a href="/admin/socials-outreach" style="color:#2257CC;">Socials queue →</a> · <a href="/admin/survey-responses" style="color:#2257CC;">Survey responses →</a></p>
+<p class="muted" style="font-size:12px;margin:0 0 20px;"><a href="/admin/outreach" style="color:#2257CC;">Browse/filter all prospects →</a> · <a href="/admin/socials-outreach" style="color:#2257CC;">Socials queue →</a> · <a href="/admin/survey-responses" style="color:#2257CC;">Survey responses →</a> · <a href="/admin/pregen-survey-responses" style="color:#2257CC;">Pre-gen survey responses →</a></p>
 
 {_render_discovery_section(db)}
 {_render_followups_section(db)}
@@ -5782,6 +6222,29 @@ def admin_prospect_detail(prospect_id):
             )
             survey_html = f'<table style="width:100%;border-collapse:collapse;font-size:13.5px;">{survey_rows}</table>'
 
+        pregen_survey = db.query(PreGenSurveyResponse).filter(PreGenSurveyResponse.prospect_id == p.id).first()
+        pregen_survey_html = '<p class="muted">No pre-gen survey response (not in the gated cohort, or hasn\'t clicked yet).</p>'
+        if pregen_survey:
+            pregen_rows = ""
+            for q in _PREGEN_SURVEY_QUESTIONS:
+                entry = (pregen_survey.answers or {}).get(q["key"]) or {}
+                picked = entry.get("picked") or []
+                other = entry.get("other")
+                parts = [p2 for p2 in picked if p2 != "Other"]
+                if other:
+                    parts.append(f'Other: "{other}"')
+                if not parts:
+                    continue
+                pregen_rows += (
+                    f'<tr><td style="padding:6px 10px;color:#9A9893;max-width:220px;">{escape(q["q"])}</td>'
+                    f'<td style="padding:6px 10px;">{escape(", ".join(parts))}</td></tr>'
+                )
+            pregen_rows += (
+                f'<tr><td style="padding:6px 10px;color:#9A9893;">Submitted</td>'
+                f'<td style="padding:6px 10px;">{_fmt_dt(pregen_survey.created_at)}</td></tr>'
+            )
+            pregen_survey_html = f'<table style="width:100%;border-collapse:collapse;font-size:13.5px;">{pregen_rows}</table>'
+
         generation_html = '<p class="muted">No claim yet — magic link not clicked.</p>'
         if lead:
             gen_links = ""
@@ -5925,9 +6388,14 @@ def admin_prospect_detail(prospect_id):
   {replies_html}
 </div>
 
-<div class="adm-card" style="padding:16px 20px;">
+<div class="adm-card" style="padding:16px 20px;margin-bottom:20px;">
   <p style="font-weight:700;margin:0 0 10px;">Survey response</p>
   {survey_html}
+</div>
+
+<div class="adm-card" style="padding:16px 20px;">
+  <p style="font-weight:700;margin:0 0 10px;">Pre-generation survey <span class="muted" style="font-weight:400;">(has-website / Google Places cohort — see <a href="/admin/pregen-survey-responses">all responses</a>)</span></p>
+  {pregen_survey_html}
 </div>
 """
         return render_template_string(_admin_page(escape(p.business_name or "Prospect"), content, active="funnel"))
