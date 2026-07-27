@@ -2992,8 +2992,36 @@ def _finish_claim(db, prospect):
 # independent of question wording so copy can be tweaked without breaking
 # old rows) — multi-select, every question also allows a free-text "Other"
 # on top of its listed options. Shared between the GET (renders these into
-# the page) and POST (validates submitted answers against this exact set)
-# handlers below so they can never drift apart.
+# the page, including follow_up metadata for the client-side flow) and
+# POST (validates submitted answers against this exact set, base
+# questions AND follow-ups — see _all_pregen_questions) handlers below so
+# they can never drift apart.
+#
+# Conditional follow-ups (added 2026-07-27, by request) — only where a
+# specific answer combination clearly changes what we'd do next, not
+# general branching for its own sake:
+#   - price_target: "a lower price" (either as the stated switch trigger,
+#     or as the stated reason for not updating at all) doesn't say HOW
+#     much lower — someone paying £50/mo and someone paying nothing could
+#     both pick it, and need completely different responses. Anchored
+#     around the real £24.99 price point rather than free text, so it
+#     directly answers "is our price competitive for THIS objection."
+#   - decision_maker: if someone else (an agency, a family member)
+#     actually manages the site, the respondent may not be who'd decide
+#     on switching — worth knowing before reading too much into their
+#     other answers as the decision-maker's own view.
+#   - urgency: "actively looking to replace it" is a hot lead hiding
+#     inside a survey mostly meant for a cold, low-converting segment —
+#     worth a timeline to know whether this one should jump the queue.
+#
+# `trigger`: (own_picked: set[str], all_answers: dict[key -> {picked,
+# other}]) -> bool, evaluated once this question's own answer is in hand
+# (own_picked) but with every earlier question's answer already
+# available in all_answers too (switch_trigger's price follow-up checks
+# BOTH itself and the earlier no_update_reason answer, so a respondent
+# who only signals price-sensitivity via no_update_reason still gets
+# asked). Never triggered by "Other" — only the specific listed strings
+# below, since free text can't be reliably pattern-matched against.
 _PREGEN_SURVEY_QUESTIONS = [
     {
         "key": "no_update_reason",
@@ -3004,6 +3032,12 @@ _PREGEN_SURVEY_QUESTIONS = [
         "key": "who_manages",
         "q": "Who looks after your current website?",
         "opts": ["I do it myself", "A web designer / agency", "Family member or employee", "Nobody really — it's just there"],
+        "follow_up": {
+            "key": "decision_maker",
+            "q": "Are you the one who'd decide on a new website?",
+            "opts": ["Yes, that's me", "No, someone else would", "We'd decide together"],
+            "trigger_options": ["A web designer / agency", "Family member or employee"],
+        },
     },
     {
         "key": "monthly_cost",
@@ -3014,13 +3048,60 @@ _PREGEN_SURVEY_QUESTIONS = [
         "key": "switch_trigger",
         "q": "What would actually make you consider switching?",
         "opts": ["A lower price", "It looking more modern/professional", "Better Google ranking", "Nothing — I'm happy as is"],
+        "follow_up": {
+            "key": "price_target",
+            "q": "What monthly price would make this a no-brainer?",
+            "opts": ["Under £10", "£10–£20", "£20–£25", "£25+"],
+            "trigger_options": ["A lower price"],
+            "trigger_extra_key": "no_update_reason",
+            "trigger_extra_options": ["Cost of a new site"],
+        },
     },
     {
         "key": "satisfaction",
         "q": "How happy are you with your current website?",
         "opts": ["Very happy", "It's fine, not great", "Not happy but haven't dealt with it", "Actively looking to replace it"],
+        "follow_up": {
+            "key": "urgency",
+            "q": "How soon are you looking to make a change?",
+            "opts": ["This week", "This month", "No fixed timeline yet"],
+            "trigger_options": ["Actively looking to replace it"],
+        },
     },
 ]
+
+
+def _all_pregen_questions():
+    """Flat list of every real question (base + follow-ups), in a stable
+    order — the single source of truth the POST validator iterates over,
+    so a follow-up's key/opts can never silently diverge from what the
+    client actually asked."""
+    flat = []
+    for q in _PREGEN_SURVEY_QUESTIONS:
+        flat.append(q)
+        if "follow_up" in q:
+            flat.append(q["follow_up"])
+    return flat
+
+
+def _pregen_followup_triggered(follow_up, all_answers):
+    """True if `follow_up`'s trigger condition is satisfied given
+    `all_answers` (dict of key -> {"picked": [...], "other": ...|None}).
+    Shared by the POST validator (to decide whether a follow-up's answer,
+    if present, is even meaningful to keep — it's kept regardless, but
+    this is also used by the admin breakdown to only show a follow-up
+    column for responses where it was actually relevant) and mirrors the
+    client-side JS trigger check exactly (see _render_pregen_survey_page)."""
+    own_key = next(q["key"] for q in _PREGEN_SURVEY_QUESTIONS if q.get("follow_up") is follow_up)
+    own_picked = set((all_answers.get(own_key) or {}).get("picked") or [])
+    if own_picked & set(follow_up.get("trigger_options") or []):
+        return True
+    extra_key = follow_up.get("trigger_extra_key")
+    if extra_key:
+        extra_picked = set((all_answers.get(extra_key) or {}).get("picked") or [])
+        if extra_picked & set(follow_up.get("trigger_extra_options") or []):
+            return True
+    return False
 
 
 def _render_pregen_survey_page(token):
@@ -3029,10 +3110,14 @@ def _render_pregen_survey_page(token):
     since it visually leads straight into that page once submitted, and
     deliberately carries NO framing/instructional copy (no "before we
     build your site", no explanation of why it's here) — by request, just
-    the question. Client-side only knows the question text/options/keys
-    (embedded as JSON below); all validation happens again server-side in
-    claim_pregen_survey's POST branch regardless of what this renders."""
-    questions_json = json.dumps([{"key": q["key"], "q": q["q"], "opts": q["opts"]} for q in _PREGEN_SURVEY_QUESTIONS])
+    the question. Client-side only knows the question text/options/keys/
+    follow_up-trigger metadata (embedded as JSON below, straight from
+    _PREGEN_SURVEY_QUESTIONS so it can't drift from the server); all
+    validation happens again server-side in claim_pregen_survey's POST
+    branch regardless of what this renders. Follow-up questions are
+    inserted into the flow dynamically, client-side, right after whichever
+    base question triggers them — see the script's `flow` array."""
+    questions_json = json.dumps(_PREGEN_SURVEY_QUESTIONS)
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -3106,9 +3191,16 @@ body{{font-family:Inter,sans-serif;background:#1C1C1C;min-height:100vh;display:f
 <div class="footer-brand"><span>Powered by Groundwork</span></div>
 <script>
 const TOKEN = {json.dumps(token)};
-const QUESTIONS = {questions_json};
+const BASE_QUESTIONS = {questions_json};
+// `flow` is the actual ordered list being presented — starts as just the
+// base questions; a triggered follow-up gets spliced in right after its
+// parent, and removed again if the parent's answer changes on a back-nav
+// revisit so it no longer triggers (see continueBtn's handler below).
+// `answers` is keyed by question KEY, not position, since a follow-up's
+// position can shift.
+let flow = BASE_QUESTIONS.map(q => ({{...q}}));
 let step = 0;
-const answers = QUESTIONS.map(() => ({{picked: new Set(), other: ''}}));
+const answers = {{}};
 
 const dotsEl = document.getElementById('dots');
 const titleEl = document.getElementById('q-title');
@@ -3119,9 +3211,21 @@ const continueBtn = document.getElementById('continue-btn');
 const backBtn = document.getElementById('back-btn');
 const errEl = document.getElementById('err-msg');
 
+function isFollowUpTriggered(followUp, parentKey){{
+  const own = answers[parentKey];
+  const ownPicked = own ? [...own.picked] : [];
+  if ((followUp.trigger_options || []).some(o => ownPicked.includes(o))) return true;
+  if (followUp.trigger_extra_key) {{
+    const extra = answers[followUp.trigger_extra_key];
+    const extraPicked = extra ? [...extra.picked] : [];
+    if ((followUp.trigger_extra_options || []).some(o => extraPicked.includes(o))) return true;
+  }}
+  return false;
+}}
+
 function renderDots(){{
   dotsEl.innerHTML = '';
-  QUESTIONS.forEach((_, i) => {{
+  flow.forEach((_, i) => {{
     const d = document.createElement('div');
     d.className = 'dot' + (i < step ? ' done' : i === step ? ' active' : '');
     dotsEl.appendChild(d);
@@ -3129,15 +3233,16 @@ function renderDots(){{
 }}
 
 function updateContinueState(){{
-  const a = answers[step];
+  const a = answers[flow[step].key];
   const hasOther = a.picked.has('Other') && a.other.trim().length > 0;
   const hasNonOther = [...a.picked].some(v => v !== 'Other');
   continueBtn.disabled = !(hasNonOther || hasOther);
 }}
 
 function renderQuestion(){{
-  const item = QUESTIONS[step];
-  const a = answers[step];
+  const item = flow[step];
+  if (!answers[item.key]) answers[item.key] = {{picked: new Set(), other: ''}};
+  const a = answers[item.key];
   titleEl.textContent = item.q;
   optsEl.innerHTML = '';
   otherInput.value = a.other;
@@ -3159,7 +3264,7 @@ function renderQuestion(){{
 }}
 
 function toggle(label, btnEl){{
-  const a = answers[step];
+  const a = answers[flow[step].key];
   if (a.picked.has(label)) {{
     a.picked.delete(label);
     btnEl.classList.remove('picked');
@@ -3175,7 +3280,7 @@ function toggle(label, btnEl){{
 }}
 
 otherInput.addEventListener('input', () => {{
-  answers[step].other = otherInput.value;
+  answers[flow[step].key].other = otherInput.value;
   updateContinueState();
 }});
 
@@ -3186,7 +3291,21 @@ backBtn.addEventListener('click', () => {{
 }});
 
 continueBtn.addEventListener('click', () => {{
-  if (step < QUESTIONS.length - 1) {{
+  const item = flow[step];
+
+  // Re-evaluate this question's follow-up fresh every time Continue is
+  // pressed (not just the first time) — if a previous pass already
+  // inserted it and the answer changed on a back-nav revisit such that it
+  // no longer triggers, remove it; either way, insert (or re-insert) it
+  // immediately after this step if it's currently warranted.
+  if (flow[step + 1] && flow[step + 1].__parentKey === item.key) {{
+    flow.splice(step + 1, 1);
+  }}
+  if (item.follow_up && isFollowUpTriggered(item.follow_up, item.key)) {{
+    flow.splice(step + 1, 0, {{...item.follow_up, __parentKey: item.key}});
+  }}
+
+  if (step < flow.length - 1) {{
     step += 1;
     renderQuestion();
   }} else {{
@@ -3200,9 +3319,9 @@ async function submitSurvey(){{
   errEl.classList.remove('show');
 
   const payload = {{}};
-  QUESTIONS.forEach((q, i) => {{
-    const a = answers[i];
-    payload[q.key] = {{
+  Object.keys(answers).forEach(key => {{
+    const a = answers[key];
+    payload[key] = {{
       picked: [...a.picked],
       other: a.picked.has('Other') ? a.other.trim() : null,
     }};
@@ -3271,7 +3390,7 @@ def claim_pregen_survey(token):
             return jsonify({"error": "Malformed submission"}), 400
 
         cleaned = {}
-        for q in _PREGEN_SURVEY_QUESTIONS:
+        for q in _all_pregen_questions():
             entry = raw_answers.get(q["key"]) or {}
             valid_labels = set(q["opts"]) | {"Other"}
             picked = [p for p in (entry.get("picked") or []) if isinstance(p, str) and p in valid_labels]
@@ -5706,9 +5825,10 @@ def admin_pregen_survey_responses():
         # Per-question, per-option counts across every response shown —
         # the quick "what are people actually saying" summary, same spirit
         # as the reason_counts pill strip on /admin/survey-responses.
-        option_counts = {q["key"]: {} for q in _PREGEN_SURVEY_QUESTIONS}
+        all_qs = _all_pregen_questions()
+        option_counts = {q["key"]: {} for q in all_qs}
         for r in responses:
-            for q in _PREGEN_SURVEY_QUESTIONS:
+            for q in all_qs:
                 entry = (r.answers or {}).get(q["key"]) or {}
                 for label in (entry.get("picked") or []):
                     if label == "Other":
@@ -5716,7 +5836,7 @@ def admin_pregen_survey_responses():
                     option_counts[q["key"]][label] = option_counts[q["key"]].get(label, 0) + 1
 
         summary_sections = ""
-        for q in _PREGEN_SURVEY_QUESTIONS:
+        for q in all_qs:
             counts = option_counts[q["key"]]
             if not counts:
                 continue
@@ -5734,7 +5854,7 @@ def admin_pregen_survey_responses():
             p = prospects_by_id.get(r.prospect_id)
             biz = escape(p.business_name or "—") if p else "—"
             answer_bits = []
-            for q in _PREGEN_SURVEY_QUESTIONS:
+            for q in all_qs:
                 entry = (r.answers or {}).get(q["key"]) or {}
                 picked = [v for v in (entry.get("picked") or []) if v != "Other"]
                 if entry.get("other"):
@@ -6251,7 +6371,7 @@ def admin_prospect_detail(prospect_id):
         pregen_survey_html = '<p class="muted">No pre-gen survey response (not in the gated cohort, or hasn\'t clicked yet).</p>'
         if pregen_survey:
             pregen_rows = ""
-            for q in _PREGEN_SURVEY_QUESTIONS:
+            for q in _all_pregen_questions():
                 entry = (pregen_survey.answers or {}).get(q["key"]) or {}
                 picked = entry.get("picked") or []
                 other = entry.get("other")
@@ -7070,9 +7190,10 @@ def _render_pregen_survey_breakdown(db):
 <div class="adm-card" style="padding:20px;"><p class="muted" style="margin:0;">No responses yet — shown to prospects with an
 existing website sourced via Google Places, instead of firing generation immediately.</p></div>
 """
-    option_counts = {q["key"]: {} for q in _PREGEN_SURVEY_QUESTIONS}
+    all_qs = _all_pregen_questions()
+    option_counts = {q["key"]: {} for q in all_qs}
     for r in responses:
-        for q in _PREGEN_SURVEY_QUESTIONS:
+        for q in all_qs:
             entry = (r.answers or {}).get(q["key"]) or {}
             for label in (entry.get("picked") or []):
                 if label == "Other":
@@ -7080,7 +7201,7 @@ existing website sourced via Google Places, instead of firing generation immedia
                 option_counts[q["key"]][label] = option_counts[q["key"]].get(label, 0) + 1
 
     cards = ""
-    for q in _PREGEN_SURVEY_QUESTIONS:
+    for q in all_qs:
         counts = option_counts[q["key"]]
         if not counts:
             continue
