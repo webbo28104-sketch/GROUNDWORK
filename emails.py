@@ -267,6 +267,51 @@ def send_domain_order_admin_email(domain: str, price_gbp: float, customer_email:
     _send(support_inbox, f"Domain order: {domain}", html)
 
 
+def send_admin_magic_link_clicked_email(business_name: str, prospect_id: int, has_email: bool, pregen_survey_gated: bool) -> None:
+    """Notify the admin inbox the first time a prospect clicks their
+    outreach magic link. Originally added 2026-07-19, removed 2026-07-23
+    (real signal value at real volume approaches zero, just noise —
+    rolled into outreach/send_daily_summary.py's once-a-day totals
+    instead), RE-ADDED 2026-07-27 by explicit request now that a click
+    from the has_website/google_places cohort means something concretely
+    different than it used to: instead of an instant-gen click that's
+    pure sunk cost if it doesn't convert, it's gated behind the
+    pre-generation survey (see PreGenSurveyResponse in models.py) and
+    pulls real structured data even when the prospect never generates.
+    Restored at full volume (every click, every cohort) per that request,
+    not scoped to just the gated segment — same noise tradeoff the
+    2026-07-23 removal was weighing, now made the other way.
+
+    Fired once per prospect, from inside the `prospect.clicked_at is
+    None` guard in _claim_generate_and_redirect, so a repeat/idempotent
+    visit never sends a second notification."""
+    support_inbox = _env_email_or_warn("SUPPORT_INBOX_EMAIL")
+    biz = escape(business_name or "Unknown business")
+    next_step = (
+        "they're answering a short survey about their current website first"
+        if pregen_survey_gated else
+        "generation is kicking off now"
+    )
+    html = f"""<div style="font-family:Arial,Helvetica,sans-serif;background:#F5F3EE;padding:32px 20px;">
+  <div style="max-width:480px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;">
+    <div style="background:#1C1C1C;padding:20px 28px;">
+      <span style="color:{ACCENT};font-weight:800;font-size:18px;letter-spacing:-.03em;">Groundwork</span>
+    </div>
+    <div style="padding:28px;">
+      <h2 style="margin:0 0 8px;font-size:19px;color:#1C1C1C;">Magic link clicked</h2>
+      <p style="margin:0 0 20px;font-size:14px;color:#5C5A56;">A prospect just opened their outreach preview link — {next_step}.</p>
+      <table style="width:100%;border-collapse:collapse;">
+        <tr><td style="padding:8px 0;font-size:14px;color:#5C5A56;width:110px;">Business</td><td style="padding:8px 0;font-size:14px;font-weight:700;color:#1C1C1C;">{biz}</td></tr>
+        <tr><td style="padding:8px 0;font-size:14px;color:#5C5A56;">Channel</td><td style="padding:8px 0;font-size:14px;color:#1C1C1C;">{"Email track" if has_email else "Phone-only (SMS) track"}</td></tr>
+        {f'<tr><td style="padding:8px 0;font-size:14px;color:#5C5A56;">Pre-gen survey</td><td style="padding:8px 0;font-size:14px;color:#1C1C1C;">Gated — has existing website, sourced via Google Places</td></tr>' if pregen_survey_gated else ""}
+      </table>
+      <p style="margin:20px 0 0;"><a href="https://groundworkbuild.com/admin/prospects/{prospect_id}" style="color:{ACCENT};font-size:14px;font-weight:600;text-decoration:none;">View prospect →</a></p>
+    </div>
+  </div>
+</div>"""
+    _send(support_inbox, f"Magic link clicked — {business_name or 'Unknown business'}", html)
+
+
 def send_admin_payment_received_email(business_name: str, customer_email: str, job_id: str, was_reactivation: bool) -> None:
     """Notify the admin inbox whenever a checkout.session.completed webhook
     confirms real payment (added 2026-07-19) — covers both a first-time

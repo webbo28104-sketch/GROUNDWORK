@@ -35,7 +35,7 @@ from emails import (send_verification_email, send_resend_email, send_password_re
                     send_support_message_email, send_enquiry_email,
                     send_domain_order_admin_email, send_domain_order_customer_email,
                     send_domain_setup_failed_email, send_domain_live_email,
-                    send_admin_payment_received_email,
+                    send_admin_payment_received_email, send_admin_magic_link_clicked_email,
                     send_site_ready_email, send_admin_approval_email)
 from outreach.reply_handling import handle_inbound_sms, handle_inbound_email, handle_forced_sms_stop
 from outreach.templates import SURVEY_DISCOUNT_PERCENT, render_facebook_dm
@@ -2959,6 +2959,30 @@ def _finish_claim(db, prospect):
     db.commit()
 
     _kickoff_generation(lead)
+
+    # Admin notification — re-added 2026-07-27, by request (originally
+    # removed 2026-07-23 for being pure noise at real volume; brought back
+    # because a real GENERATION now always means one of two things worth
+    # knowing about: a prospect clicked straight through (the majority,
+    # unchanged), or the has_website/google_places cohort answered the
+    # pre-gen survey first (PreGenSurveyResponse) — either way, this is the
+    # actual "a generation just fired" moment, not raw click time, which is
+    # why this lives here in _finish_claim rather than back in
+    # _claim_generate_and_redirect's clicked_at guard: for the gated
+    # cohort, a click alone doesn't yet mean a generation is happening —
+    # only a submitted survey does. Backgrounded so a slow Resend call
+    # never adds latency to this redirect. Fires once per prospect, since
+    # this whole branch only runs once per prospect (the first-time-claim
+    # Lead-creation branch, guarded above by `if prospect.lead_id:`).
+    pregen_survey_gated = db.query(PreGenSurveyResponse).filter(
+        PreGenSurveyResponse.prospect_id == prospect.id
+    ).first() is not None
+    threading.Thread(
+        target=send_admin_magic_link_clicked_email,
+        args=(prospect.business_name, prospect.id, bool(prospect.email), pregen_survey_gated),
+        daemon=True,
+    ).start()
+
     return f"/loading.html?id={lead.public_id}"
 
 
