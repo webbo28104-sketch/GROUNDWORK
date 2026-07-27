@@ -7335,14 +7335,25 @@ def _render_funnel_table_html(db, now, range_from, range_to, channel, source="al
         # Survey drop-off (added 2026-07-27, by request) — of this stage's
         # cohort, how many are in the pre-gen-survey-gated segment
         # (has_website + google_places — see _needs_pregen_survey_gate)
-        # who clicked but never submitted the survey. For this cohort,
-        # submitting IS what triggers _finish_claim, so "clicked, no
-        # PreGenSurveyResponse" is a genuine abandonment at the survey
-        # step, not just "hasn't gotten there yet." Not part of the
-        # sequential Sent->Opened->...->Paid pipeline above (a different
-        # shape — X of Y clicked, not a cumulative funnel step, and
-        # meaningless for prospects who were never gated at all) so it's
-        # its own trailing column rather than forced into that array.
+        # who clicked but never submitted the survey AND never got a
+        # Lead/generation via any path (lead_id is None). Both conditions
+        # matter, not just the missing PreGenSurveyResponse: a prospect
+        # can be gated by CURRENT column values (sourcing_channel was
+        # backfilled onto pre-existing rows — see
+        # outreach/sourcing_channel_backfill.py) but have actually clicked
+        # and generated before this feature was live, straight through the
+        # old no-gate code path — that prospect has no survey row but
+        # unambiguously did NOT drop off (real incident, caught 2026-07-27:
+        # this column originally counted "no survey row" alone as
+        # "dropped," which wrongly flagged 8 of 13 today's — and 138 of
+        # 139 all-time — successfully-generated prospects as drop-offs).
+        # lead_id being set is the correct "did they actually convert,
+        # regardless of which code path did it" signal; only require the
+        # survey-based dropped_n check for stages/date-ranges recent
+        # enough that the gate was actually live is impractical (no
+        # reliable per-prospect "was the feature deployed yet" marker), so
+        # lead_id is None is the robust proxy instead of assuming when
+        # this shipped.
         gated_clicked = [
             p for p in cohort
             if p.website_status == "has_website" and p.sourcing_channel == "google_places"
@@ -7354,7 +7365,7 @@ def _render_funnel_table_html(db, now, range_from, range_to, channel, source="al
                     PreGenSurveyResponse.prospect_id.in_([p.id for p in gated_clicked])
                 ).all()
             }
-            survey_dropped_n = sum(1 for p in gated_clicked if p.id not in answered_ids)
+            survey_dropped_n = sum(1 for p in gated_clicked if p.id not in answered_ids and p.lead_id is None)
             survey_clicked_n = len(gated_clicked)
             drop_pct = _funnel_pct(survey_dropped_n, survey_clicked_n)
             survey_cell = (
