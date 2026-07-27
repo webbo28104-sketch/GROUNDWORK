@@ -5841,6 +5841,7 @@ def admin_pipeline():
 
 {_render_discovery_section(db)}
 {_render_followups_section(db)}
+{_render_extraction_quality_breakdown(db)}
 """
         return render_template_string(_admin_page("Pipeline", content, active="pipeline"))
     finally:
@@ -7053,6 +7054,51 @@ in Stage C/D follow-ups (docs/outreach-pipeline-spec.md Section 11), sent to cli
 """
 
 
+def _render_pregen_survey_breakdown(db):
+    """Compact per-question option-count breakdown of PreGenSurveyResponse
+    (added 2026-07-27) — same spirit/shape as _render_survey_breakdown
+    above, for the earlier "why haven't you updated your existing site"
+    survey shown to the has_website/google_places cohort instead of
+    firing generation immediately. Links out to
+    /admin/pregen-survey-responses for the full per-prospect list — this
+    block is the quick "what are people actually saying" summary, not the
+    whole picture."""
+    responses = db.query(PreGenSurveyResponse).all()
+    if not responses:
+        return """
+<h2 style="font-size:15px;font-weight:700;margin:28px 0 10px;">Pre-generation survey</h2>
+<div class="adm-card" style="padding:20px;"><p class="muted" style="margin:0;">No responses yet — shown to prospects with an
+existing website sourced via Google Places, instead of firing generation immediately.</p></div>
+"""
+    option_counts = {q["key"]: {} for q in _PREGEN_SURVEY_QUESTIONS}
+    for r in responses:
+        for q in _PREGEN_SURVEY_QUESTIONS:
+            entry = (r.answers or {}).get(q["key"]) or {}
+            for label in (entry.get("picked") or []):
+                if label == "Other":
+                    continue
+                option_counts[q["key"]][label] = option_counts[q["key"]].get(label, 0) + 1
+
+    cards = ""
+    for q in _PREGEN_SURVEY_QUESTIONS:
+        counts = option_counts[q["key"]]
+        if not counts:
+            continue
+        rows = "".join(
+            f'<tr><td>{escape(label)}</td><td style="text-align:center;">{n}</td></tr>'
+            for label, n in sorted(counts.items(), key=lambda x: -x[1])
+        )
+        cards += f"""
+  <div class="adm-card" style="overflow-x:auto;">
+  <table><thead><tr><th>{escape(q["q"])}</th><th style="text-align:center;">Count</th></tr></thead><tbody>{rows}</tbody></table>
+  </div>"""
+
+    return f"""
+<h2 style="font-size:15px;font-weight:700;margin:28px 0 10px;">Pre-generation survey ({len(responses)} response(s)) <a href="/admin/pregen-survey-responses" style="font-size:12.5px;font-weight:600;">See all →</a></h2>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">{cards}</div>
+"""
+
+
 def _render_funnel_table_html(db, now, range_from, range_to, channel, source="all"):
     """Just the per-stage funnel table (<div class="adm-card">...<table>) —
     factored out of admin_funnel() 2026-07-25 so /admin (the dashboard) can
@@ -7185,88 +7231,58 @@ def _render_funnel_table_html(db, now, range_from, range_to, channel, source="al
 @admin_required
 def admin_funnel():
     """
-    Real per-stage, per-channel outreach funnel — built against genuinely
-    tracked data only, per the 2026-07-14 instrumentation fixes:
-      - Opened, when it fires, is real (resend_events_webhook advances
-        opened_at on a real "email.opened" event) — but it depends on two
-        things outside this codebase: open tracking enabled on the sending
-        domain in the Resend dashboard (off by default), and the
-        recipient's mail client actually loading remote images (many
-        clients block them, or Apple Mail Privacy Protection may
-        pre-fetch/inflate them — this signal is inherently noisier than
-        clicks industry-wide, not just here). A prospect can click the
-        magic link — a real, first-party navigation, tracked independent
-        of any pixel — without ever registering an "opened" event first.
-        Confirmed 2026-07-20: 62 delivered outreach emails, 0 real
-        prospect opens logged — check the Resend dashboard's domain
-        tracking settings before assuming this column is broken.
-      - Paid is real (Stripe webhook now writes Prospect.paid_at directly,
-        traced via client_reference_id -> Lead -> Prospect.lead_id).
-      - Viewed (added 2026-07-20) is real and server-side: Generation.view_count
-        is bumped by _record_generation_view on every actual serve of
-        /api/generate/<id>/html, and loading.html auto-navigates straight to
-        that route the moment generation finishes (no click-through required
-        in either the outreach or normal form flow) — so a 0 here means the
-        prospect genuinely never had the page load client-side, most likely
-        because they closed the tab during the ~150-300s generation wait
-        rather than any tracking gap. Confirmed against real data 2026-07-20:
-        2 of 5 clicked-and-generated prospects had view_count=0 despite
-        clicking 2+ hours earlier (long past any plausible still-generating
-        window).
-      - Per-stage rows are only real from OutreachTouch's creation date
-        forward — there is no historical per-stage log before that, and
-        nothing here pretends otherwise (see the banner below the filters).
+    Magic-link click behavior — who clicked, what they did after, and
+    what we've learned directly from them (reworked 2026-07-27, by
+    request; was previously the per-stage/per-channel send funnel, see
+    git history or /admin's dashboard for that view, which still exists
+    via _render_funnel_table_html/_compute_kpis, just not on this page).
 
-    Each stage row is a COHORT, not a causal attribution, and — per
-    STAGE_LABELS (outreach/followup.py) — each follow-up stage's cohort is
-    DEFINED by the prospect's funnel_substage at send time, not by "1st/2nd/
-    3rd/4th touch." E.g. "Follow-up — viewed site, no account" (stage C) is
-    only ever sent to prospects already at clicked_generated, so its
-    "Generated" column reads ~100% by construction — that isn't a
-    conversion this stage caused, it's the cohort definition. "Opened" for
-    that same row means "of these prospects, how many have opened_at set
-    from ANY email, ever" — not "opened because of this specific touch",
-    since opened_at/clicked_at/paid_at are single per-prospect timestamps,
-    not per-message. That's the honest framing given what the schema
-    actually stores.
+    - Opened, when it fires, is real (resend_events_webhook advances
+      opened_at on a real "email.opened" event) — but it depends on two
+      things outside this codebase: open tracking enabled on the sending
+      domain in the Resend dashboard (off by default), and the
+      recipient's mail client actually loading remote images (many
+      clients block them, or Apple Mail Privacy Protection may
+      pre-fetch/inflate them — this signal is inherently noisier than
+      clicks industry-wide, not just here). A prospect can click the
+      magic link — a real, first-party navigation, tracked independent
+      of any pixel — without ever registering an "opened" event first.
+    - Paid is real (Stripe webhook now writes Prospect.paid_at directly,
+      traced via client_reference_id -> Lead -> Prospect.lead_id).
+    - Viewed is real and server-side: Generation.view_count is bumped by
+      _record_generation_view on every actual serve of
+      /api/generate/<id>/html, and loading.html auto-navigates straight to
+      that route the moment generation finishes (no click-through required
+      in either the outreach or normal form flow) — so a 0 here means the
+      prospect genuinely never had the page load client-side, most likely
+      because they closed the tab during the ~150-300s generation wait
+      rather than any tracking gap.
+    - The two surveys below (SurveyResponse — post-generation, "why
+      did/didn't you go live"; PreGenSurveyResponse — pre-generation,
+      "why haven't you touched your existing site," has_website/
+      google_places cohort only) are the real structured signal a raw
+      click can't give on its own.
     """
-    now = datetime.utcnow()
-    preset = request.args.get("preset", "").strip()
-    from_str = request.args.get("from", "").strip()
-    to_str = request.args.get("to", "").strip()
-    channel = request.args.get("channel", "both").strip().lower()
-    if channel not in ("email", "sms", "facebook", "both"):
-        channel = "both"
-    source = request.args.get("source", "all").strip().lower()
-    if source not in SOURCING_CHANNEL_LABELS:
-        source = "all"
-
-    def _parse_date(s):
-        try:
-            return datetime.strptime(s, "%Y-%m-%d")
-        except ValueError:
-            return None
-
-    # Same preset mechanism as /admin (_date_preset_range) — added
-    # 2026-07-20 alongside the "Today" preset, previously only available
-    # on the dashboard. Both paths normalize range_to to the actual end-
-    # of-range timestamp (not just a bare date), matching /admin's
-    # convention, so the query filters below can use a plain <= comparison
-    # instead of the previous "+ timedelta(days=1)" bare-date workaround.
-    range_from, range_to = (None, None)
-    if preset:
-        range_from, range_to = _date_preset_range(preset, now)
-    elif from_str or to_str:
-        range_from = _parse_date(from_str)
-        range_to = _parse_date(to_str)
-        if range_to:
-            range_to = range_to.replace(hour=23, minute=59, second=59)
+    # Reworked 2026-07-27, by request: this page is no longer the per-
+    # stage/per-channel outreach funnel (that table, the KPI strip, the
+    # pipeline-substage summary bar, and the extraction-quality breakdown
+    # all moved out or were dropped) — it's now specifically about magic-
+    # link CLICK behavior: who clicked, what happened after, and the two
+    # surveys that capture what a click alone can't (why someone did/
+    # didn't go live post-generation, and — for the has_website/
+    # google_places cohort — why they haven't touched their existing site
+    # at all). The per-stage funnel table and its date/channel/source
+    # filters are still real code (_render_funnel_table_html), still used
+    # by /admin's dashboard — just not shown here anymore.
+    try:
+        clicks_shown = max(25, int(request.args.get("clicks", 25)))
+    except (TypeError, ValueError):
+        clicks_shown = 25
 
     db = SessionLocal()
     try:
-        kpi_strip = _render_kpi_strip(_compute_kpis(db))
-        extraction_quality_breakdown = _render_extraction_quality_breakdown(db)
         survey_breakdown = _render_survey_breakdown(db)
+        pregen_survey_breakdown = _render_pregen_survey_breakdown(db)
 
         # Avg generation cost, last 20 sites (added 2026-07-23) — shown in
         # the Recent clicks bar below. Claude API cost is estimated per
@@ -7307,10 +7323,14 @@ def admin_funnel():
         internal_lead_ids = db.query(Generation.lead_id).filter(
             Generation.is_internal == True, Generation.lead_id.isnot(None)  # noqa: E712
         )
+        total_clicked = db.query(Prospect).filter(
+            Prospect.clicked_at.isnot(None),
+            ~Prospect.lead_id.in_(internal_lead_ids),
+        ).count()
         recent_clicked = db.query(Prospect).filter(
             Prospect.clicked_at.isnot(None),
             ~Prospect.lead_id.in_(internal_lead_ids),
-        ).order_by(Prospect.clicked_at.desc()).limit(25).all()
+        ).order_by(Prospect.clicked_at.desc()).limit(clicks_shown).all()
         recent_lead_ids = [cp.lead_id for cp in recent_clicked if cp.lead_id is not None]
         gen_by_lead_id = {
             g.lead_id: g for g in db.query(Generation).filter(Generation.lead_id.in_(recent_lead_ids)).all()
@@ -7343,9 +7363,20 @@ def admin_funnel():
             f'</tr>'
             for cp in recent_clicked
         ) or '<tr><td colspan="9" style="padding:10px;color:#9A9893;">No clicks yet.</td></tr>'
+
+        load_more_html = ""
+        if total_clicked > len(recent_clicked):
+            load_more_html = (
+                f'<div style="text-align:center;margin-top:12px;">'
+                f'<a href="/admin/funnel?clicks={clicks_shown + 25}#recent-clicks" '
+                f'style="display:inline-block;padding:8px 18px;border:1px solid #D8D5CE;border-radius:999px;'
+                f'font-size:13px;font-weight:600;color:#3B82F6;text-decoration:none;">'
+                f'Load 25 more ({len(recent_clicked)} of {total_clicked} shown)</a></div>'
+            )
+
         recent_clicks_html = f"""
-<div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:10px;margin:28px 0 10px;">
-  <h2 style="font-size:15px;font-weight:700;margin:0;">Recent clicks ({len(recent_clicked)})</h2>
+<div id="recent-clicks" style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:10px;margin:28px 0 10px;">
+  <h2 style="font-size:15px;font-weight:700;margin:0;">Recent clicks ({len(recent_clicked)} of {total_clicked})</h2>
   <span style="font-size:13px;">{avg_cost_html}</span>
 </div>
 <div class="adm-card" style="overflow-x:auto;">
@@ -7363,90 +7394,22 @@ def admin_funnel():
 </tr></thead>
 <tbody>{recent_clicks_rows}</tbody>
 </table>
-</div>"""
-
-        funnel_table_html = _render_funnel_table_html(db, now, range_from, range_to, channel, source=source)
-
-        _funnel_extra_qs = (f"&channel={channel}" if channel != "both" else "") + (f"&source={source}" if source != "all" else "")
-        funnel_preset_links = _render_date_preset_links(
-            "/admin/funnel", preset, extra_params=_funnel_extra_qs
-        )
-
-        # Summary strip: live snapshot of current funnel_substage distribution —
-        # always real, independent of the date-range filter (it's "right now",
-        # not historical).
-        substage_counts = dict(
-            db.query(Prospect.funnel_substage, func.count(Prospect.id))
-            .group_by(Prospect.funnel_substage).all()
-        )
-        substage_order = ["sent", "opened", "clicked_generated", "account_created", "replied", "bounced", "cold", None]
-        substage_labels = {
-            "sent": "Sent", "opened": "Opened", "clicked_generated": "Clicked/Generated",
-            "account_created": "Account created", "replied": "Replied", "bounced": "Bounced",
-            "cold": "Cold", None: "No substage",
-        }
-        summary_html = "".join(
-            f'<span class="stat"><b>{substage_counts.get(k, 0)}</b> {escape(substage_labels[k])}</span>'
-            for k in substage_order
-        )
-        total_in_pipeline = sum(substage_counts.values())
+</div>
+{load_more_html}"""
 
         content = f"""
-<style>
-.statsbar{{display:flex;gap:16px;flex-wrap:wrap;align-items:center;}}
-.statsbar .stat{{font-size:13px;color:#5C5A56;font-weight:600;}}
-.statsbar .stat b{{color:#1C1C1C;font-weight:800;font-size:15px;margin-right:4px;}}
-</style>
-<h1 class="adm-title">Funnel</h1>
-<p class="adm-sub muted" style="font-size:12.5px;">Per-stage outreach funnel. Cohort-defined columns (e.g. "viewed" on a stage that only fires post-click) are greyed — not real signal, just who it was sent to. Sent = delivered, attempted/bounced shown beneath.</p>
-
-{kpi_strip}
-
-<form method="get" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
-  {funnel_preset_links}
-</form>
-<form method="get" style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-bottom:22px;">
-  <div>
-    <label style="display:block;font-size:12px;font-weight:600;color:#5C5A56;margin-bottom:4px;">From</label>
-    <input type="date" name="from" value="{escape(from_str)}" style="padding:8px 10px;border:1px solid #D8D5CE;border-radius:7px;font-size:13.5px;">
-  </div>
-  <div>
-    <label style="display:block;font-size:12px;font-weight:600;color:#5C5A56;margin-bottom:4px;">To</label>
-    <input type="date" name="to" value="{escape(to_str)}" style="padding:8px 10px;border:1px solid #D8D5CE;border-radius:7px;font-size:13.5px;">
-  </div>
-  <div>
-    <label style="display:block;font-size:12px;font-weight:600;color:#5C5A56;margin-bottom:4px;">Sourcing channel</label>
-    <select name="source" style="padding:8px 10px;border:1px solid #D8D5CE;border-radius:7px;font-size:13.5px;">
-      {"".join(f'<option value="{key}" {"selected" if source == key else ""}>{escape(label)}</option>' for key, label in _SOURCE_FILTERS)}
-    </select>
-  </div>
-  <div>
-    <label style="display:block;font-size:12px;font-weight:600;color:#5C5A56;margin-bottom:4px;">Outreach method</label>
-    <select name="channel" style="padding:8px 10px;border:1px solid #D8D5CE;border-radius:7px;font-size:13.5px;">
-      <option value="both" {"selected" if channel == "both" else ""}>All methods</option>
-      <option value="email" {"selected" if channel == "email" else ""}>Email only</option>
-      <option value="sms" {"selected" if channel == "sms" else ""}>SMS only</option>
-      <option value="facebook" {"selected" if channel == "facebook" else ""}>Social DM only</option>
-    </select>
-  </div>
-  <button type="submit" style="background:#3B82F6;color:#fff;border:0;font-weight:700;padding:9px 18px;border-radius:7px;font-size:13.5px;cursor:pointer;">Apply</button>
-  <a href="/admin/funnel" style="font-size:13px;color:#807E79;text-decoration:none;padding:9px 4px;">Reset to default (all time)</a>
-</form>
-
-{funnel_table_html}
-
-<h2 style="font-size:15px;font-weight:700;margin:28px 0 10px;">Currently in the pipeline ({total_in_pipeline})</h2>
-<div class="statsbar" style="justify-content:flex-start;text-align:left;">{summary_html}</div>
+<h1 class="adm-title">Magic link clicks</h1>
+<p class="adm-sub muted" style="font-size:12.5px;">Who clicked, what happened after, and what we've learned directly from them via the two surveys — not the per-stage send funnel (see /admin for that).</p>
 
 {recent_clicks_html}
 
 {survey_breakdown}
 
-{extraction_quality_breakdown}
+{pregen_survey_breakdown}
 
 {_render_send_timing_section(db)}
 """
-        return render_template_string(_admin_page("Funnel", content, active="funnel"))
+        return render_template_string(_admin_page("Magic link clicks", content, active="funnel"))
     finally:
         db.close()
 
