@@ -6025,9 +6025,18 @@ def _compute_kpis(db, range_from: datetime = None, range_to: datetime = None, ch
     # can filter to first-contact sends only.
     # Bounce exclusion only applies to email (the only channel Resend gives
     # a real bounce signal for) — a bounce is not a successfully sent
-    # email (the message never reached an inbox), so distinct bounced-
-    # address events (EmailEventLog) logged within the same period are
-    # subtracted for channel in ("all", "email") only.
+    # email (the message never reached an inbox), so bounced addresses
+    # logged within the same period are subtracted, but ONLY when they
+    # belong to a prospect actually IN this filtered cohort (added
+    # 2026-07-27, fixing a real bug: this used to be a raw distinct-count
+    # of every EmailEventLog bounce in the whole system for the period,
+    # completely unscoped by channel/source — harmless-looking for the
+    # unfiltered "both"/"all" default since that cohort really is
+    # everyone, but badly wrong for any narrower filter, e.g. "socials +
+    # email, all time" showed 13 attempted / 0 sent because it was
+    # subtracting the GLOBAL bounce count for that date range, not the 13
+    # sends' own bounce rate — same per-cohort-matching pattern
+    # _render_funnel_table_html already used correctly, just missing here).
     sent_touch_q = db.query(OutreachTouch).filter(
         OutreachTouch.stage == "initial",
         OutreachTouch.sent_at >= period_start,
@@ -6037,13 +6046,24 @@ def _compute_kpis(db, range_from: datetime = None, range_to: datetime = None, ch
         sent_touch_q = sent_touch_q.filter(OutreachTouch.channel == channel)
     if source != "all":
         sent_touch_q = sent_touch_q.filter(OutreachTouch.prospect_id.in_(channel_prospect_ids or []))
-    emails_attempted = sent_touch_q.count()
-    if channel in ("all", "email"):
-        bounced_n = db.query(EmailEventLog.resend_email_id).filter(
-            EmailEventLog.event_type.in_(["email.bounced", "bounced"]),
-            EmailEventLog.created_at >= period_start,
-            EmailEventLog.created_at <= period_end,
-        ).distinct().count()
+    attempted_touches = sent_touch_q.all()
+    emails_attempted = len(attempted_touches)
+    if channel in ("both", "email"):
+        attempted_email_prospect_ids = {t.prospect_id for t in attempted_touches if t.channel == "email"}
+        attempted_emails = {
+            (e or "").strip().lower()
+            for (e,) in db.query(Prospect.email).filter(Prospect.id.in_(attempted_email_prospect_ids)).all()
+            if e
+        } if attempted_email_prospect_ids else set()
+        bounced_addrs_in_period = {
+            (email_utils.parseaddr(e.to_email)[1] or e.to_email or "").strip().lower()
+            for e in db.query(EmailEventLog).filter(
+                EmailEventLog.event_type.in_(["email.bounced", "bounced"]),
+                EmailEventLog.created_at >= period_start,
+                EmailEventLog.created_at <= period_end,
+            ).all() if e.to_email
+        }
+        bounced_n = len(attempted_emails & bounced_addrs_in_period)
     else:
         bounced_n = 0
     emails_sent = max(0, emails_attempted - bounced_n)
