@@ -8060,8 +8060,42 @@ def _render_dual_rate_chart(buckets, opened_disabled, label_stride=1):
         )
         return paths + dots
 
+    def render_trend(pct_index, color):
+        """Least-squares best-fit line across this series' real (non-gap)
+        points, plotted bucket-index-vs-pct (index, not pixel position, so
+        the fit reflects the actual data, not an already-transformed
+        coordinate space) — added 2026-07-27, by request, to make the
+        underlying direction easier to read through per-bucket noise (a
+        single 15-min slot's rate is a small sample; the trend across the
+        whole window is the more stable signal). pct_index is 2 for
+        opened, 3 for generated, indexing into `raw`'s tuples. Needs at
+        least 2 real points and non-identical x-values; draws nothing
+        otherwise rather than dividing by zero."""
+        real = [(i, entry[pct_index]) for i, entry in enumerate(raw) if entry[2] is not None]
+        if len(real) < 2:
+            return ""
+        n = len(real)
+        mean_x = sum(x for x, _ in real) / n
+        mean_y = sum(y for _, y in real) / n
+        denom = sum((x - mean_x) ** 2 for x, _ in real)
+        if denom == 0:
+            return ""
+        slope = sum((x - mean_x) * (y - mean_y) for x, y in real) / denom
+        intercept = mean_y - slope * mean_x
+        x0, x1 = real[0][0], real[-1][0]
+        y0 = max(0, min(y_max, slope * x0 + intercept))
+        y1 = max(0, min(y_max, slope * x1 + intercept))
+        direction = "rising" if slope > 0.01 else "falling" if slope < -0.01 else "flat"
+        return (
+            f'<path d="M {x_of(x0):.1f} {y_of(y0):.1f} L {x_of(x1):.1f} {y_of(y1):.1f}" '
+            f'fill="none" stroke="{color}" stroke-width="2" stroke-dasharray="2,5" '
+            f'stroke-linecap="round" opacity="0.6">'
+            f'<title>Trend: {direction} ({slope * (n - 1):+.1f}pp across this window)</title></path>'
+        )
+
     opened_color = "#B9C4D6" if opened_disabled else "#3B82F6"
     lines = render_series(generated_points, "#10B981") + render_series(opened_points, opened_color, dashed=opened_disabled)
+    trend_lines = render_trend(3, "#10B981") + render_trend(2, opened_color)
 
     gridlines = ""
     n_gridlines = 4  # 0%, y_max/4, y_max/2, 3*y_max/4, y_max
@@ -8075,6 +8109,7 @@ def _render_dual_rate_chart(buckets, opened_disabled, label_stride=1):
 
     return f"""<svg viewBox="0 0 {w} {h}" style="width:100%;height:auto;display:block;">
       {gridlines}
+      {trend_lines}
       {lines}
       {x_labels}
     </svg>"""
@@ -8185,7 +8220,7 @@ def _render_send_timing_section(db):
 
     return f"""
 <h2 style="font-size:16px;font-weight:800;margin:28px 0 4px;">Send timing</h2>
-<p class="muted" style="font-size:12.5px;margin:0 0 10px;">By 15-min send slot (7d) / weekday (30d) — <span style="color:#3B82F6;">■</span> opened, <span style="color:#10B981;">■</span> generated.</p>
+<p class="muted" style="font-size:12.5px;margin:0 0 10px;">By 15-min send slot (7d) / weekday (30d) — <span style="color:#3B82F6;">■</span> opened, <span style="color:#10B981;">■</span> generated. Dashed lines are each series' overall trend (least-squares best fit), not real per-bucket data — hover for direction/magnitude.</p>
 
 <p class="muted" style="font-size:12px;margin:0 0 4px;">By 15-min send slot — trailing 7 days (only reflects sends since the 15-min-slot cadence started — see Prospect.sent_at_slot)</p>
 {_callout(slot_best, slot_worst, "slot")}
