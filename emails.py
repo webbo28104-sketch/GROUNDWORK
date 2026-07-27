@@ -312,6 +312,43 @@ def send_admin_magic_link_clicked_email(business_name: str, prospect_id: int, ha
     _send(support_inbox, f"Magic link clicked — {business_name or 'Unknown business'}", html)
 
 
+def send_admin_preview_issue_email(business_name: str, job_id: str, prospect_id: int | None) -> None:
+    """Notify the admin inbox when a prospect clicks "Something look off?"
+    on their preview page (added 2026-07-27, by request) — a small escape
+    hatch for genuine AI-generation defects (an off palette, an odd layout
+    choice) the self-serve text editor can't fix on its own, since it only
+    ever touches data-gw-text-tagged copy, not layout/design. This is the
+    real-time notification half of that feature — app.py's
+    job_report_issue also logs a ProspectEvent when a Prospect is linked,
+    so a pattern across many reports stays queryable later, not just
+    whatever's visible in this inbox at the time."""
+    support_inbox = _env_email_or_warn("SUPPORT_INBOX_EMAIL")
+    biz = escape(business_name or "Unknown business")
+    prospect_link_html = (
+        f'<p style="margin:20px 0 0;"><a href="https://groundworkbuild.com/admin/prospects/{prospect_id}" '
+        f'style="color:{ACCENT};font-size:14px;font-weight:600;text-decoration:none;">View prospect →</a></p>'
+        if prospect_id else ""
+    )
+    html = f"""<div style="font-family:Arial,Helvetica,sans-serif;background:#F5F3EE;padding:32px 20px;">
+  <div style="max-width:480px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;">
+    <div style="background:#1C1C1C;padding:20px 28px;">
+      <span style="color:{ACCENT};font-weight:800;font-size:18px;letter-spacing:-.03em;">Groundwork</span>
+    </div>
+    <div style="padding:28px;">
+      <h2 style="margin:0 0 8px;font-size:19px;color:#1C1C1C;">Preview issue flagged</h2>
+      <p style="margin:0 0 20px;font-size:14px;color:#5C5A56;">Someone clicked "Something look off?" on their preview — they should be emailing directly, but this fires either way so it's never only sitting in the inbox unlogged.</p>
+      <table style="width:100%;border-collapse:collapse;">
+        <tr><td style="padding:8px 0;font-size:14px;color:#5C5A56;width:110px;">Business</td><td style="padding:8px 0;font-size:14px;font-weight:700;color:#1C1C1C;">{biz}</td></tr>
+        <tr><td style="padding:8px 0;font-size:14px;color:#5C5A56;">Site ID</td><td style="padding:8px 0;font-size:14px;color:#1C1C1C;">{escape(job_id)}</td></tr>
+      </table>
+      <p style="margin:20px 0 0;"><a href="https://groundworkbuild.com/api/generate/{job_id}/html" style="color:{ACCENT};font-size:14px;font-weight:600;text-decoration:none;">View the site →</a></p>
+      {prospect_link_html}
+    </div>
+  </div>
+</div>"""
+    _send(support_inbox, f"Preview issue flagged — {business_name or 'Unknown business'}", html)
+
+
 def send_admin_payment_received_email(business_name: str, customer_email: str, job_id: str, was_reactivation: bool) -> None:
     """Notify the admin inbox whenever a checkout.session.completed webhook
     confirms real payment (added 2026-07-19) — covers both a first-time

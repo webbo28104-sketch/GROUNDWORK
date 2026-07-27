@@ -68,6 +68,9 @@ a:focus-visible,button:focus-visible{outline:3px solid #3B82F6;outline-offset:2p
               Edit text
             </a>
           </div>
+          <p style="margin:12px 0 0;">
+            <a id="report-issue-link" href="#" style="color:#9A9895;font-size:12.5px;text-decoration:underline;">Something look off? Tell us — quick fixes like colours are usually an easy fix.</a>
+          </p>
         </div>
       </div>
     </div>
@@ -158,6 +161,23 @@ async function loadPreview(){
       editLink.href = 'editor.html?id=' + jobId;
       editLink.style.display = 'inline-flex';
     }
+
+    // "Something look off?" — a real mailto: link (works with no JS
+    // dependency once set), prefilled with enough context that support
+    // doesn't need a back-and-forth just to find the right site. The
+    // fetch beacon on click is separate and non-blocking: it just makes
+    // sure this report doesn't ONLY exist as one email in an inbox with
+    // no later pattern-visibility (see /api/generate/<id>/report-issue).
+    const bizName = nameMatch ? nameMatch[1].replace(/ — Preview$/, '').trim() : 'your site';
+    const reportLink = document.getElementById('report-issue-link');
+    const subject = encodeURIComponent(`Something's off with my site (${bizName})`);
+    const body = encodeURIComponent(`Site ID: ${jobId}\n\nWhat looks off:\n`);
+    reportLink.href = `mailto:groundwork-build@outlook.com?subject=${subject}&body=${body}`;
+    reportLink.addEventListener('click', () => {
+      try {
+        fetch(`${apiBase}/api/generate/${jobId}/report-issue`, {method: 'POST'});
+      } catch (e) { /* best-effort only — never block the mailto link */ }
+    });
 
     // Try to update domain label from html
     const h1Match = html.match(/©\s*\d{4}\s*([^<·&]+)/);

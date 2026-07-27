@@ -36,6 +36,7 @@ from emails import (send_verification_email, send_resend_email, send_password_re
                     send_domain_order_admin_email, send_domain_order_customer_email,
                     send_domain_setup_failed_email, send_domain_live_email,
                     send_admin_payment_received_email, send_admin_magic_link_clicked_email,
+                    send_admin_preview_issue_email,
                     send_site_ready_email, send_admin_approval_email)
 from outreach.reply_handling import handle_inbound_sms, handle_inbound_email, handle_forced_sms_stop
 from outreach.templates import SURVEY_DISCOUNT_PERCENT, render_facebook_dm
@@ -7331,13 +7332,57 @@ def _render_funnel_table_html(db, now, range_from, range_to, channel, source="al
                 f'{pct_html}</td>'
             )
 
-        rows_html += f'<tr><td style="font-weight:600;">{escape(stage_label)}</td>{cells}</tr>'
+        # Survey drop-off (added 2026-07-27, by request) — of this stage's
+        # cohort, how many are in the pre-gen-survey-gated segment
+        # (has_website + google_places — see _needs_pregen_survey_gate)
+        # who clicked but never submitted the survey. For this cohort,
+        # submitting IS what triggers _finish_claim, so "clicked, no
+        # PreGenSurveyResponse" is a genuine abandonment at the survey
+        # step, not just "hasn't gotten there yet." Not part of the
+        # sequential Sent->Opened->...->Paid pipeline above (a different
+        # shape — X of Y clicked, not a cumulative funnel step, and
+        # meaningless for prospects who were never gated at all) so it's
+        # its own trailing column rather than forced into that array.
+        gated_clicked = [
+            p for p in cohort
+            if p.website_status == "has_website" and p.sourcing_channel == "google_places"
+            and p.clicked_at is not None
+        ] if sent_n else []
+        if gated_clicked:
+            answered_ids = {
+                pid for (pid,) in db.query(PreGenSurveyResponse.prospect_id).filter(
+                    PreGenSurveyResponse.prospect_id.in_([p.id for p in gated_clicked])
+                ).all()
+            }
+            survey_dropped_n = sum(1 for p in gated_clicked if p.id not in answered_ids)
+            survey_clicked_n = len(gated_clicked)
+            drop_pct = _funnel_pct(survey_dropped_n, survey_clicked_n)
+            survey_cell = (
+                f'<td style="text-align:center;">'
+                f'<div style="font-size:15px;font-weight:700;{"color:#DC2626;" if survey_dropped_n else ""}">'
+                f'{survey_dropped_n}/{survey_clicked_n}</div>'
+                f'<div style="font-size:10.5px;color:#9A9893;margin-top:2px;">{drop_pct}% dropped</div></td>'
+            )
+        else:
+            survey_cell = (
+                f'<td style="text-align:center;opacity:.45;" '
+                f'title="No has_website/Google-Places prospects (the pre-gen-survey-gated cohort) clicked in this row.">'
+                f'<div style="font-size:15px;font-weight:700;">—</div></td>'
+            )
+
+        rows_html += f'<tr><td style="font-weight:600;">{escape(stage_label)}</td>{cells}{survey_cell}</tr>'
 
     header_cells = "".join(
         f'<th style="text-align:center;{"opacity:.45;" if s == "Opened" and _funnel_opened_disabled else ""}" '
         f'title="{escape(opened_disabled_title) if s == "Opened" and _funnel_opened_disabled else ""}">'
         f'{s}{" (disabled)" if s == "Opened" and _funnel_opened_disabled else ""}</th>'
         for s in _FUNNEL_STEPS
+    )
+    header_cells += (
+        '<th style="text-align:center;" '
+        'title="Of has_website/Google-Places prospects (gated behind the pre-generation survey) who clicked in this row, '
+        'how many never submitted the survey — a genuine abandonment, since submitting is what fires generation for this cohort.">'
+        'Survey drop-off</th>'
     )
 
     return f"""<div class="adm-card" style="overflow-x:auto;">
@@ -8927,6 +8972,49 @@ def job_engagement(job_id):
     finally:
         db.close()
     return "", 204
+
+
+@app.route("/api/generate/<job_id>/report-issue", methods=["POST"])
+def job_report_issue(job_id):
+    """Fire-and-forget beacon behind preview.html's "Something look off?"
+    link (added 2026-07-27, by request — a small escape hatch for genuine
+    AI-generation defects, e.g. an off colour palette, that the self-serve
+    text editor can't fix since it only ever touches data-gw-text-tagged
+    copy). The actual report goes to the admin inbox via a real mailto:
+    link the frontend opens directly — this call never blocks that, it
+    just makes sure the report doesn't ONLY exist as one email in an
+    inbox with zero later pattern-visibility: logs a ProspectEvent when
+    this generation is linked to an outreach Prospect (most direct
+    signups won't be), and always fires send_admin_preview_issue_email
+    regardless of whether a Prospect is linked. No auth — same-origin
+    browser call, nothing sensitive; worst case of abuse is a spurious
+    notification email, not a security issue."""
+    db = SessionLocal()
+    try:
+        lead = db.query(Lead).filter(Lead.public_id == job_id).first()
+        if not lead:
+            return jsonify({"error": "not found"}), 404
+
+        gen = db.query(Generation).filter(Generation.lead_id == lead.id).first()
+        business_name = (gen.business_name if gen else None) or (lead.form_data or {}).get("business_name")
+
+        prospect = db.query(Prospect).filter(Prospect.lead_id == lead.id).first()
+        if prospect:
+            _log_prospect_event(
+                db, prospect.id, "preview_issue_reported",
+                channel=_prospect_last_touch_channel(db, prospect.id),
+            )
+            db.commit()
+
+        threading.Thread(
+            target=send_admin_preview_issue_email,
+            args=(business_name, job_id, prospect.id if prospect else None),
+            daemon=True,
+        ).start()
+
+        return jsonify({"status": "ok"})
+    finally:
+        db.close()
 
 
 @app.route("/api/generate/<job_id>/preserved")
