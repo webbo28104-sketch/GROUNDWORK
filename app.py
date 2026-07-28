@@ -6864,6 +6864,22 @@ def _compute_kpis(db, range_from: datetime = None, range_to: datetime = None, ch
     else:
         never_paid_denom = checkout_abandoned_n = checkout_never_attempted_n = 0
 
+    # 8. Google Places: Clicked -> Generated — hardcoded to sourcing_channel
+    # == "google_places" regardless of the page's own source filter, since
+    # this card exists specifically to show a real generation rate for that
+    # outreach channel. Cohort is prospects who clicked within the period
+    # (same clicked_at-bounded shape as Generation -> Paid above); numerator
+    # is Prospect.lead_id being set, the durable "did they actually
+    # generate" signal (not the ProspectEvent row, which only logs the
+    # event and isn't a reliable cohort filter on its own).
+    places_cohort_q = db.query(Prospect).filter(
+        Prospect.clicked_at.isnot(None),
+        Prospect.sourcing_channel == "google_places",
+        Prospect.clicked_at >= period_start, Prospect.clicked_at <= period_end,
+    )
+    places_cohort_n = places_cohort_q.count()
+    places_gen_n = places_cohort_q.filter(Prospect.lead_id.isnot(None)).count()
+
     period_label = (
         f'{period_start.strftime("%d %b %Y")} – {period_end.strftime("%d %b %Y")}'
         if filtering else now.strftime("%B %Y")
@@ -6913,6 +6929,10 @@ def _compute_kpis(db, range_from: datetime = None, range_to: datetime = None, ch
             "abandoned_pct": _funnel_pct(checkout_abandoned_n, never_paid_denom),
             "never_attempted_pct": _funnel_pct(checkout_never_attempted_n, never_paid_denom),
             "reliable": _edit_checkout_reliable,
+        },
+        "places_gen_rate": {
+            "pct": _funnel_pct(places_gen_n, places_cohort_n),
+            "numer": places_gen_n, "denom": places_cohort_n,
         },
     }
 
@@ -6965,6 +6985,12 @@ def _render_kpi_strip(kpis: dict) -> str:
         f'{g["pct"]}%' if g["pct"] is not None else "—",
         f'{g["numer"]}/{g["denom"]} clicked' if g["denom"] else "no outreach conversions yet",
         goal_pct=10.0, actual_pct=g["pct"],
+    )
+    pg = kpis["places_gen_rate"]
+    tiles += tile(
+        "Google Places: Clicked → Generated",
+        f'{pg["pct"]}%' if pg["pct"] is not None else "—",
+        f'{pg["numer"]}/{pg["denom"]} clicked' if pg["denom"] else "no Google Places clicks yet",
     )
     tiles += tile(
         "Custom domain conversion",
