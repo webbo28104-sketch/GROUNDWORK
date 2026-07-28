@@ -6872,13 +6872,29 @@ def _compute_kpis(db, range_from: datetime = None, range_to: datetime = None, ch
     # is Prospect.lead_id being set, the durable "did they actually
     # generate" signal (not the ProspectEvent row, which only logs the
     # event and isn't a reliable cohort filter on its own).
-    places_cohort_q = db.query(Prospect).filter(
-        Prospect.clicked_at.isnot(None),
-        Prospect.sourcing_channel == "google_places",
-        Prospect.clicked_at >= period_start, Prospect.clicked_at <= period_end,
-    )
-    places_cohort_n = places_cohort_q.count()
-    places_gen_n = places_cohort_q.filter(Prospect.lead_id.isnot(None)).count()
+    #
+    # Clamped to on-or-after the pre-gen survey gate's deploy (commit
+    # f006df6, 2026-07-27 ~13:12 UTC — see _needs_pregen_survey_gate) —
+    # clicks from before the gate existed went straight into generation
+    # with no survey step at all, a different (much easier) path than what
+    # a click means today. Mixing them in would inflate this rate with
+    # conversions that never had to clear the gate this card exists to
+    # measure. Same reasoning as _EDIT_CHECKOUT_TRACKING_RELIABLE_FROM
+    # above, applied to the gate's own start rather than a tracking
+    # column's.
+    _PREGEN_SURVEY_GATE_LIVE_FROM = datetime(2026, 7, 27, 13, 12)
+    places_cohort_start = max(period_start, _PREGEN_SURVEY_GATE_LIVE_FROM)
+    places_gate_reliable = period_end >= _PREGEN_SURVEY_GATE_LIVE_FROM
+    if places_gate_reliable:
+        places_cohort_q = db.query(Prospect).filter(
+            Prospect.clicked_at.isnot(None),
+            Prospect.sourcing_channel == "google_places",
+            Prospect.clicked_at >= places_cohort_start, Prospect.clicked_at <= period_end,
+        )
+        places_cohort_n = places_cohort_q.count()
+        places_gen_n = places_cohort_q.filter(Prospect.lead_id.isnot(None)).count()
+    else:
+        places_cohort_n = places_gen_n = 0
 
     period_label = (
         f'{period_start.strftime("%d %b %Y")} – {period_end.strftime("%d %b %Y")}'
@@ -6933,6 +6949,7 @@ def _compute_kpis(db, range_from: datetime = None, range_to: datetime = None, ch
         "places_gen_rate": {
             "pct": _funnel_pct(places_gen_n, places_cohort_n),
             "numer": places_gen_n, "denom": places_cohort_n,
+            "reliable": places_gate_reliable,
         },
     }
 
@@ -6987,11 +7004,13 @@ def _render_kpi_strip(kpis: dict) -> str:
         goal_pct=10.0, actual_pct=g["pct"],
     )
     pg = kpis["places_gen_rate"]
-    tiles += tile(
-        "Google Places: Clicked → Generated",
-        f'{pg["pct"]}%' if pg["pct"] is not None else "—",
-        f'{pg["numer"]}/{pg["denom"]} clicked' if pg["denom"] else "no Google Places clicks yet",
-    )
+    if not pg["reliable"]:
+        pg_big, pg_sub = "—", "gate went live 27 Jul — pick a more recent range"
+    elif pg["denom"]:
+        pg_big, pg_sub = f'{pg["pct"]}%', f'{pg["numer"]}/{pg["denom"]} clicked'
+    else:
+        pg_big, pg_sub = "—", "no Google Places clicks yet"
+    tiles += tile("Google Places: Clicked → Generated", pg_big, pg_sub)
     tiles += tile(
         "Custom domain conversion",
         f'{d["pct"]}%' if d["pct"] is not None else "—",
