@@ -6980,49 +6980,71 @@ def _render_kpi_strip(kpis: dict) -> str:
           {goal_html}
         </div>"""
 
+    def section(title, tiles_html):
+        return (
+            f'<div class="kpi-section-label">{escape(title)}</div>'
+            f'<div class="kpi-strip">{tiles_html}</div>'
+        )
+
     e = kpis["emails_sent_month"]
     c = kpis["click_rate"]
     g = kpis["gen_paid_rate"]
     d = kpis["domain_conv_rate"]
     ch = kpis["churn_rate"]
 
-    tiles = ""
+    # Section 1: the outreach funnel itself, in the order a prospect
+    # actually moves through it — reached out, clicked, generated, paid.
+    outreach_tiles = ""
     sent_sub = e["month_label"]
     if e["bounced"]:
         sent_sub = f'{e["month_label"]} · {e["attempted"]} attempted, {e["bounced"]} bounced'
-    tiles += tile(f'Clients reached out to ({escape(kpis.get("channel_label", "email"))})', str(e["value"]), sent_sub)
-    tiles += tile(
+    outreach_tiles += tile(
+        f'Clients reached out to ({escape(kpis.get("channel_label", "email"))})', str(e["value"]), sent_sub
+    )
+    outreach_tiles += tile(
         "Magic link click rate",
         f'{c["pct"]}%' if c["pct"] is not None else "—",
         f'{c["numer"]}/{c["denom"]} sent' if c["denom"] else "no sends yet",
         goal_pct=10.0, actual_pct=c["pct"],
     )
-    tiles += tile(
+    # Only meaningful when the page isn't filtered to some other source —
+    # a Google-Places-specific card would be misleading (or literally
+    # always show "no clicks") sat under a "Socials" filter, so it's
+    # dropped entirely rather than shown zeroed-out.
+    if kpis.get("source", "all") in ("all", "google_places"):
+        pg = kpis["places_gen_rate"]
+        if not pg["reliable"]:
+            pg_big, pg_sub = "—", "gate went live 27 Jul — pick a more recent range"
+        elif pg["denom"]:
+            pg_big, pg_sub = f'{pg["pct"]}%', f'{pg["numer"]}/{pg["denom"]} clicked'
+        else:
+            pg_big, pg_sub = "—", "no Google Places clicks yet"
+        outreach_tiles += tile("Google Places: Clicked → Generated", pg_big, pg_sub)
+    outreach_tiles += tile(
         "Generation → Paid",
         f'{g["pct"]}%' if g["pct"] is not None else "—",
         f'{g["numer"]}/{g["denom"]} clicked' if g["denom"] else "no outreach conversions yet",
         goal_pct=10.0, actual_pct=g["pct"],
     )
-    pg = kpis["places_gen_rate"]
-    if not pg["reliable"]:
-        pg_big, pg_sub = "—", "gate went live 27 Jul — pick a more recent range"
-    elif pg["denom"]:
-        pg_big, pg_sub = f'{pg["pct"]}%', f'{pg["numer"]}/{pg["denom"]} clicked'
-    else:
-        pg_big, pg_sub = "—", "no Google Places clicks yet"
-    tiles += tile("Google Places: Clicked → Generated", pg_big, pg_sub)
-    tiles += tile(
+
+    # Section 2: overall business health — not a single funnel, just the
+    # two "how's the business doing right now" numbers.
+    health_tiles = ""
+    health_tiles += tile(
         "Custom domain conversion",
         f'{d["pct"]}%' if d["pct"] is not None else "—",
         f'{d["numer"]}/{d["denom"]} live sites' if d["denom"] else "no live sites yet",
     )
     ch_sub = f'{ch["numer"]} churned / {ch["denom"]} active this month'
-    tiles += tile(
+    health_tiles += tile(
         "Churn rate (month-to-date)",
         f'{ch["pct"]}%' if ch["pct"] is not None else "—",
         ch_sub,
     )
 
+    # Section 3: what a generated site actually does once it exists —
+    # edited, or ran (and got stuck in, or never reached) checkout.
+    engagement_tiles = ""
     ed = kpis["edit_rate"]
     if not ed["reliable"]:
         ed_big, ed_sub = "—", "tracking started 23 Jul — pick a more recent range"
@@ -7030,7 +7052,7 @@ def _render_kpi_strip(kpis: dict) -> str:
         ed_big, ed_sub = f'{ed["pct"]}%', f'{ed["numer"]}/{ed["denom"]} sites'
     else:
         ed_big, ed_sub = "—", "no sites yet"
-    tiles += tile("Made a real edit", ed_big, ed_sub)
+    engagement_tiles += tile("Made a real edit", ed_big, ed_sub)
 
     ab = kpis["checkout_abandon"]
     ab_denom = ab["denom"]
@@ -7043,18 +7065,26 @@ def _render_kpi_strip(kpis: dict) -> str:
     else:
         ab1_big = ab2_big = "—"
         ab1_sub = ab2_sub = "no unpaid sites yet"
-    tiles += tile("Started checkout, didn't pay", ab1_big, ab1_sub)
-    tiles += tile("Never attempted checkout", ab2_big, ab2_sub)
+    engagement_tiles += tile("Started checkout, didn't pay", ab1_big, ab1_sub)
+    engagement_tiles += tile("Never attempted checkout", ab2_big, ab2_sub)
+
+    sections = (
+        section("Outreach funnel", outreach_tiles)
+        + section("Business health", health_tiles)
+        + section("Post-generation engagement", engagement_tiles)
+    )
 
     return f"""<style>
-.kpi-strip{{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-bottom:24px;}}
+.kpi-section-label{{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#807E79;margin:0 0 8px;}}
+.kpi-section-label:not(:first-child){{margin-top:22px;}}
+.kpi-strip{{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-bottom:6px;}}
 .kpi-tile{{background:#fff;border:1px solid #E2E0DA;border-radius:12px;padding:16px 18px;}}
 .kpi-label{{font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#9A9893;margin-bottom:8px;}}
 .kpi-value{{font-size:26px;font-weight:800;letter-spacing:-.02em;color:#1C1C1C;line-height:1;margin-bottom:6px;}}
 .kpi-sub{{font-size:12px;color:#807E79;}}
 @media (max-width: 980px){{.kpi-strip{{grid-template-columns:repeat(2,1fr);}}}}
 </style>
-<div class="kpi-strip">{tiles}</div>"""
+<div class="kpi-sections" style="margin-bottom:24px;">{sections}</div>"""
 
 
 _FUNNEL_STAGES = list(STAGE_LABELS.items())
