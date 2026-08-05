@@ -9019,6 +9019,14 @@ def outreach_get_log_run():
         db.close()
 
 
+
+# Grace window before job_status will treat a missing-from-memory,
+# not-yet-persisted job as orphaned rather than "hasn't started logging yet".
+# Covers the (tiny in practice) race between /verify's DB commit and the
+# background thread's first _jobs write, not real generation time.
+_ORPHAN_RECOVERY_GRACE_SECONDS = 90
+
+
 @app.route("/api/generate/<job_id>/status")
 def job_status(job_id):
     with _jobs_lock:
@@ -9034,6 +9042,34 @@ def job_status(job_id):
         gen = db.query(Generation).join(Lead).filter(Lead.public_id == job_id).first()
         if gen:
             return jsonify({"status": "done"})
+
+        # No in-memory job AND no persisted Generation. If a Lead exists,
+        # verified, and old enough, its background generation thread died
+        # without persisting anything — most commonly a deploy restarting
+        # the container mid-generation (background threads aren't part of
+        # what Railway drains for), but any crash/OOM has the same shape.
+        # Previously this left the lead permanently stuck (loading.html
+        # polls this endpoint forever, 404 with no recovery path — this bit
+        # a real prospect on 2026-08-05). Self-heal by re-kicking it once,
+        # guarded by an atomic claim on _jobs so concurrent polls can't
+        # double-kick the same job.
+        lead = db.query(Lead).filter(Lead.public_id == job_id).first()
+        if (
+            lead and lead.status == "verified"
+            and (datetime.utcnow() - lead.created_at).total_seconds() > _ORPHAN_RECOVERY_GRACE_SECONDS
+        ):
+            with _jobs_lock:
+                already_claimed = job_id in _jobs
+                if not already_claimed:
+                    _jobs[job_id] = {"status": "pending"}
+            if not already_claimed:
+                app.logger.warning(
+                    f"job_status: recovering orphaned generation for lead {lead.id} "
+                    f"(public_id={job_id}) — no _jobs entry, no Generation row, "
+                    f"verified {(datetime.utcnow() - lead.created_at).total_seconds():.0f}s ago"
+                )
+                _kickoff_generation(lead)
+            return jsonify({"status": "pending"})
     finally:
         db.close()
     return jsonify({"status": "not_found"}), 404
