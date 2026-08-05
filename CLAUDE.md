@@ -1,6 +1,6 @@
 # Groundwork — project overview
 
-Groundwork generates AI-built marketing websites for UK trades businesses. A user fills in an 8-step form; the submission is gated behind email verification before any Claude API call fires; once verified, the Flask backend calls the Anthropic API, and the generated single-file HTML is persisted to Postgres and served (watermarked, noindex) as a direct link the user opens in a new tab.
+Groundwork generates AI-built marketing websites for UK trades businesses. A user fills in an 8-step form; the submission is gated behind email verification before any API call fires; once verified, the Flask backend runs a two-phase generation (Anthropic for research, DeepSeek for the actual site build — see "The generation flow" and "API model" below), and the generated single-file HTML is persisted to Postgres and served (watermarked, noindex) as a direct link the user opens in a new tab.
 
 ## Architecture
 
@@ -14,7 +14,8 @@ Groundwork generates AI-built marketing websites for UK trades businesses. A use
 
 ## Key environment variables
 
-- `ANTHROPIC_API_KEY` — must be set in Railway. Never hardcode.
+- `ANTHROPIC_API_KEY` — must be set in Railway. Used only for Phase 1 research (web search + logo vision) in `_run_research()` (`app.py`) — never hardcode.
+- `DEEPSEEK_API_KEY` — must be set in Railway. Used for Phase 2 site build (`_run_site_build()` in `app.py`, `deepseek-chat` via the OpenAI-compatible SDK, `base_url=https://api.deepseek.com`) — never hardcode.
 - `DATABASE_URL` — Postgres connection string, set automatically by Railway's Postgres plugin. Falls back to a local `sqlite:///local_dev.db` if unset (dev only).
 - `SECRET_KEY` — signs Flask sessions and magic-link tokens (`itsdangerous`). Must be set in production — the code falls back to an insecure dev default otherwise.
 - `RESEND_API_KEY` / `RESEND_FROM_EMAIL` — for verification and resend emails via Resend. If `RESEND_API_KEY` is unset, sends are skipped and logged instead of failing. `RESEND_FROM_EMAIL` must be an address on a domain verified in Resend (DNS-verified) or sends will fail even with a valid API key.
@@ -36,7 +37,7 @@ Groundwork generates AI-built marketing websites for UK trades businesses. A use
    - signs a 24h token (`itsdangerous.URLSafeTimedSerializer`) encoding the lead id, emails a verification link via Resend, and returns `{"status": "check_email"}`.
    - Frontend redirects to `check-email.html?email=...`.
 
-3. **`GET /verify/<token>`** — validates signature + 24h expiry. Invalid/expired → redirects to `verify-error.html?reason=invalid|expired`. Valid → marks the lead verified, rebuilds the prompt from the stored form data, and starts the same background-thread Claude call as before, keyed by `lead.public_id` (reused as the job id everywhere downstream) — then redirects to `loading.html?id=<public_id>`. If the lead already has a generation (token reused/idempotent), redirects straight to `preview.html?id=<public_id>`.
+3. **`GET /verify/<token>`** — validates signature + 24h expiry. Invalid/expired → redirects to `verify-error.html?reason=invalid|expired`. Valid → marks the lead verified, and starts the same background-thread two-phase generation as before (`_kickoff_generation` → `_run_and_persist` → `_run`), keyed by `lead.public_id` (reused as the job id everywhere downstream) — then redirects to `loading.html?id=<public_id>`. If the lead already has a generation (token reused/idempotent), redirects straight to `preview.html?id=<public_id>`.
 
 4. **Loading page** (`frontend/loading.html`) — unchanged: polls `GET /api/generate/<id>/status` every 2s, redirects to `preview.html?id=<id>` on `"done"`.
 
@@ -75,12 +76,25 @@ Groundwork generates AI-built marketing websites for UK trades businesses. A use
 - `/admin/generations` — table of every `Generation` row (business, email, created_at, status) with links to `/admin/generations/<id>/html` (rendered) and `/admin/generations/<id>/form-data` (raw JSON that produced it). Rows whose `Lead.is_test` is true show a "TEST" badge. All admin routes are session-gated via the `admin_required` decorator and are not linked from any public page/nav.
 - `/admin/generate-test` (GET form, POST submits) — admin-only tool to generate test sites without burning a real verification email or hitting the one-generation-per-email block. It creates a `Lead` with `status="verified"` and `is_test=True` directly (skipping `/api/generate`'s repeat-generation check entirely, since that check lives solely in that one endpoint) and kicks off the same background Claude call as `/verify/<token>`. Not reachable or linked from anywhere public — this is intentionally not the same code path the public form uses, so the real block is never weakened.
 
-## API model
+## API model — two-phase generation (Anthropic research → DeepSeek build)
 
+Split 2026-08-05: DeepSeek has neither a server-side web search tool nor vision input, so those two capabilities stay on Anthropic; everything else (the actual design/copy/HTML writing) moved to DeepSeek to cut cost. `_run()` in `app.py` runs both phases in sequence on the same background thread/job id.
+
+**Phase 1 — research (`_run_research()`, Anthropic):**
 - Model: `claude-sonnet-4-6`
 - Tools: `web_search_20250305` (Anthropic server-side search)
-- Max tokens: 16 000
-- Logo (if uploaded) is read back from disk at verify-time, full resolution, and passed as a base64 vision input block before the text prompt — used only for palette extraction. This is separate from the embedded logo image described below.
+- Max tokens: 8 000 per turn, up to 15 turns
+- Logo (if uploaded) is read back from disk at verify-time, full resolution, and passed as a base64 vision input block alongside `build_prompt.build_research_prompt()` — used only for palette extraction (2-4 real hex colours + description). This is separate from the embedded logo image described below.
+- Verifies claims via search, finds a public email/reviews if not already known, and outputs plain-text findings only — never HTML. `build_prompt.py`'s docstring has the full research-prompt spec.
+
+**Phase 2 — site build (`_run_site_build()`, DeepSeek):**
+- Model: `deepseek-chat`, via the OpenAI-compatible SDK (`openai.OpenAI(base_url="https://api.deepseek.com")`)
+- No tools, no image input — takes Phase 1's research findings as plain text (`build_prompt.build_site_prompt()`) and does all design/copy/HTML work from FORM DATA + those findings only.
+- Max tokens: 8 000 per turn, continuation loop up to 15 turns on a `length` finish reason (same "continue exactly where you stopped" pattern the old single-phase loop used).
+
+`_estimate_generation_cost_usd()` sums both phases' token usage against their own published per-token rates (`_SONNET_PRICE_PER_MTOK`, `_DEEPSEEK_PRICE_PER_MTOK` — the latter should be checked against `https://api-docs.deepseek.com/quick_start/pricing` periodically, DeepSeek has changed it before).
+
+**`test_caching.py`** (Anthropic prompt-caching benchmark script) was NOT updated in this split — it still imports the old single `build_prompt` function, which no longer exists, so it's currently broken. It's dev-only tooling (not run in production), left as-is until someone needs it again.
 
 ### Image persistence (logo + portfolio photos)
 

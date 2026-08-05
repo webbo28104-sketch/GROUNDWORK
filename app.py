@@ -28,7 +28,7 @@ from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from markupsafe import escape
 from werkzeug.security import generate_password_hash, check_password_hash
 
-from build_prompt import build_prompt, PROMPT_VERSION_HASH
+from build_prompt import build_research_prompt, build_site_prompt, PROMPT_VERSION_HASH
 from outreach.site_extract import extract_site_assets
 from models import SessionLocal, Lead, Generation, Account, GenerationImage, Domain, Prospect, SearchCell, PendingEmailDiscovery, EmailEventLog, OutreachTouch, DailySendCount, RampState, SmsDeliveryEvent, SurveyResponse, PreGenSurveyResponse, DiscoveryRunLog, InboundReply, EmailVariant, EvidenceFinding, OptimizerRunLog, PromptApproval, ProspectEvent, init_db
 from emails import (send_verification_email, send_resend_email, send_password_reset_email,
@@ -1063,9 +1063,10 @@ def _build_media_placeholders(job_dir, logo_path):
 
 
 # claude-sonnet-4-6 published per-token pricing, $/million tokens — used to
-# estimate each generation's API cost (app.py has no Anthropic Admin API key
-# to pull a real usage/cost figure, so this is computed from token counts
-# already logged in _run() x these published rates).
+# estimate the Phase 1 (research: web search + logo vision) API cost (app.py
+# has no Anthropic Admin API key to pull a real usage/cost figure, so this is
+# computed from token counts already logged in _run_research() x these
+# published rates).
 _SONNET_PRICE_PER_MTOK = {
     "input": 3.00,
     "output": 15.00,
@@ -1073,100 +1074,157 @@ _SONNET_PRICE_PER_MTOK = {
     "cache_read": 0.30,
 }
 
+# deepseek-chat published per-token pricing, $/million tokens — used to
+# estimate the Phase 2 (site build) API cost. Verify against
+# https://api-docs.deepseek.com/quick_start/pricing before trusting exactly —
+# DeepSeek has changed these rates before.
+_DEEPSEEK_PRICE_PER_MTOK = {
+    "input_cache_miss": 0.27,
+    "input_cache_hit": 0.07,
+    "output": 1.10,
+}
+
 
 def _estimate_generation_cost_usd(usage_totals: dict) -> float:
     p = _SONNET_PRICE_PER_MTOK
-    return (
+    dp = _DEEPSEEK_PRICE_PER_MTOK
+    anthropic_cost = (
         usage_totals.get("input_tokens", 0) * p["input"]
         + usage_totals.get("output_tokens", 0) * p["output"]
         + usage_totals.get("cache_creation_input_tokens", 0) * p["cache_write"]
         + usage_totals.get("cache_read_input_tokens", 0) * p["cache_read"]
-    ) / 1_000_000
+    )
+    deepseek_cost = (
+        usage_totals.get("ds_input_cache_miss_tokens", 0) * dp["input_cache_miss"]
+        + usage_totals.get("ds_input_cache_hit_tokens", 0) * dp["input_cache_hit"]
+        + usage_totals.get("ds_output_tokens", 0) * dp["output"]
+    )
+    return (anthropic_cost + deepseek_cost) / 1_000_000
 
 
-def _run(job_id, prompt, logo_b64, logo_mime):
+def _run_research(job_id, form_data, logo_b64, logo_mime, usage_totals):
+    """Phase 1: Anthropic, web_search tool + optional vision logo. Produces
+    plain-text research findings — never HTML. Kept on Anthropic because
+    DeepSeek has neither a server-side web search tool nor vision input."""
     client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
-    usage_totals = {"input_tokens": 0, "output_tokens": 0, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}
+    research_prompt = build_research_prompt(form_data, has_logo=bool(logo_b64 and logo_mime))
+
+    content = []
+    if logo_b64 and logo_mime:
+        content.append({
+            "type": "image",
+            "source": {"type": "base64", "media_type": logo_mime, "data": logo_b64},
+        })
+    content.append({"type": "text", "text": research_prompt, "cache_control": {"type": "ephemeral"}})
+
+    messages = [{"role": "user", "content": content}]
+    accumulated_text = ""
+
+    for _ in range(15):
+        resp = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=8000,
+            tools=[{"type": "web_search_20250305", "name": "web_search"}],
+            messages=messages,
+        )
+
+        u = resp.usage
+        usage_totals["input_tokens"] += u.input_tokens
+        usage_totals["output_tokens"] += u.output_tokens
+        usage_totals["cache_creation_input_tokens"] += getattr(u, "cache_creation_input_tokens", 0) or 0
+        usage_totals["cache_read_input_tokens"] += getattr(u, "cache_read_input_tokens", 0) or 0
+        app.logger.info(
+            f"Generation {job_id} research turn usage: "
+            f"in={u.input_tokens} out={u.output_tokens} "
+            f"cache_write={getattr(u,'cache_creation_input_tokens',0)} "
+            f"cache_read={getattr(u,'cache_read_input_tokens',0)}"
+        )
+
+        for block in resp.content:
+            if hasattr(block, "text"):
+                accumulated_text += block.text
+
+        if resp.stop_reason == "end_turn":
+            break
+
+        assistant_blocks = []
+        last_text_idx = None
+        for i, block in enumerate(resp.content):
+            b = block.model_dump(exclude_none=True) if hasattr(block, "model_dump") else dict(block)
+            if b.get("type") == "text":
+                last_text_idx = i
+            assistant_blocks.append(b)
+        if last_text_idx is not None:
+            assistant_blocks[last_text_idx]["cache_control"] = {"type": "ephemeral"}
+        messages.append({"role": "assistant", "content": assistant_blocks})
+
+        if resp.stop_reason == "max_tokens":
+            app.logger.warning(f"Generation {job_id}: research max_tokens hit, requesting continuation")
+            messages.append({"role": "user", "content": [{"type": "text", "text": "Continue exactly where you stopped, with no repeated content."}]})
+            continue
+
+        tool_results = [
+            {"type": "tool_result", "tool_use_id": b["id"], "content": ""}
+            for b in assistant_blocks
+            if b.get("type") == "tool_use"
+        ]
+        if tool_results:
+            messages.append({"role": "user", "content": tool_results})
+        else:
+            break
+
+    return accumulated_text
+
+
+def _run_site_build(job_id, form_data, research_findings, usage_totals):
+    """Phase 2: DeepSeek, plain text completion (no tools, no image input).
+    Writes the actual HTML from FORM DATA + Phase 1's research findings."""
+    import openai
+    client = openai.OpenAI(api_key=os.environ["DEEPSEEK_API_KEY"], base_url="https://api.deepseek.com")
+    site_prompt = build_site_prompt(form_data, research_findings)
+
+    messages = [{"role": "user", "content": site_prompt}]
+    accumulated_text = ""
+
+    for _ in range(15):
+        resp = client.chat.completions.create(
+            model="deepseek-chat",
+            max_tokens=8000,
+            messages=messages,
+        )
+
+        choice = resp.choices[0]
+        u = resp.usage
+        cached = getattr(u, "prompt_cache_hit_tokens", 0) or 0
+        usage_totals["ds_input_cache_hit_tokens"] += cached
+        usage_totals["ds_input_cache_miss_tokens"] += max((u.prompt_tokens or 0) - cached, 0)
+        usage_totals["ds_output_tokens"] += u.completion_tokens or 0
+        app.logger.info(
+            f"Generation {job_id} site-build turn usage: "
+            f"in={u.prompt_tokens} out={u.completion_tokens} cache_hit={cached}"
+        )
+
+        piece = choice.message.content or ""
+        accumulated_text += piece
+
+        if choice.finish_reason != "length":
+            break
+
+        app.logger.warning(f"Generation {job_id}: site-build max_tokens hit, requesting continuation")
+        messages.append({"role": "assistant", "content": piece})
+        messages.append({"role": "user", "content": "The response was cut off by the token limit. Please continue the HTML from exactly where you stopped — complete all remaining open tags and sections without repeating any content already written. Your continuation is concatenated directly onto the end of what you already wrote, character for character, with nothing inserted between them — so if the cutoff happened mid-string, mid-attribute, or mid-token (e.g. right after a quote character inside a JS string literal), continue with the literal next character(s) that belong there, with zero leading whitespace, newline, or reformatting of any kind. A stray newline inserted inside a single-quoted JS string is invalid syntax and will break the entire script on the page — resume the exact raw text as if it had never been interrupted, not as a fresh line of output."})
+
+    return accumulated_text
+
+
+def _run(job_id, form_data, logo_b64, logo_mime):
+    usage_totals = {
+        "input_tokens": 0, "output_tokens": 0, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0,
+        "ds_input_cache_miss_tokens": 0, "ds_input_cache_hit_tokens": 0, "ds_output_tokens": 0,
+    }
     try:
-        content = []
-        if logo_b64 and logo_mime:
-            content.append({
-                "type": "image",
-                "source": {"type": "base64", "media_type": logo_mime, "data": logo_b64},
-            })
-        # Mark the prompt for caching.  Every subsequent turn in this loop
-        # re-sends the full message history; without a cache breakpoint the
-        # entire prompt is billed as fresh input on every continuation turn.
-        # With caching: turn 1 pays cache_write (1.25× base cost), turns 2+
-        # pay cache_read (0.1× base cost) — net saving starts at turn 3.
-        content.append({"type": "text", "text": prompt, "cache_control": {"type": "ephemeral"}})
-
-        messages = [{"role": "user", "content": content}]
-        accumulated_text = ""
-
-        for _ in range(15):
-            resp = client.messages.create(
-                model="claude-sonnet-4-6",
-                max_tokens=16000,
-                tools=[{"type": "web_search_20250305", "name": "web_search"}],
-                messages=messages,
-            )
-
-            u = resp.usage
-            usage_totals["input_tokens"] += u.input_tokens
-            usage_totals["output_tokens"] += u.output_tokens
-            usage_totals["cache_creation_input_tokens"] += getattr(u, "cache_creation_input_tokens", 0) or 0
-            usage_totals["cache_read_input_tokens"] += getattr(u, "cache_read_input_tokens", 0) or 0
-            app.logger.info(
-                f"Generation {job_id} turn usage: "
-                f"in={u.input_tokens} out={u.output_tokens} "
-                f"cache_write={getattr(u,'cache_creation_input_tokens',0)} "
-                f"cache_read={getattr(u,'cache_read_input_tokens',0)}"
-            )
-
-            # Collect any text from this turn
-            for block in resp.content:
-                if hasattr(block, "text"):
-                    accumulated_text += block.text
-
-            if resp.stop_reason == "end_turn":
-                break
-
-            # Serialise content blocks to plain dicts so we can attach
-            # cache_control.  Mark the last text block — typically the partial
-            # HTML on a max_tokens turn — so the accumulated output is also
-            # served from cache on the next continuation rather than re-billed
-            # as fresh input tokens.
-            assistant_blocks = []
-            last_text_idx = None
-            for i, block in enumerate(resp.content):
-                b = block.model_dump(exclude_none=True) if hasattr(block, "model_dump") else dict(block)
-                if b.get("type") == "text":
-                    last_text_idx = i
-                assistant_blocks.append(b)
-            if last_text_idx is not None:
-                assistant_blocks[last_text_idx]["cache_control"] = {"type": "ephemeral"}
-            messages.append({"role": "assistant", "content": assistant_blocks})
-
-            if resp.stop_reason == "max_tokens":
-                # Output was cut off — ask Claude to continue from exactly where
-                # it stopped. This handles long site generations that exceed the
-                # per-turn token limit; the loop will keep asking until the HTML
-                # is complete (end_turn) or the 15-turn ceiling is hit.
-                app.logger.warning(f"Generation {job_id}: max_tokens hit, requesting continuation")
-                messages.append({"role": "user", "content": [{"type": "text", "text": "The response was cut off by the token limit. Please continue the HTML from exactly where you stopped — complete all remaining open tags and sections without repeating any content already written. Your continuation is concatenated directly onto the end of what you already wrote, character for character, with nothing inserted between them — so if the cutoff happened mid-string, mid-attribute, or mid-token (e.g. right after a quote character inside a JS string literal), continue with the literal next character(s) that belong there, with zero leading whitespace, newline, or reformatting of any kind. A stray newline inserted inside a single-quoted JS string is invalid syntax and will break the entire script on the page — resume the exact raw text as if it had never been interrupted, not as a fresh line of output."}]})
-                continue
-
-            # Continue conversation for tool_use turns
-            tool_results = [
-                {"type": "tool_result", "tool_use_id": b["id"], "content": ""}
-                for b in assistant_blocks
-                if b.get("type") == "tool_use"
-            ]
-            if tool_results:
-                messages.append({"role": "user", "content": tool_results})
-            else:
-                break
+        research_findings = _run_research(job_id, form_data, logo_b64, logo_mime, usage_totals)
+        accumulated_text = _run_site_build(job_id, form_data, research_findings, usage_totals)
 
         # Extract HTML block
         lower = accumulated_text.lower()
@@ -1317,8 +1375,8 @@ def _data_uri_mime(data_uri: str) -> str:
     return data_uri.split(";", 1)[0].removeprefix("data:") if data_uri.startswith("data:") else ""
 
 
-def _run_and_persist(job_id, lead_id, email, business_name, prompt, logo_b64, logo_mime, image_placeholders=None):
-    _run(job_id, prompt, logo_b64, logo_mime)
+def _run_and_persist(job_id, lead_id, email, business_name, form_data, logo_b64, logo_mime, image_placeholders=None):
+    _run(job_id, form_data, logo_b64, logo_mime)
     with _jobs_lock:
         job = _jobs.get(job_id)
     if not job or job.get("status") != "done":
@@ -1565,12 +1623,11 @@ def _kickoff_generation(lead):
     build_data = dict(lead.form_data)
     media_overrides, image_placeholders = _build_media_placeholders(job_dir, lead.logo_path)
     build_data.update(media_overrides)
-    prompt = build_prompt(build_data)
 
-    # Original-resolution logo bytes, sent as vision input so Claude can
-    # extract a real colour palette from it (separate from the resized/
-    # background-processed data URI above, which is what actually gets
-    # embedded in the HTML).
+    # Original-resolution logo bytes, sent as vision input so the Phase 1
+    # research pass (Anthropic) can extract a real colour palette from it
+    # (separate from the resized/background-processed data URI above, which
+    # is what actually gets embedded in the HTML).
     logo_b64 = None
     if lead.logo_path:
         logo_file_path = os.path.join(job_dir, lead.logo_path)
@@ -1583,7 +1640,7 @@ def _kickoff_generation(lead):
 
     t = threading.Thread(
         target=_run_and_persist,
-        args=(lead.public_id, lead.id, lead.email, build_data.get("business_name", ""), prompt, logo_b64, lead.logo_mime, image_placeholders),
+        args=(lead.public_id, lead.id, lead.email, build_data.get("business_name", ""), build_data, logo_b64, lead.logo_mime, image_placeholders),
         daemon=True,
     )
     t.start()

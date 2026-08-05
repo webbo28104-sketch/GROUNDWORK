@@ -1,10 +1,21 @@
 """
-Groundwork — production site-generation prompt.
+Groundwork — production site-generation prompts.
 
-This is the actual prompt sent to Claude when a client's form is submitted.
-It is the distilled version of SITE_GENERATION_SPEC.md — instructions only,
-no commentary or history. Update this file when the spec doc changes;
-don't send the spec doc itself to the API.
+Generation is a two-phase pipeline:
+  Phase 1 (Anthropic, build_research_prompt) — web search + logo vision.
+    Claude has no design/build instructions here at all; its only job is to
+    verify claims, find real reviews/email if missing, and describe a logo
+    palette. Output is plain text findings, never HTML.
+  Phase 2 (DeepSeek, build_site_prompt) — takes the Phase 1 findings as
+  verified text (no search tool, no image input) and does all of the actual
+  design/copy/HTML work.
+
+This split exists because DeepSeek has no server-side web search tool and no
+vision input — Anthropic is kept for those two capabilities only; everything
+else moved off the metered Anthropic call by request (2026-08-05).
+
+Update this file when SITE_GENERATION_SPEC.md changes; don't send the spec
+doc itself to either API.
 """
 import hashlib
 from datetime import datetime
@@ -21,44 +32,13 @@ with open(__file__, "rb") as _f:
     PROMPT_VERSION_HASH = hashlib.sha256(_f.read()).hexdigest()[:16]
 
 
-def build_prompt(form_data: dict) -> str:
-    """
-    form_data keys expected:
-    business_name, trade, location, coverage_area, phone, email,
-    logo_uploaded (bool), portfolio_uploaded (bool),
-    work_split (plain-language string, e.g. "30% domestic / 70% commercial"),
-    craft_prestige, team_size,
-    large_commercial_contracts (bool), urgency,
-    years_trading, claimed_accreditations, claimed_projects, other_notes
-
-    Optional media-reference keys (not printed in the generic facts list —
-    rendered in their own MEDIA REFERENCES section instead):
-    logo_src_token (str) — literal placeholder string to use verbatim as the
-        logo <img> src; substituted for the real data URI after generation.
-    photo_src_tokens (list[str]) — literal placeholder strings, one per
-        portfolio photo, in display order; substituted the same way.
-    """
-    # google_reviews/google_opening_hours are structured (list of dicts /
-    # list of strings) — rendered in their own sections below, not dumped
-    # into the generic "- key: value" facts list (which would print as an
-    # ugly, token-wasting Python repr). google_rating/google_review_count/
-    # google_primary_type/google_earliest_review_date are plain scalars and
-    # print fine in the generic list, so they're deliberately NOT excluded.
+def _facts_block(form_data: dict) -> str:
     MEDIA_KEYS = {"logo_src_token", "photo_src_tokens", "logo_bg_hex", "logo_accent_hex", "commercial_lean"}
     STRUCTURED_KEYS = {"google_reviews", "google_opening_hours"}
+    return "\n".join(f"- {k}: {v}" for k, v in form_data.items() if v and k not in MEDIA_KEYS | STRUCTURED_KEYS)
 
-    facts = "\n".join(f"- {k}: {v}" for k, v in form_data.items() if v and k not in MEDIA_KEYS | STRUCTURED_KEYS)
-    current_year = datetime.now().year
 
-    # Real Google review data, pulled at sourcing time from the Places API
-    # (Enterprise + Atmosphere tier, added 2026-07-23 — see
-    # outreach/sourcer.py) for outreach-originated prospects. Zero
-    # additional cost/latency vs the old web_search-based lookup, and more
-    # reliable (verbatim quotes we already fetched, not re-derived at
-    # generation time). Only present for prospects Places actually returned
-    # reviews for — direct-signup traffic (no Prospect row at all) and
-    # outreach prospects with no fetched reviews still fall back to Step
-    # 4.6a's web_search instruction below.
+def _google_sections(form_data: dict) -> tuple[str, str]:
     google_reviews = form_data.get("google_reviews") or []
     google_reviews_section = ""
     if google_reviews:
@@ -75,6 +55,71 @@ def build_prompt(form_data: dict) -> str:
         opening_hours_section = "\n=== REAL GOOGLE BUSINESS HOURS (already verified) ===\n" + "\n".join(
             f"- {line}" for line in google_opening_hours
         ) + "\n"
+
+    return google_reviews_section, opening_hours_section
+
+
+def build_research_prompt(form_data: dict, has_logo: bool) -> str:
+    """
+    Phase 1 (Anthropic, web_search tool + optional vision logo image sent
+    alongside this prompt). Produces plain-text findings only — no HTML, no
+    design decisions beyond describing a logo palette.
+
+    form_data keys used: business_name, trade, location, coverage_area,
+    plus whatever other facts (see _facts_block), and optionally
+    google_reviews / google_opening_hours (already-verified, pre-fetched —
+    skip searching for reviews if these are present).
+    """
+    facts = _facts_block(form_data)
+    google_reviews_section, opening_hours_section = _google_sections(form_data)
+    have_reviews_already = bool(form_data.get("google_reviews"))
+
+    logo_instruction = ""
+    if has_logo:
+        logo_instruction = """
+=== LOGO PALETTE ===
+A logo image is attached to this message. Extract a real colour palette from it:
+- Distinguish the logo's mark/lettering colour from an incidental dark backdrop (a black square behind a single light mark is usually just a presentation crop, not a brand colour). Default to describing a light-surface theme built from the mark's actual colour unless the dark tone is clearly woven into the lettering/composition itself.
+- Report 2-4 real hex colours pulled from the image (base/surface, primary mark colour, any secondary accent), plus a one-line description of which is which and how they should relate to each other (e.g. "use as a light-surface theme, mark colour as primary accent").
+"""
+
+    return f"""You are doing pre-generation research for a single-page marketing website for a UK trades/construction business. Do NOT write any HTML or design copy — this is a research-only pass. A second system will use your findings to write the actual site.
+
+FORM DATA:
+{facts}
+{google_reviews_section}{opening_hours_section}
+=== TASK 1: VERIFY ===
+Use web search (2-4 targeted searches max) to:
+1. Confirm this is the correct business — disambiguate from any similarly-named businesses before using anything found online. If multiple businesses share a similar name, note this explicitly and never conflate them.
+2. Check accreditation bodies relevant to their specific trade (only relevant ones, not a blind sweep).
+3. If they listed any claimed accreditations/projects/clients, verify those specific claims.
+4. Look for a verified public email address for the business (their own site, official listing, etc.) if one wasn't already given in FORM DATA.
+5. If you find a specific named building, landmark, or notable project the company has worked on (e.g. a listed building, an award entry, a named institution), note it by name — do not invent one.
+Do not search beyond this. Do not go looking for extra material if nothing was claimed.
+
+=== TASK 2: REVIEWS ===
+{"REAL GOOGLE REVIEWS are already provided above (pre-fetched and verified) — do not search for reviews, just note that they're already covered." if have_reviews_already else 'Search "[business name] [location] google reviews" (or the business\'s own site) for up to 3 genuine, individually-sourced, verbatim customer quotes with attribution (reviewer name/initial) and star rating if shown. Only include a quote if you can point to where it came from. If you find an aggregate rating/review count but no quotable individual reviews, report the aggregate only. If you find nothing genuine, say so plainly — do not invent a quote, name, or rating.'}
+
+=== TASK 3: SOURCE LIST ===
+Write a short bullet list of every factual claim you found (not already in FORM DATA) and where it came from (URL). If a claim can't be sourced, don't include it.
+{logo_instruction}
+Output format — plain text, in this order:
+1. VERIFIED FACTS: bullets, each with its source.
+2. REVIEWS FOUND: verbatim quotes with attribution, or "none found" / the aggregate-only line, or "already provided" if applicable.
+3. EMAIL: the verified email address if found, or "none found".
+4. LOGO PALETTE: the hex colours and description (only if a logo was attached).
+Nothing else — no HTML, no design suggestions beyond the logo palette, no commentary."""
+
+
+def build_site_prompt(form_data: dict, research_findings: str) -> str:
+    """
+    Phase 2 (DeepSeek, plain text completion — no tools, no image input).
+    Takes Phase 1's research_findings as the only source of verified facts
+    beyond FORM DATA/REAL GOOGLE * sections; does all design/copy/HTML work.
+    """
+    facts = _facts_block(form_data)
+    current_year = datetime.now().year
+    google_reviews_section, opening_hours_section = _google_sections(form_data)
 
     logo_src_token = form_data.get("logo_src_token")
     photo_src_tokens = form_data.get("photo_src_tokens") or []
@@ -116,23 +161,18 @@ def build_prompt(form_data: dict) -> str:
     if media_lines:
         media_references_section = "\n=== MEDIA REFERENCES ===\n" + "\n".join(media_lines) + "\n"
 
-    return f"""You are generating a single-page marketing website for a UK trades/construction business, from their sign-up form data below.
+    return f"""You are generating a single-page marketing website for a UK trades/construction business, from their sign-up form data and pre-verified research below. You have no search tool and no image input — use ONLY the facts given here. Never search, guess, or fabricate anything beyond what's provided.
 
 FORM DATA:
 {facts}
 {google_reviews_section}{opening_hours_section}
-=== STEP 1: VERIFY ===
-Use web search (2-4 targeted searches max) to:
-1. Confirm this is the correct business — disambiguate from any similarly-named businesses before using anything found online.
-2. Check accreditation bodies relevant to their specific trade (only relevant ones, not a blind sweep).
-3. If they listed any claimed accreditations/projects/clients, verify those specific claims.
-4. Look for a verified public email address for the business (their own site, official listing, etc.). If no verified public email address is found, omit the email field from the contact section entirely — do not display placeholder text, example addresses, or any invented email. Phone number only is acceptable.
-Do not search beyond this. Do not go looking for extra material if nothing was claimed.
+=== RESEARCH FINDINGS (pre-verified, from a separate research pass) ===
+{research_findings}
 
-=== STEP 2: LIST YOUR SOURCES ===
-Before writing any HTML, write a short bullet list of every factual claim you plan to put on the site, and where it came from (form field, or search result with URL). If a claim has no source, delete it or rephrase it generically. This includes operational claims like response times, turnaround, availability — not just credentials. This step is mandatory and must be visible in your output before the HTML.
+=== STEP 1: LIST YOUR SOURCES ===
+Before writing any HTML, write a short bullet list of every factual claim you plan to put on the site, and where it came from (FORM DATA field, or RESEARCH FINDINGS). If a claim has no source in either of those, delete it or rephrase it generically. This includes operational claims like response times, turnaround, availability — not just credentials. This step is mandatory and must be visible in your output before the HTML. If RESEARCH FINDINGS includes a verified email address and FORM DATA has none, use it in the contact section; otherwise phone number only — never display placeholder text, example addresses, or any invented email.
 
-=== STEP 3: SET THE DESIGN ===
+=== STEP 2: SET THE DESIGN ===
 Three dials come directly from the form — do not re-derive them:
 - PRESTIGE (from craft_prestige) — controls type distinctiveness and ornamentation level.
 - SCALE (from team_size + large_commercial_contracts) — controls layout density and how much "evidence" structure (stat bars, capability grids) is shown.
@@ -148,7 +188,7 @@ TYPE — pick one pairing matching the PRESTIGE level, rotate, don't reuse the s
 - Low prestige: Inter / DM Sans / Manrope / Plus Jakarta Sans (display+body same family)
 
 PALETTE:
-- If a logo was uploaded: extract its real colours as the base. IMPORTANT — distinguish the logo's mark/lettering colour from an incidental dark backdrop (a black square behind a single light mark is usually just a presentation crop, not a brand colour). Default to a light-surface theme built from the mark's actual colour unless the dark tone is clearly woven into the lettering/composition itself.
+- If RESEARCH FINDINGS includes a LOGO PALETTE, use those exact hex colours as the base and follow its guidance on which is base/primary/accent.
 - If no logo, use the trade's real material vocabulary (lead=charcoal/grey-blue, render/plaster=warm putty tones, timber=warm wood tones, structural metal/roofing=zinc grey/graphite, scaffolding/steel=steel grey-blue+safety amber, masonry=brick/sandstone). If the trade has no obvious material (electrician, plumber, locksmith), pick one confident accent not overused, paired with neutral grey/white.
 - Modulate saturation by PRESTIGE (high=restrained/near-monochrome with one sparing accent; low=bolder, more saturated, accent used often).
 - Modulate structural colour count by SCALE (sole trader=one accent only; large=accent + secondary category colour + neutral structural greys).
@@ -178,8 +218,8 @@ MOBILE — most people opening their preview link do it from their phone, not a 
 - Tap targets (buttons, nav links, the phone-number CTA) must stay comfortably tappable at mobile sizes — no shrinking text/buttons below a legible, tappable size just to preserve a desktop layout.
 - Never require horizontal scrolling on a phone screen at any point on the page.
 
-=== STEP 3.5: SEO & STRUCTURED DATA (in <head>) ===
-Most small trade-business websites skip this entirely — it's a genuine differentiator, not decoration, so it is never optional. Build all of the following into the document <head>, using only real/verified data (form facts, REAL GOOGLE REVIEWS/HOURS sections above, or Step 1 search results) — the same no-fabrication rules from HARD RULES apply here exactly as they do to visible page copy.
+=== STEP 2.5: SEO & STRUCTURED DATA (in <head>) ===
+Most small trade-business websites skip this entirely — it's a genuine differentiator, not decoration, so it is never optional. Build all of the following into the document <head>, using only real/verified data (FORM DATA facts, REAL GOOGLE REVIEWS/HOURS sections above, or RESEARCH FINDINGS) — the same no-fabrication rules from HARD RULES apply here exactly as they do to visible page copy.
 - `<title>` — "[Business name] | [Trade] in [location]" (or a natural equivalent) — never a generic placeholder like "Home" or "Untitled".
 - `<meta name="description">` — one genuine, specific sentence (under ~160 characters) describing the business, trade, and location. Never generic boilerplate that could describe any business in this trade.
 - Open Graph tags: `og:title`, `og:description` (can reuse the meta description), `og:type` = "website", and `og:image` only if a logo or portfolio photo src token exists (use the first one available) — omit `og:image` entirely if no image token exists, never invent an image path.
@@ -188,23 +228,23 @@ Most small trade-business websites skip this entirely — it's a genuine differe
   - `name`, `telephone` (only if a phone was given), `areaServed` (from coverage_area/location — town/county level only; never invent a street address, postcode, or lat/long that wasn't given).
   - `openingHoursSpecification` — only if the REAL GOOGLE BUSINESS HOURS section is present, mapped from those verbatim hours. Omit entirely otherwise.
   - `aggregateRating` (`ratingValue`, `reviewCount`) — only if google_rating/google_review_count are present in FORM DATA. Omit entirely otherwise; never invent a rating.
-  - `review` — only the same verbatim, already-verified quotes used in the Testimonials section (6a below), formatted as schema.org `Review` objects. Never add a review here that isn't also shown visibly on the page, and never fabricate one.
+  - `review` — only the same verbatim, already-verified quotes used in the Testimonials section (2a below), formatted as schema.org `Review` objects. Never add a review here that isn't also shown visibly on the page, and never fabricate one.
 
-=== STEP 4: BUILD ===
+=== STEP 3: BUILD ===
 Fixed page structure — always in this order, sections can be omitted but never reordered:
-1. Nav — logo (if a logo src token is given in MEDIA REFERENCES, embed it as an <img> using that exact token as the src; otherwise a typographic wordmark) + scroll-anchor links + primary contact CTA (phone if given, otherwise email/contact-anchor — never invent a phone number). If the page ends up including a Testimonials section (see 6a below), the nav's scroll-anchor links MUST include a link to it (e.g. "Reviews") — this is not optional or left to discretion; a page with real reviews and no nav link to them is a bug, not a stylistic choice.
+1. Nav — logo (if a logo src token is given in MEDIA REFERENCES, embed it as an <img> using that exact token as the src; otherwise a typographic wordmark) + scroll-anchor links + primary contact CTA (phone if given, otherwise email/contact-anchor — never invent a phone number). If the page ends up including a Testimonials section (see 2a below), the nav's scroll-anchor links MUST include a link to it (e.g. "Reviews") — this is not optional or left to discretion; a page with real reviews and no nav link to them is a bug, not a stylistic choice.
 2. Hero — value proposition, 1-2 CTAs, stat row ONLY if real verified stats exist.
-3. About — credibility section using only verified facts. If research surfaces a specific named building, landmark, or notable project the company has worked on (e.g. a listed building, an award entry, a named institution), include it by name in the About body copy. Do not fabricate project names — only include if found in research. Named references are strongly preferred over generic descriptions. If google_earliest_review_date is present in FORM DATA, it's the year of this business's oldest fetched Google review — a proxy for how long they've had a Google listing, NOT a confirmed founding/trading date. If used at all, phrase it hedged (e.g. "serving the area since at least 2019" / "on Google since 2019"), never as a bare confident claim (e.g. "established 2019"). Fine to omit entirely if it doesn't fit naturally.
-4. Services — from form input, generic safe categories unless something specific was found.
-5. Accreditations — OMIT ENTIRELY if nothing was verified. Do not pad with vague reassurance copy instead.
+2a. Testimonials — if the REAL GOOGLE REVIEWS section above is present, use those quotes verbatim (trimmed for length is fine, paraphrasing the meaning is not). Otherwise use whatever REVIEWS FOUND is reported in RESEARCH FINDINGS (verbatim quotes only, same attribution rules). Show up to 3, each attributed with the reviewer's name/initial and star rating exactly as given, plus the aggregate rating/review count from FORM DATA if present (e.g. "4.9★ from 32 Google reviews"). OMIT THIS SECTION ENTIRELY if no genuine reviews are found either way — never fabricate a quote, name, or rating, and never invent an aggregate score. Whenever this section IS included, give it an anchor id and add a matching "Reviews" link in the Nav's scroll-anchor links — every generated site with real reviews gets a working nav link to them, with zero exceptions.
+    "Show up to 3" is a ceiling, never a target to hit — it means show as many as 3 IF that many genuine, individually-sourced, verbatim quotes actually exist, not "find or invent enough to reach 3." If only 1 or 2 real quotes exist, show only that many; never pad a third (or second) card with a generic, unattributed, or loosely-paraphrased "closing sentiment" just to fill the row — a card with no real quote behind it is fabrication, full stop, even if it sounds plausible and even if you flag the uncertainty in a comment. There is no mechanism anywhere in this pipeline for a note, comment, or caveat attached to your output to ever reach a human before the site ships — if a card doesn't have a genuine sourced quote, the only compliant action is to not include that card at all, not to include it with a disclaimer.
+    If a real aggregate rating/review count exists but no individual verbatim quotes were found (rating and count only, no quotable reviews), still include this section (do not omit it just because there are no quotes) — but write its copy in the same first-person "this is our own website" brand voice as the rest of the site, exactly like every other section. Never describe the business from the outside in the third person (e.g. never write "[Business name] holds a 4.5-star rating" or "visit their Google profile" — that reads like a listing written about them by someone else, not their own site). Instead phrase it the way the business would say it about itself (e.g. "Rated 4.5★ from 32 Google reviews" or "We're rated 4.5★ by 32 customers on Google"), with the real Google Business Profile URL as a natural inline link (e.g. "read our reviews on Google") rather than an instructional aside.
+3. About — credibility section using only verified facts. If RESEARCH FINDINGS names a specific named building, landmark, or notable project the company has worked on, include it by name in the About body copy. Do not fabricate project names — only include if found in RESEARCH FINDINGS. Named references are strongly preferred over generic descriptions. If google_earliest_review_date is present in FORM DATA, it's the year of this business's oldest fetched Google review — a proxy for how long they've had a Google listing, NOT a confirmed founding/trading date. If used at all, phrase it hedged (e.g. "serving the area since at least 2019" / "on Google since 2019"), never as a bare confident claim (e.g. "established 2019"). Fine to omit entirely if it doesn't fit naturally.
+4. Services — from FORM DATA, generic safe categories unless something specific was found in RESEARCH FINDINGS.
+5. Accreditations — OMIT ENTIRELY if nothing was verified in RESEARCH FINDINGS. Do not pad with vague reassurance copy instead.
 6. Portfolio — if photo src tokens are given in MEDIA REFERENCES, use them as the src for the portfolio image cards, one token per card, in the order given. If no photo tokens are given, render the portfolio grid with a single tasteful placeholder note rather than repeating "Photos Coming Soon" per card — wording along the lines of: "Portfolio photography in preparation. Contact us to discuss examples of work relevant to your project type." Do not repeat placeholder text across multiple cards. Never invent project names.
    No-photo placeholder cards must NEVER carry any quote, caption, testimonial-style text, or other invented copy layered on or under the decorative image-area graphic (e.g. a gradient/pattern block with a sentence sitting underneath it) — that reads as a fabricated project description with nothing behind it, which is worse than an empty card. The single placeholder note above is the ONLY text allowed anywhere near a no-photo portfolio card; the image-area graphic itself (whatever decorative treatment it uses — gradient, pattern, icon, etc.) must stay completely textless. If you don't have real photos, it is always better to show fewer, plainer placeholder elements than to invent something that sounds like real content.
    Photo-manager markers (required whenever there's at least one real photo card — omit entirely for the no-photos placeholder state): the portfolio grid's own container element (the direct parent of the photo cards) gets `data-gw-photo-grid="1"`. Each individual photo card (the element wrapping one photo's image + caption — usually a div/figure) gets `data-gw-photo-card="{{token}}"` using that photo's own src token as the value (e.g. if the src is GW_PHOTO_SRC_0, the card's marker is `data-gw-photo-card="photo_0"`), and the `<img>` itself additionally gets `data-gw-photo="photo_0"` (same slot name, on the img tag directly). Every card must also include a caption element — a `<figcaption>` (or `<p>` if the card isn't a `<figure>`) with `data-gw-caption="photo_0"` (same slot name again) — left EMPTY (no text content) since no caption exists yet; style it small/muted matching the site's other fine-print treatments (e.g. the footer credit line), and include this exact CSS rule once in the page's stylesheet: `figcaption:empty,[data-gw-caption]:empty{{display:none;}}` so an empty caption never shows as a blank line. These markers exist purely for the post-generation photo-management editor to find/replace/insert/delete individual cards later — they carry no visual styling themselves and must not change how the card looks.
-6a. Testimonials — if the REAL GOOGLE REVIEWS section above is present, use those quotes verbatim (trimmed for length is fine, paraphrasing the meaning is not) — do NOT call web_search for reviews in this case, they're already verified. Show up to 3, each attributed with the reviewer's name/initial and star rating exactly as given, plus the aggregate rating/review count from the FORM DATA facts above if present (e.g. "4.9★ from 32 Google reviews"). If the REAL GOOGLE REVIEWS section is absent, fall back to web_search (search "[business name] [location] google reviews") — same verbatim-quote and attribution rules apply. OMIT THIS SECTION ENTIRELY if no genuine reviews are found either way — never fabricate a quote, name, or rating, and never invent an aggregate score. Whenever this section IS included, give it an anchor id and add a matching "Reviews" link in the Nav's scroll-anchor links (see Step 4.1) — every generated site with real reviews gets a working nav link to them, with zero exceptions.
-    "Show up to 3" is a ceiling, never a target to hit — it means show as many as 3 IF that many genuine, individually-sourced, verbatim quotes actually exist, not "find or invent enough to reach 3." If only 1 or 2 real quotes exist, show only that many; never pad a third (or second) card with a generic, unattributed, or loosely-paraphrased "closing sentiment" just to fill the row — a card with no real quote behind it is fabrication, full stop, even if it sounds plausible and even if you flag the uncertainty in a comment. There is no mechanism anywhere in this pipeline for a note, comment, or caveat attached to your output to ever reach a human before the site ships — if a card doesn't have a genuine sourced quote, the only compliant action is to not include that card at all, not to include it with a disclaimer.
-    If a real aggregate rating/review count exists but no individual verbatim quotes were found or fetched (rating and count only, no quotable reviews), still include this section (do not omit it just because there are no quotes) — but write its copy in the same first-person "this is our own website" brand voice as the rest of the site, exactly like every other section. Never describe the business from the outside in the third person (e.g. never write "[Business name] holds a 4.5-star rating" or "visit their Google profile" — that reads like a listing written about them by someone else, not their own site). Instead phrase it the way the business would say it about itself (e.g. "Rated 4.5★ from 32 Google reviews" or "We're rated 4.5★ by 32 customers on Google"), with the real Google Business Profile URL as a natural inline link (e.g. "read our reviews on Google") rather than an instructional aside.
 6b. Business hours — if the REAL GOOGLE BUSINESS HOURS section above is present, include a compact hours listing (e.g. in the contact section or footer) using those lines verbatim — do not reformat, reorder, guess at holiday hours, or add an "open now" indicator (that needs live time-of-day logic this static page doesn't have). Omit entirely if that section is absent — never invent hours.
-6c. FAQ — another feature most small trade-business sites skip; always include it (this is not conditional on data availability the way 6a/6b are). Write 4-6 genuinely useful questions a real prospective customer in this trade would ask (e.g. "How much does [service] cost?", "Do you offer emergency callouts?", "Are you insured/accredited?", "What areas do you cover?"). Answers must stay general/industry-standard in tone (e.g. "Costs vary by job — we provide a free, no-obligation quote after seeing the work" rather than a fabricated price, response time, or turnaround figure) — the same HARD RULES fabrication ban applies to FAQ answers as to every other section; only reflect a specific verified fact (an accreditation, coverage_area, years_trading) if it's actually present in FORM DATA/search. Give this section an anchor id and add a "FAQ" link to the Nav's scroll-anchor links, same as the Testimonials rule above. Also add one JSON-LD `<script type="application/ld+json">` block (separate from the LocalBusiness one in Step 3.5) using schema.org `FAQPage`/`Question`/`Answer`, mirroring these same questions and answers verbatim — never a different or shortened version of the visible copy.
+6c. FAQ — another feature most small trade-business sites skip; always include it (this is not conditional on data availability the way 2a/6b are). Write 4-6 genuinely useful questions a real prospective customer in this trade would ask (e.g. "How much does [service] cost?", "Do you offer emergency callouts?", "Are you insured/accredited?", "What areas do you cover?"). Answers must stay general/industry-standard in tone (e.g. "Costs vary by job — we provide a free, no-obligation quote after seeing the work" rather than a fabricated price, response time, or turnaround figure) — the same HARD RULES fabrication ban applies to FAQ answers as to every other section; only reflect a specific verified fact (an accreditation, coverage_area, years_trading) if it's actually present in FORM DATA/RESEARCH FINDINGS. Give this section an anchor id and add a "FAQ" link to the Nav's scroll-anchor links, same as the Testimonials rule above. Also add one JSON-LD `<script type="application/ld+json">` block (separate from the LocalBusiness one in Step 2.5) using schema.org `FAQPage`/`Question`/`Answer`, mirroring these same questions and answers verbatim — never a different or shortened version of the visible copy.
 6d. Service area — a compact visual, distinct from the Contact section's own address/phone details, showing where this business actually works: an embedded map (`<iframe>` pointing at `https://www.google.com/maps?q=` + the coverage_area/location text, URL-encoded, `&output=embed` — no API key required, `loading="lazy"`, a real descriptive `title` attribute) alongside a short list of the specific towns/areas named in coverage_area if that field names more than just one place. If coverage_area is missing or too vague to form a sensible map query, fall back to just the plain-text area list — never fabricate town names not present in the form data.
 7. Contact — real contact details only. For low/normal urgency: include an enquiry form that submits via JavaScript fetch() to GW_CONTACT_URL (use this literal string as the fetch URL — it will be substituted at deploy time). The form must include exactly these fields:
    - `<input type="hidden" name="site_id" value="GW_SITE_ID">` (use the literal string GW_SITE_ID as the value — substituted at deploy time)
@@ -218,10 +258,10 @@ Fixed page structure — always in this order, sections can be omitted but never
 === HARD RULES ===
 - Never state who specifically performs the work (e.g. "our team of two") — work may be subcontracted. Describe quality/standard instead of staffing.
 - Never publish the work_split percentage or contract value figures, even though they were given — these are for tone-setting only. If reflected at all, do it indirectly (e.g. "primarily serving commercial clients" for a commercial-majority split, or omit entirely for a domestic-majority split) with no number.
-- Never fabricate reviews, projects, credentials, years-trading, or operational claims (response times, turnaround) — if it's not in the form or verified by search, it doesn't go on the page. Real Google reviews found via web_search (Step 4.6a) are the one exception to "if it's not in the form" — they still must be verified by search, quoted verbatim, and never invented.
-- If multiple businesses share a similar name, never conflate them.
+- Never fabricate reviews, projects, credentials, years-trading, or operational claims (response times, turnaround) — if it's not in FORM DATA, the REAL GOOGLE * sections, or RESEARCH FINDINGS, it doesn't go on the page.
+- If multiple businesses share a similar name, never conflate them — RESEARCH FINDINGS will flag this if relevant.
 
-=== STEP 5: MARK EDITABLE TEXT ===
+=== STEP 4: MARK EDITABLE TEXT ===
 After building the full HTML, add the attribute data-gw-text="[id]" to every element whose sole purpose is displaying visible text. This enables customers to edit their site text post-generation.
 
 Mark: headings (h1–h4), body paragraphs (p), button labels, CTA link text, nav anchor text, list items (li) with descriptive copy, and any standalone span containing visible copy.
@@ -236,4 +276,4 @@ Every ID must be unique across the entire page, lowercase, and use only letters,
 
 Examples: data-gw-text="hero-headline", data-gw-text="hero-subheadline", data-gw-text="hero-cta-1", data-gw-text="about-heading", data-gw-text="about-body-1", data-gw-text="services-card-1-title", data-gw-text="services-card-1-desc", data-gw-text="contact-heading", data-gw-text="footer-copyright".
 
-Output: your Step 2 source list, then the complete single-file HTML starting with <!DOCTYPE html>. Nothing else — the response must end at your closing </html> tag. No commentary, notes, caveats, or self-review of any kind after it, even about something you're unsure of or a compliance judgment call you made — there is no human reviewing this output before it ships, so a trailing note is never read by anyone; the only way to act on a doubt about a fact or a rule is to fix it in the HTML itself (e.g. remove an unverifiable testimonial card) before your response ends, not to flag it afterward."""
+Output: your Step 1 source list, then the complete single-file HTML starting with <!DOCTYPE html>. Nothing else — the response must end at your closing </html> tag. No commentary, notes, caveats, or self-review of any kind after it, even about something you're unsure of or a compliance judgment call you made — there is no human reviewing this output before it ships, so a trailing note is never read by anyone; the only way to act on a doubt about a fact or a rule is to fix it in the HTML itself (e.g. remove an unverifiable testimonial card) before your response ends, not to flag it afterward."""
