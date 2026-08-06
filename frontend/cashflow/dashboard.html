@@ -29,7 +29,11 @@ a{color:inherit;}
 .mono{font-family:'JetBrains Mono',monospace;}
 
 .app-header{background:linear-gradient(135deg,var(--navy),#152B45);color:#fff;padding:0 20px;height:58px;display:flex;align-items:center;justify-content:space-between;box-shadow:0 2px 12px rgba(15,23,42,.15);}
-.app-header .logo{font-weight:800;font-size:16px;letter-spacing:-.02em;text-decoration:none;color:#fff;display:flex;align-items:center;gap:8px;}
+.app-header .logo{font-weight:800;font-size:15px;letter-spacing:-.01em;text-decoration:none;color:#fff;display:flex;align-items:center;gap:9px;}
+.logo-mark{width:26px;height:26px;border-radius:7px;background:linear-gradient(135deg,var(--green-bright),var(--green));display:flex;align-items:center;justify-content:center;flex-shrink:0;font-family:'Plus Jakarta Sans',sans-serif;font-weight:800;font-size:13px;color:#0F2E1C;}
+.logo-word{display:flex;flex-direction:column;line-height:1.05;}
+.logo-word b{font-weight:800;}
+.logo-word span{font-size:9.5px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:rgba(255,255,255,.55);}
 .app-header nav a{color:rgba(255,255,255,.65);text-decoration:none;font-size:13.5px;font-weight:600;margin-left:20px;transition:color .15s;}
 .app-header nav a:hover,.app-header nav a.active{color:#fff;}
 
@@ -101,13 +105,16 @@ a{color:inherit;}
 .withdraw-btn:hover{background:#FEE2E2;color:var(--red);}
 .custom-tag{font-size:9.5px;font-weight:800;text-transform:uppercase;color:var(--navy);background:#E8EFFB;padding:2px 6px;border-radius:4px;margin-left:6px;vertical-align:middle;}
 
-.raise-form{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:16px;padding-top:16px;border-top:1px dashed var(--line);}
+.raise-form{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;margin-top:16px;padding-top:16px;border-top:1px dashed var(--line);}
+.raise-field{display:flex;flex-direction:column;gap:5px;}
+.raise-field label{font-size:11px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.05em;}
 .raise-form input[type=text]{flex:1;min-width:140px;}
 .raise-form input[type=text],.raise-form input[type=number],.raise-form input[type=date]{border:1.5px solid #CBD5E1;border-radius:8px;padding:8px 10px;font-size:13px;font-family:inherit;}
 .raise-form input[type=number]{width:100px;}
 .raise-form-prob{display:flex;align-items:center;gap:4px;}
 .raise-form-prob input{width:64px !important;}
 .raise-form-prob span{font-size:12.5px;color:var(--sub);font-weight:700;}
+.raise-form .btn.sm{align-self:flex-end;}
 
 .card{background:#fff;border-radius:16px;padding:22px;margin-bottom:20px;box-shadow:0 1px 2px rgba(15,23,42,.05);}
 .card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;gap:10px;flex-wrap:wrap;}
@@ -138,7 +145,8 @@ a{color:inherit;}
 .account-row{display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid var(--line);}
 .account-row:last-child{border-bottom:none;}
 .account-row input[type=checkbox]{width:18px;height:18px;accent-color:var(--navy);cursor:pointer;flex-shrink:0;}
-.account-icon{width:34px;height:34px;border-radius:9px;background:var(--bg);display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0;}
+.account-icon{width:34px;height:34px;border-radius:9px;background:var(--navy);color:#fff;display:flex;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace;font-size:8.5px;font-weight:700;letter-spacing:.02em;flex-shrink:0;}
+.account-icon.credit_card{background:var(--sub);}
 .account-name{font-weight:700;font-size:14px;}
 .account-inst{font-size:12px;color:var(--sub);}
 .account-balance{margin-left:auto;font-weight:800;font-family:'Plus Jakarta Sans',sans-serif;font-size:15px;}
@@ -197,7 +205,7 @@ a{color:inherit;}
 <body>
 
 <header class="app-header">
-  <a href="/index.html" class="logo">💷 Groundwork Cashflow</a>
+  <a href="/index.html" class="logo"><span class="logo-mark">G</span><span class="logo-word"><b>Groundwork</b><span>Cashflow</span></span></a>
   <nav id="top-nav">
     <a href="dashboard.html" class="active">Dashboard</a>
     <a href="income.html">Income</a>
@@ -297,11 +305,23 @@ document.querySelectorAll('#top-nav a[href$=".html"]').forEach(a => {
     <div class="card-header"><h2>Quotes</h2><span class="card-sub">Won locks it in · Lost drops it · leave it Open to count it at its win probability in the Likely line</span></div>
     <div id="pipeline-list"><div class="empty">Loading…</div></div>
     <form id="raise-quote-form" class="raise-form" onsubmit="return raiseQuote(event)">
-      <input type="text" id="rq-name" placeholder="Client / job name" required>
-      <input type="number" id="rq-value" placeholder="Value £" min="0" step="100" required>
-      <input type="date" id="rq-date" required>
-      <div class="raise-form-prob"><input type="number" id="rq-prob" placeholder="Win %" min="0" max="100" value="50" required><span>%</span></div>
-      <button type="submit" class="btn sm">+ Raise a quote</button>
+      <div class="raise-field">
+        <label for="rq-name">Client / job name</label>
+        <input type="text" id="rq-name" placeholder="e.g. Pemberton Homes" required>
+      </div>
+      <div class="raise-field">
+        <label for="rq-value">Quote value</label>
+        <input type="number" id="rq-value" placeholder="£" min="0" step="100" required>
+      </div>
+      <div class="raise-field">
+        <label for="rq-date">Expected date</label>
+        <input type="date" id="rq-date" required>
+      </div>
+      <div class="raise-field">
+        <label for="rq-prob">Win probability</label>
+        <div class="raise-form-prob"><input type="number" id="rq-prob" min="0" max="100" value="50" required><span>%</span></div>
+      </div>
+      <button type="submit" class="btn sm">Raise a quote</button>
     </form>
   </div>
 
@@ -505,9 +525,9 @@ function renderDashboard(d) {
   const runwayLine = document.getElementById('runway-line');
   let mainLine, rangeLine = '';
   if (likely.runway_days != null) {
-    mainLine = `⚠️ At the most likely pace, cash drops below your ${fmtMoney(d.safe_balance_gbp)} threshold in <b>${likely.runway_days} days</b> — around <b>${fmtDate(likely.runway_date)}</b>.`;
+    mainLine = `At the most likely pace, cash drops below your ${fmtMoney(d.safe_balance_gbp)} threshold in <b>${likely.runway_days} days</b> — around <b>${fmtDate(likely.runway_date)}</b>.`;
   } else {
-    mainLine = `✅ Cash stays above your ${fmtMoney(d.safe_balance_gbp)} threshold for the full forecast, most likely.`;
+    mainLine = `Cash stays above your ${fmtMoney(d.safe_balance_gbp)} threshold for the full forecast, most likely.`;
   }
   if (hasRange) {
     if (worst.runway_days != null && worst.runway_days !== likely.runway_days) {
@@ -567,7 +587,7 @@ function renderAlerts(d) {
   const overdue = d.overdue || [];
   lastOverdue = overdue;
   if (!overdue.length) {
-    list.innerHTML = '<div class="empty">✅ No overdue invoices — everything on track.</div>';
+    list.innerHTML = '<div class="empty">No overdue invoices — everything on track.</div>';
     return;
   }
   list.innerHTML = overdue.map((o, i) => `
@@ -950,7 +970,7 @@ async function saveSettings() {
 }
 
 // --- Accounts panel --------------------------------------------------
-const ACCOUNT_ICONS = {bank: '🏦', credit_card: '💳'};
+const ACCOUNT_ICONS = {bank: 'BANK', credit_card: 'CARD'};
 
 async function loadAccounts() {
   const list = document.getElementById('accounts-list');
@@ -968,7 +988,7 @@ async function loadAccounts() {
       return `
       <div class="account-row">
         <input type="checkbox" ${a.included ? 'checked' : ''} onchange="toggleAccount('${a.id}', this.checked)">
-        <div class="account-icon">${ACCOUNT_ICONS[a.type] || '💰'}</div>
+        <div class="account-icon ${escapeHtml(a.type || '')}">${ACCOUNT_ICONS[a.type] || 'ACCT'}</div>
         <div>
           <div class="account-name">${escapeHtml(a.name)}</div>
           <div class="account-inst">${escapeHtml(a.institution || '')}${a.as_of ? ` · synced ${fmtAsOf(a.as_of)}` : ''}</div>

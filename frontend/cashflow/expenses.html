@@ -27,7 +27,11 @@ html,body{margin:0;font-family:Inter,sans-serif;color:var(--text);background:
 h1,h2,h3{font-family:'Plus Jakarta Sans','Inter',sans-serif;margin:0;}
 a{color:inherit;}
 .app-header{background:linear-gradient(135deg,var(--navy),#152B45);color:#fff;padding:0 20px;height:58px;display:flex;align-items:center;justify-content:space-between;box-shadow:0 2px 12px rgba(15,23,42,.15);}
-.app-header .logo{font-weight:800;font-size:16px;letter-spacing:-.02em;text-decoration:none;color:#fff;display:flex;align-items:center;gap:8px;}
+.app-header .logo{font-weight:800;font-size:15px;letter-spacing:-.01em;text-decoration:none;color:#fff;display:flex;align-items:center;gap:9px;}
+.logo-mark{width:26px;height:26px;border-radius:7px;background:linear-gradient(135deg,#22C55E,#16A34A);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-family:'Plus Jakarta Sans',sans-serif;font-weight:800;font-size:13px;color:#0F2E1C;}
+.logo-word{display:flex;flex-direction:column;line-height:1.05;}
+.logo-word b{font-weight:800;}
+.logo-word span{font-size:9.5px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:rgba(255,255,255,.55);}
 .app-header nav a{color:rgba(255,255,255,.65);text-decoration:none;font-size:13.5px;font-weight:600;margin-left:20px;transition:color .15s;}
 .app-header nav a:hover,.app-header nav a.active{color:#fff;}
 .wrap{max-width:1080px;margin:0 auto;padding:26px 20px 80px;}
@@ -49,10 +53,13 @@ tr:hover td{background:#F8FAFC;}
 .xero-link{color:var(--navy);font-weight:700;text-decoration:none;font-size:12px;}
 .xero-link:hover{text-decoration:underline;}
 .empty{color:var(--sub);font-size:13.5px;text-align:center;padding:40px 0;}
-.raise-form{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+.raise-form{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;}
+.raise-field{display:flex;flex-direction:column;gap:5px;}
+.raise-field label{font-size:11px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.05em;}
 .raise-form input[type=text]{flex:1;min-width:200px;}
 .raise-form input[type=text],.raise-form input[type=number],.raise-form input[type=date]{border:1.5px solid #CBD5E1;border-radius:8px;padding:9px 11px;font-size:13.5px;font-family:inherit;}
 .raise-form input[type=number]{width:110px;}
+.raise-form .btn.sm{align-self:flex-end;}
 .btn{display:inline-flex;align-items:center;gap:7px;background:var(--navy);color:#fff;font-weight:700;font-size:13.5px;padding:9px 15px;border-radius:8px;text-decoration:none;border:none;cursor:pointer;}
 .btn.sm{padding:8px 13px;font-size:12.5px;}
 .withdraw-btn{background:none;border:none;color:var(--sub);font-size:16px;cursor:pointer;padding:2px 6px;line-height:1;border-radius:5px;}
@@ -62,7 +69,7 @@ tr:hover td{background:#F8FAFC;}
 <body>
 
 <header class="app-header">
-  <a href="/index.html" class="logo">💷 Groundwork Cashflow</a>
+  <a href="/index.html" class="logo"><span class="logo-mark">G</span><span class="logo-word"><b>Groundwork</b><span>Cashflow</span></span></a>
   <nav id="top-nav">
     <a href="dashboard.html">Dashboard</a>
     <a href="income.html">Income</a>
@@ -87,10 +94,19 @@ document.querySelectorAll('#top-nav a[href$=".html"]').forEach(a => {
   <div class="card" style="padding:18px 18px 0;margin-bottom:14px;">
     <h2 style="font-size:15px;margin-bottom:12px;">Raise an expected expense</h2>
     <form id="raise-expense-form" class="raise-form" onsubmit="return raiseExpense(event)" style="border-top:none;padding-top:0;margin-top:0;padding-bottom:18px;">
-      <input type="text" id="re-name" placeholder="What is it? (e.g. New concrete mixer)" required>
-      <input type="number" id="re-value" placeholder="Cost £" min="0" step="50" required>
-      <input type="date" id="re-date" required>
-      <button type="submit" class="btn sm">+ Raise expense</button>
+      <div class="raise-field">
+        <label for="re-name">What is it?</label>
+        <input type="text" id="re-name" placeholder="e.g. New concrete mixer" required>
+      </div>
+      <div class="raise-field">
+        <label for="re-value">Cost</label>
+        <input type="number" id="re-value" placeholder="£" min="0" step="50" required>
+      </div>
+      <div class="raise-field">
+        <label for="re-date">Expected date</label>
+        <input type="date" id="re-date" required>
+      </div>
+      <button type="submit" class="btn sm">Raise expense</button>
     </form>
   </div>
 
