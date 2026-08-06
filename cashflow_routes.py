@@ -408,6 +408,15 @@ _ADMIN_PREVIEW_WON_KEY = "admin_cf_preview_won_ids"
 _ADMIN_PREVIEW_LOST_KEY = "admin_cf_preview_lost_ids"
 _ADMIN_PREVIEW_EXCLUDED_ACCOUNTS_KEY = "admin_cf_preview_excluded_accounts"
 _ADMIN_PREVIEW_SAFE_BALANCE_KEY = "admin_cf_preview_safe_balance"
+_ADMIN_PREVIEW_CUSTOM_QUOTES_KEY = "admin_cf_preview_custom_quotes"
+_ADMIN_PREVIEW_CUSTOM_BILLS_KEY = "admin_cf_preview_custom_bills"
+_ADMIN_PREVIEW_FORECAST_DAYS_KEY = "admin_cf_preview_forecast_days"
+DEFAULT_FORECAST_DAYS = 60
+MAX_FORECAST_DAYS = 730  # 2 years — generous ceiling, not a hard product limit
+
+
+def _admin_preview_forecast_days():
+    return session.get(_ADMIN_PREVIEW_FORECAST_DAYS_KEY, DEFAULT_FORECAST_DAYS)
 
 
 def _admin_preview_won_ids():
@@ -422,17 +431,42 @@ def _admin_preview_excluded_accounts():
     return set(session.get(_ADMIN_PREVIEW_EXCLUDED_ACCOUNTS_KEY, []))
 
 
+def _admin_preview_custom_quotes():
+    """Quotes raised by hand in the admin preview — session-only, on top of
+    the fixture's own pipeline_quotes. Appended after the fixture list, so
+    their pipeline ids start at len(fixture invoices) and stay stable across
+    requests as long as the fixture list itself doesn't change shape."""
+    return session.get(_ADMIN_PREVIEW_CUSTOM_QUOTES_KEY, [])
+
+
+def _admin_preview_custom_bills():
+    """Expected expenses raised by hand — same pattern as custom quotes,
+    merged into data["bills"] so they show up everywhere a fixture bill
+    would (Expenses page, the "going out" breakdown, the chart)."""
+    return session.get(_ADMIN_PREVIEW_CUSTOM_BILLS_KEY, [])
+
+
 def _admin_preview_fixture_data():
     """Fresh (not frozen-at-import-time) fixture data, respecting the
     session's account-exclusion and safe-balance-threshold state — see
     build_fixture_data()'s docstring for why fresh matters (recurring-
     expense dates, overdue framing) and cashflow_routes.py's module
-    docstring for why this whole sandbox never touches the real DB."""
+    docstring for why this whole sandbox never touches the real DB. Also
+    merges in any quotes/expenses raised by hand (see the two functions
+    above) — these live only in the session, never the fixture module or
+    the DB, so they vanish with the admin's session same as every other
+    preview toggle."""
     from build_cashflow_prompt import build_fixture_data
-    kwargs = {"excluded_account_ids": _admin_preview_excluded_accounts()}
+    kwargs = {
+        "excluded_account_ids": _admin_preview_excluded_accounts(),
+        "forecast_days": _admin_preview_forecast_days(),
+    }
     if _ADMIN_PREVIEW_SAFE_BALANCE_KEY in session:
         kwargs["safe_balance_gbp"] = session[_ADMIN_PREVIEW_SAFE_BALANCE_KEY]
-    return build_fixture_data(**kwargs)
+    data = build_fixture_data(**kwargs)
+    data["invoices"] = data["invoices"] + _admin_preview_custom_quotes()
+    data["bills"] = data["bills"] + _admin_preview_custom_bills()
+    return data
 
 
 _ADMIN_PREVIEW_PROB_KEY = "admin_cf_preview_probability_overrides"
@@ -473,9 +507,10 @@ def cashflow_admin_preview_dashboard():
     quotes = _admin_preview_quotes_with_overrides(data)
     all_invoices = data["confirmed_invoices"] + quotes
 
+    forecast_days = _admin_preview_forecast_days()
     bands = run_forecast_raw(
         data["current_balance_gbp"], all_invoices, data["bills"], data["won_pipeline"],
-        safe_balance_gbp=data["safe_balance_gbp"], bands=True,
+        safe_balance_gbp=data["safe_balance_gbp"], forecast_days=forecast_days, bands=True,
     )
     overdue = CashFlowEngine(data["current_balance_gbp"]).detect_overdue_invoices(
         data["confirmed_invoices"] + data["won_pipeline"]
@@ -484,34 +519,85 @@ def cashflow_admin_preview_dashboard():
         "bands": bands,
         "current_balance_gbp": data["current_balance_gbp"],
         "safe_balance_gbp": data["safe_balance_gbp"],
+        "forecast_days": forecast_days,
         "overdue": overdue,
     })
+
+
+def _admin_preview_fixture_quote_count():
+    """How many pipeline quotes come from the fixture itself (not raised by
+    hand) — the cutoff for which pipeline ids are safe to delete. Cheap:
+    build_fixture_data() doesn't touch the network/DB, just recomputes the
+    same in-memory dicts."""
+    from build_cashflow_prompt import build_fixture_data
+    return len(build_fixture_data()["invoices"])
 
 
 @cashflow_admin_bp.route("/api/cashflow/admin-preview/pipeline")
 @_admin_required
 def cashflow_admin_preview_pipeline():
     data = _admin_preview_fixture_data()
+    fixture_count = _admin_preview_fixture_quote_count()
     won_ids, lost_ids = _admin_preview_won_ids(), _admin_preview_lost_ids()
     overrides = _admin_preview_probability_overrides()
     return jsonify({"items": [
         {"id": i, "name": inv["contact_name"], "value_gbp": inv["amount_gbp"],
          "due_date": inv["due_date"], "xero_url": inv.get("xero_url"),
          "probability_pct": overrides.get(i, inv.get("probability_pct", 100)),
-         "status": "won" if i in won_ids else "lost" if i in lost_ids else "open"}
+         "status": "won" if i in won_ids else "lost" if i in lost_ids else "open",
+         "is_custom": i >= fixture_count}
         for i, inv in enumerate(data["invoices"])
     ]})
 
 
-@cashflow_admin_bp.route("/api/cashflow/admin-preview/pipeline/<int:item_id>", methods=["PATCH"])
+@cashflow_admin_bp.route("/api/cashflow/admin-preview/pipeline", methods=["POST"])
+@_admin_required
+def cashflow_admin_preview_pipeline_create():
+    """Raise a new quote by hand — a real opportunity that isn't in Xero
+    yet (or won't be until it's actually sent), but the director wants
+    reflected in the forecast today. Session-only, same as every other
+    preview toggle; see _admin_preview_custom_quotes()."""
+    body = request.get_json(silent=True) or {}
+    name = (body.get("name") or "").strip()
+    if not name:
+        return jsonify({"error": "name is required"}), 400
+    try:
+        amount = float(body["value_gbp"])
+        due_date = datetime.fromisoformat(body["due_date"]).strftime("%Y-%m-%d")
+    except (KeyError, TypeError, ValueError):
+        return jsonify({"error": "value_gbp and due_date (YYYY-MM-DD) are required"}), 400
+    probability_pct = max(0, min(100, int(body.get("probability_pct", 50))))
+
+    quotes = _admin_preview_custom_quotes()
+    quotes.append({
+        "id": f"custom-quote-{len(quotes)}", "contact_name": name,
+        "amount_gbp": amount, "due_date": due_date, "probability_pct": probability_pct,
+    })
+    session[_ADMIN_PREVIEW_CUSTOM_QUOTES_KEY] = quotes
+    return jsonify({"ok": True}), 201
+
+
+@cashflow_admin_bp.route("/api/cashflow/admin-preview/pipeline/<int:item_id>", methods=["PATCH", "DELETE"])
 @_admin_required
 def cashflow_admin_preview_pipeline_toggle(item_id):
-    """Accepts `status` ("won"/"lost"/"open") and/or `probability_pct`
+    """PATCH accepts `status` ("won"/"lost"/"open") and/or `probability_pct`
     (0-100) — sent separately by the UI (status buttons vs. the probability
-    number field), so either can change without touching the other."""
+    number field), so either can change without touching the other. DELETE
+    withdraws a quote raised by hand — fixture quotes can't be deleted,
+    only marked Lost, since they represent something real in (mock) Xero."""
     data = _admin_preview_fixture_data()
     if item_id < 0 or item_id >= len(data["invoices"]):
         return jsonify({"error": "not_found"}), 404
+
+    if request.method == "DELETE":
+        fixture_count = _admin_preview_fixture_quote_count()
+        if item_id < fixture_count:
+            return jsonify({"error": "cannot delete a fixture quote — mark it Lost instead"}), 400
+        quotes = _admin_preview_custom_quotes()
+        del quotes[item_id - fixture_count]
+        session[_ADMIN_PREVIEW_CUSTOM_QUOTES_KEY] = quotes
+        return jsonify({"ok": True})
+
     body = request.get_json(silent=True) or {}
 
     if "status" in body:
@@ -538,15 +624,66 @@ def cashflow_admin_preview_pipeline_toggle(item_id):
     return jsonify({"ok": True})
 
 
+@cashflow_admin_bp.route("/api/cashflow/admin-preview/expenses")
+@_admin_required
+def cashflow_admin_preview_expenses():
+    """Just the expected expenses raised by hand, for the Expenses page's
+    "your raised expenses" list (separate from the full bills breakdown,
+    which includes real fixture/recurring bills that can't be withdrawn).
+    `id` here is the plain index into the custom-bills list itself (0..n-1)
+    — matching what DELETE /expenses/<id> expects — NOT a composite offset
+    against the fixture bills list, which would be unstable anyway since
+    the fixture's recurring-bill count varies with the forecast horizon."""
+    return jsonify({"items": [
+        {"id": i, "name": b["contact_name"], "value_gbp": b["amount_gbp"], "due_date": b["due_date"]}
+        for i, b in enumerate(_admin_preview_custom_bills())
+    ]})
+
+
+@cashflow_admin_bp.route("/api/cashflow/admin-preview/expenses", methods=["POST"])
+@_admin_required
+def cashflow_admin_preview_expenses_create():
+    """Raise an expected expense by hand — a cost the director knows is
+    coming (new kit, a one-off supplier payment) that isn't in Xero as a
+    bill yet. One-off only for now — see module docstring on
+    _admin_preview_custom_bills() for the recurring fast-follow note."""
+    body = request.get_json(silent=True) or {}
+    name = (body.get("name") or "").strip()
+    if not name:
+        return jsonify({"error": "name is required"}), 400
+    try:
+        amount = float(body["value_gbp"])
+        due_date = datetime.fromisoformat(body["due_date"]).strftime("%Y-%m-%d")
+    except (KeyError, TypeError, ValueError):
+        return jsonify({"error": "value_gbp and due_date (YYYY-MM-DD) are required"}), 400
+
+    bills = _admin_preview_custom_bills()
+    bills.append({"id": f"custom-bill-{len(bills)}", "contact_name": name, "amount_gbp": amount, "due_date": due_date})
+    session[_ADMIN_PREVIEW_CUSTOM_BILLS_KEY] = bills
+    return jsonify({"ok": True}), 201
+
+
+@cashflow_admin_bp.route("/api/cashflow/admin-preview/expenses/<int:item_id>", methods=["DELETE"])
+@_admin_required
+def cashflow_admin_preview_expenses_delete(item_id):
+    bills = _admin_preview_custom_bills()
+    if item_id < 0 or item_id >= len(bills):
+        return jsonify({"error": "not_found"}), 404
+    del bills[item_id]
+    session[_ADMIN_PREVIEW_CUSTOM_BILLS_KEY] = bills
+    return jsonify({"ok": True})
+
+
 @cashflow_admin_bp.route("/api/cashflow/admin-preview/settings", methods=["GET", "PATCH"])
 @_admin_required
 def cashflow_admin_preview_settings():
-    """Director-configurable assumptions — currently just the safe-balance
-    threshold (overdraft limit / minimum comfort buffer). Session-only,
-    same as every other admin-preview toggle."""
+    """Director-configurable assumptions: the safe-balance threshold
+    (overdraft limit / minimum comfort buffer) and the forecast horizon —
+    how far ahead to look, not locked to 60 days. Both session-only, same
+    as every other admin-preview toggle."""
     if request.method == "GET":
         data = _admin_preview_fixture_data()
-        return jsonify({"safe_balance_gbp": data["safe_balance_gbp"]})
+        return jsonify({"safe_balance_gbp": data["safe_balance_gbp"], "forecast_days": _admin_preview_forecast_days()})
     body = request.get_json(silent=True) or {}
     if "safe_balance_gbp" in body:
         try:
@@ -557,6 +694,14 @@ def cashflow_admin_preview_settings():
             session[_ADMIN_PREVIEW_SAFE_BALANCE_KEY] = -abs(float(body["safe_balance_gbp"]))
         except (TypeError, ValueError):
             return jsonify({"error": "invalid safe_balance_gbp"}), 400
+    if "forecast_days" in body:
+        try:
+            days = int(body["forecast_days"])
+        except (TypeError, ValueError):
+            return jsonify({"error": "invalid forecast_days"}), 400
+        if days < 1 or days > MAX_FORECAST_DAYS:
+            return jsonify({"error": f"forecast_days must be between 1 and {MAX_FORECAST_DAYS}"}), 400
+        session[_ADMIN_PREVIEW_FORECAST_DAYS_KEY] = days
     return jsonify({"ok": True})
 
 

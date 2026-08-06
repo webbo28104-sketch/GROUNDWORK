@@ -49,6 +49,14 @@ tr:hover td{background:#F8FAFC;}
 .xero-link{color:var(--navy);font-weight:700;text-decoration:none;font-size:12px;}
 .xero-link:hover{text-decoration:underline;}
 .empty{color:var(--sub);font-size:13.5px;text-align:center;padding:40px 0;}
+.raise-form{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+.raise-form input[type=text]{flex:1;min-width:200px;}
+.raise-form input[type=text],.raise-form input[type=number],.raise-form input[type=date]{border:1.5px solid #CBD5E1;border-radius:8px;padding:9px 11px;font-size:13.5px;font-family:inherit;}
+.raise-form input[type=number]{width:110px;}
+.btn{display:inline-flex;align-items:center;gap:7px;background:var(--navy);color:#fff;font-weight:700;font-size:13.5px;padding:9px 15px;border-radius:8px;text-decoration:none;border:none;cursor:pointer;}
+.btn.sm{padding:8px 13px;font-size:12.5px;}
+.withdraw-btn{background:none;border:none;color:var(--sub);font-size:16px;cursor:pointer;padding:2px 6px;line-height:1;border-radius:5px;}
+.withdraw-btn:hover{background:#FEE2E2;color:var(--red);}
 </style>
 </head>
 <body>
@@ -75,6 +83,24 @@ document.querySelectorAll('#top-nav a[href$=".html"]').forEach(a => {
     <h1>Money going out</h1>
     <div class="total-pill">Next 60 days<b id="total">£--</b></div>
   </div>
+
+  <div class="card" style="padding:18px 18px 0;margin-bottom:14px;">
+    <h2 style="font-size:15px;margin-bottom:12px;">Raise an expected expense</h2>
+    <form id="raise-expense-form" class="raise-form" onsubmit="return raiseExpense(event)" style="border-top:none;padding-top:0;margin-top:0;padding-bottom:18px;">
+      <input type="text" id="re-name" placeholder="What is it? (e.g. New concrete mixer)" required>
+      <input type="number" id="re-value" placeholder="Cost £" min="0" step="50" required>
+      <input type="date" id="re-date" required>
+      <button type="submit" class="btn sm">+ Raise expense</button>
+    </form>
+  </div>
+
+  <div class="card" id="raised-card" style="display:none;margin-bottom:14px;">
+    <table>
+      <thead><tr><th>Raised by hand</th><th>Date</th><th style="text-align:right;">Amount</th><th></th></tr></thead>
+      <tbody id="raised-rows"></tbody>
+    </table>
+  </div>
+
   <div class="card">
     <table>
       <thead><tr><th>Contact</th><th>Date</th><th style="text-align:right;">Amount</th></tr></thead>
@@ -89,6 +115,7 @@ const isAdminPreview = params.get('admin') === '1';
 const API_BASE = isAdminPreview ? '/api/cashflow/admin-preview' : '/api/cashflow';
 const useFixture = params.get('fixture') !== '0';
 const dashboardUrl = isAdminPreview ? `${API_BASE}/dashboard` : `${API_BASE}/dashboard${useFixture ? '?fixture=1' : ''}`;
+const expensesUrl = `${API_BASE}/expenses`;
 
 function fmtMoney(n) {
   if (n === undefined || n === null) return '£--';
@@ -137,7 +164,63 @@ function render(transactions) {
   `).join('');
 }
 
+// --- Raise / withdraw an expected expense ------------------------------
+async function loadRaisedExpenses() {
+  if (!isAdminPreview) return;
+  try {
+    const r = await fetch(expensesUrl, {credentials: 'same-origin'});
+    if (!r.ok) return;
+    const d = await r.json();
+    const card = document.getElementById('raised-card');
+    if (!d.items || !d.items.length) { card.style.display = 'none'; return; }
+    card.style.display = '';
+    document.getElementById('raised-rows').innerHTML = d.items.map(it => `
+      <tr>
+        <td class="contact">${escapeHtml(it.name)}</td>
+        <td>${fmtDate(it.due_date)}</td>
+        <td class="amount">−${fmtMoney(it.value_gbp)}</td>
+        <td><button class="withdraw-btn" title="Withdraw" onclick="withdrawExpense(${it.id})">✕</button></td>
+      </tr>
+    `).join('');
+  } catch (e) {}
+}
+
+async function raiseExpense(evt) {
+  evt.preventDefault();
+  if (useFixture && !isAdminPreview) { alert('Sample data — connect Xero to raise real expenses.'); return false; }
+  const name = document.getElementById('re-name').value.trim();
+  const value_gbp = parseFloat(document.getElementById('re-value').value);
+  const due_date = document.getElementById('re-date').value;
+  if (!name || Number.isNaN(value_gbp) || !due_date) { alert('Fill in all fields.'); return false; }
+  try {
+    const r = await fetch(expensesUrl, {
+      method: 'POST', credentials: 'same-origin',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({name, value_gbp, due_date}),
+    });
+    if (!r.ok) { const d = await r.json(); alert(d.error || 'Could not raise expense.'); return false; }
+    document.getElementById('raise-expense-form').reset();
+    loadRaisedExpenses();
+    load();
+  } catch (e) {
+    alert('Could not raise expense — try again.');
+  }
+  return false;
+}
+
+async function withdrawExpense(id) {
+  if (!confirm('Withdraw this expected expense?')) return;
+  try {
+    await fetch(`${expensesUrl}/${id}`, {method: 'DELETE', credentials: 'same-origin'});
+    loadRaisedExpenses();
+    load();
+  } catch (e) {
+    alert('Could not withdraw — try again.');
+  }
+}
+
 load();
+loadRaisedExpenses();
 </script>
 </body>
 </html>

@@ -95,6 +95,17 @@ a{color:inherit;}
 .prob-input-row{display:flex;align-items:center;gap:6px;margin-top:2px;}
 .prob-input-row input[type=number]{width:56px;border:1.5px solid #CBD5E1;border-radius:6px;padding:3px 6px;font-size:12.5px;font-family:'JetBrains Mono',monospace;}
 .prob-input-row span{font-size:11px;color:var(--sub);font-weight:700;}
+.withdraw-btn{background:none;border:none;color:var(--sub);font-size:16px;cursor:pointer;padding:2px 6px;line-height:1;border-radius:5px;}
+.withdraw-btn:hover{background:#FEE2E2;color:var(--red);}
+.custom-tag{font-size:9.5px;font-weight:800;text-transform:uppercase;color:var(--navy);background:#E8EFFB;padding:2px 6px;border-radius:4px;margin-left:6px;vertical-align:middle;}
+
+.raise-form{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:16px;padding-top:16px;border-top:1px dashed var(--line);}
+.raise-form input[type=text]{flex:1;min-width:140px;}
+.raise-form input[type=text],.raise-form input[type=number],.raise-form input[type=date]{border:1.5px solid #CBD5E1;border-radius:8px;padding:8px 10px;font-size:13px;font-family:inherit;}
+.raise-form input[type=number]{width:100px;}
+.raise-form-prob{display:flex;align-items:center;gap:4px;}
+.raise-form-prob input{width:64px !important;}
+.raise-form-prob span{font-size:12.5px;color:var(--sub);font-weight:700;}
 
 .card{background:#fff;border-radius:16px;padding:22px;margin-bottom:20px;box-shadow:0 1px 2px rgba(15,23,42,.05);}
 .card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;gap:10px;flex-wrap:wrap;}
@@ -273,7 +284,12 @@ document.querySelectorAll('#top-nav a[href$=".html"]').forEach(a => {
         </div>
         <span class="field-help">Runway is measured against this, not £0 — set it to your real overdraft limit or the buffer you never want to go below. Always a negative threshold, entered here as a positive amount.</span>
       </div>
-      <button class="btn sm" onclick="saveSafeBalance()">Save</button>
+      <div class="settings-field">
+        <label for="horizon-input">Forecast horizon (days)</label>
+        <input type="number" id="horizon-input" min="1" max="730" step="30" value="60">
+        <span class="field-help">Not locked to 60 days — set it as far out as you want to look (e.g. 365 for a full year), or as short as this week.</span>
+      </div>
+      <button class="btn sm" onclick="saveSettings()">Save</button>
     </div>
   </div>
 
@@ -283,8 +299,15 @@ document.querySelectorAll('#top-nav a[href$=".html"]').forEach(a => {
   </div>
 
   <div class="card">
-    <div class="card-header"><h2>Contract pipeline</h2><span class="card-sub">Won locks it in · Lost drops it · leave it Open to count it at its win probability in the Likely line</span></div>
+    <div class="card-header"><h2>Quotes</h2><span class="card-sub">Won locks it in · Lost drops it · leave it Open to count it at its win probability in the Likely line</span></div>
     <div id="pipeline-list"><div class="empty">Loading…</div></div>
+    <form id="raise-quote-form" class="raise-form" onsubmit="return raiseQuote(event)">
+      <input type="text" id="rq-name" placeholder="Client / job name" required>
+      <input type="number" id="rq-value" placeholder="Value £" min="0" step="100" required>
+      <input type="date" id="rq-date" required>
+      <div class="raise-form-prob"><input type="number" id="rq-prob" placeholder="Win %" min="0" max="100" value="50" required><span>%</span></div>
+      <button type="submit" class="btn sm">+ Raise a quote</button>
+    </form>
   </div>
 
   <div class="card">
@@ -725,7 +748,7 @@ async function loadPipeline() {
       return `
       <div class="pipeline-item">
         <div>
-          <div class="pipeline-name">${escapeHtml(it.name || 'Untitled')}</div>
+          <div class="pipeline-name">${escapeHtml(it.name || 'Untitled')}${it.is_custom ? '<span class="custom-tag">Raised by hand</span>' : ''}</div>
           <div class="pipeline-meta ${overdue ? 'overdue' : ''}">${fmtMoney(it.value_gbp)} · ${overdue ? 'Overdue since' : 'Due'} ${fmtDate(it.due_date)}
             ${it.xero_url ? ` · <a href="${it.xero_url}" target="_blank" rel="noopener" class="xero-link">View in Xero →</a>` : ''}
           </div>
@@ -740,6 +763,7 @@ async function loadPipeline() {
           <button class="toggle-btn won ${status === 'won' ? 'active' : ''}" onclick="togglePipeline(${it.id}, 'won')"><span class="toggle-check">✓</span> Won</button>
           <button class="toggle-btn open ${status === 'open' ? 'active' : ''}" onclick="togglePipeline(${it.id}, 'open')"><span class="toggle-check">✓</span> Open</button>
           <button class="toggle-btn lost ${status === 'lost' ? 'active' : ''}" onclick="togglePipeline(${it.id}, 'lost')"><span class="toggle-check">✓</span> Lost</button>
+          ${it.is_custom ? `<button class="withdraw-btn" title="Withdraw this quote" onclick="withdrawQuote(${it.id})">✕</button>` : ''}
         </div>
       </div>
     `;
@@ -778,10 +802,47 @@ async function setProbability(id, value) {
   }
 }
 
-// --- Settings (overdraft limit / safe-balance threshold) ---------------
-// The field only ever shows/accepts a positive magnitude — "how big is
-// your overdraft" — the minus sign is implicit and applied here, not
-// something the user can edit or delete out of the field.
+// Raise a new quote by hand — something real that isn't in Xero yet.
+async function raiseQuote(evt) {
+  evt.preventDefault();
+  if (useFixture && !isAdminPreview) { alert('Sample data — connect Xero to raise real quotes.'); return false; }
+  const name = document.getElementById('rq-name').value.trim();
+  const value_gbp = parseFloat(document.getElementById('rq-value').value);
+  const due_date = document.getElementById('rq-date').value;
+  const probability_pct = parseInt(document.getElementById('rq-prob').value, 10);
+  if (!name || Number.isNaN(value_gbp) || !due_date) { alert('Fill in all fields.'); return false; }
+  try {
+    const r = await fetch(pipelineUrl, {
+      method: 'POST', credentials: 'same-origin',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({name, value_gbp, due_date, probability_pct}),
+    });
+    if (!r.ok) { const d = await r.json(); alert(d.error || 'Could not raise quote.'); return false; }
+    document.getElementById('raise-quote-form').reset();
+    document.getElementById('rq-prob').value = 50;
+    loadPipeline();
+    loadDashboard();
+  } catch (e) {
+    alert('Could not raise quote — try again.');
+  }
+  return false;
+}
+
+async function withdrawQuote(id) {
+  if (!confirm('Withdraw this quote? This only removes the one you raised by hand.')) return;
+  try {
+    await fetch(pipelineToggleUrl(id), {method: 'DELETE', credentials: 'same-origin'});
+    loadPipeline();
+    loadDashboard();
+  } catch (e) {
+    alert('Could not withdraw — try again.');
+  }
+}
+
+// --- Settings (overdraft limit / safe-balance threshold / horizon) -----
+// The overdraft field only ever shows/accepts a positive magnitude — "how
+// big is your overdraft" — the minus sign is implicit and applied here,
+// not something the user can edit or delete out of the field.
 async function loadSettings() {
   if (!isAdminPreview) return;
   try {
@@ -789,18 +850,21 @@ async function loadSettings() {
     if (!r.ok) return;
     const d = await r.json();
     document.getElementById('safe-balance-input').value = Math.abs(d.safe_balance_gbp);
+    document.getElementById('horizon-input').value = d.forecast_days;
+    document.getElementById('date-slider').max = d.forecast_days;
   } catch (e) {}
 }
 
-async function saveSafeBalance() {
+async function saveSettings() {
   const magnitude = parseFloat(document.getElementById('safe-balance-input').value);
-  if (Number.isNaN(magnitude) || magnitude < 0) { alert('Enter a positive number — the overdraft limit\'s size.'); return; }
-  const val = -Math.abs(magnitude);
+  const horizon = parseInt(document.getElementById('horizon-input').value, 10);
+  if (Number.isNaN(magnitude) || magnitude < 0) { alert('Overdraft limit must be a positive number.'); return; }
+  if (Number.isNaN(horizon) || horizon < 1) { alert('Forecast horizon must be at least 1 day.'); return; }
   try {
     await fetch(settingsUrl, {
       method: 'PATCH', credentials: 'same-origin',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({safe_balance_gbp: val}),
+      body: JSON.stringify({safe_balance_gbp: -Math.abs(magnitude), forecast_days: horizon}),
     });
     loadDashboard();
   } catch (e) {

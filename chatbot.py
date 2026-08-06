@@ -161,7 +161,7 @@ def _engine_from_data(data):
     identically to the admin-preview dashboard endpoint — the chatbot's
     numbers must never diverge from what the chart is showing."""
     engine = CashFlowEngine(
-        current_balance=data["current_balance_gbp"], forecast_days=60,
+        current_balance=data["current_balance_gbp"], forecast_days=data.get("forecast_days", 60),
         safe_balance_gbp=data.get("safe_balance_gbp", 0.0),
     )
     for inv in data.get("confirmed_invoices", []) + data.get("invoices", []):

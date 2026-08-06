@@ -255,6 +255,7 @@ def build_fixture_data(today: datetime = None, forecast_days: int = 60,
     return {
         "current_balance_gbp": current_balance_gbp,
         "safe_balance_gbp": safe_balance_gbp,
+        "forecast_days": forecast_days,
         "accounts": FIXTURE_ACCOUNTS,
         "confirmed_invoices": confirmed_invoices,
         "invoices": pipeline_quotes,  # kept as "invoices" — the key name cashflow_routes.py's pipeline toggle already reads
