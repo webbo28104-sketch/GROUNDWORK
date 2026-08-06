@@ -90,6 +90,11 @@ a{color:inherit;}
 .tx-amount{font-weight:700;white-space:nowrap;}
 .tx-amount.in{color:var(--green);} .tx-amount.out{color:var(--red);}
 .tx-badge{display:inline-block;background:#EEF2F7;color:var(--sub);font-size:9.5px;font-weight:700;padding:1px 5px;border-radius:4px;margin-left:5px;vertical-align:middle;text-transform:uppercase;}
+.xero-link{color:var(--navy);font-weight:700;text-decoration:none;}
+.xero-link:hover{text-decoration:underline;}
+.prob-input-row{display:flex;align-items:center;gap:6px;margin-top:2px;}
+.prob-input-row input[type=number]{width:56px;border:1.5px solid #CBD5E1;border-radius:6px;padding:3px 6px;font-size:12.5px;font-family:'JetBrains Mono',monospace;}
+.prob-input-row span{font-size:11px;color:var(--sub);font-weight:700;}
 
 .card{background:#fff;border-radius:16px;padding:22px;margin-bottom:20px;box-shadow:0 1px 2px rgba(15,23,42,.05);}
 .card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;gap:10px;flex-wrap:wrap;}
@@ -185,12 +190,22 @@ a{color:inherit;}
 
 <header class="app-header">
   <a href="/index.html" class="logo">💷 Groundwork Cashflow</a>
-  <nav>
+  <nav id="top-nav">
     <a href="dashboard.html" class="active">Dashboard</a>
+    <a href="income.html">Income</a>
+    <a href="expenses.html">Expenses</a>
     <a href="upgrade.html">Upgrade</a>
     <a href="/account">Account</a>
   </nav>
 </header>
+<script>
+// Carry ?admin=1 (and ?fixture=) across nav clicks — otherwise leaving the
+// dashboard drops the admin-preview sandbox mode entirely.
+document.querySelectorAll('#top-nav a[href$=".html"]').forEach(a => {
+  const qs = location.search;
+  if (qs) a.href = a.getAttribute('href') + qs;
+});
+</script>
 
 <div class="wrap">
 
@@ -251,9 +266,12 @@ a{color:inherit;}
     <div class="card-header"><h2>Cash flow settings</h2></div>
     <div class="settings-row">
       <div class="settings-field">
-        <label for="safe-balance-input">Minimum safe balance / overdraft limit</label>
-        <input type="number" id="safe-balance-input" step="500">
-        <span class="field-help">Runway is measured against this, not £0 — set it to your real overdraft limit or the buffer you never want to go below. Negative values are a facility (e.g. -10000 for a £10k overdraft).</span>
+        <label for="safe-balance-input">Overdraft limit / minimum buffer</label>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <span style="font-weight:800;color:var(--sub);">−£</span>
+          <input type="number" id="safe-balance-input" min="0" step="500" value="5000">
+        </div>
+        <span class="field-help">Runway is measured against this, not £0 — set it to your real overdraft limit or the buffer you never want to go below. Always a negative threshold, entered here as a positive amount.</span>
       </div>
       <button class="btn sm" onclick="saveSafeBalance()">Save</button>
     </div>
@@ -279,14 +297,14 @@ a{color:inherit;}
 <div class="chat-widget" id="chat-widget">
   <div class="chat-header" onclick="toggleChat()">
     <span class="dot"></span>
-    <span class="label">Ask about your cash flow</span>
+    <span class="label">Your Financial Advisor</span>
     <span id="chat-toggle-icon">▾</span>
   </div>
   <div class="chat-body">
     <div class="chat-messages" id="chat-messages">
       <div class="chat-msg bot">
         <div class="bubble">
-          Hi! Ask me anything about your cash flow.
+          Hi, I'm your financial advisor — ask me anything about the business's cash position.
           <div class="chat-examples">
             <button class="chat-example-btn" onclick="askExample(this)">When will cash run low?</button>
             <button class="chat-example-btn" onclick="askExample(this)">Which invoices are overdue?</button>
@@ -296,7 +314,7 @@ a{color:inherit;}
       </div>
     </div>
     <div class="chat-input-row">
-      <input type="text" id="chat-input" placeholder="Ask about your cash flow…" onkeypress="if(event.key==='Enter')sendChatMessage();">
+      <input type="text" id="chat-input" placeholder="Ask your financial advisor…" onkeypress="if(event.key==='Enter')sendChatMessage();">
       <button onclick="sendChatMessage()">Send</button>
     </div>
   </div>
@@ -442,7 +460,7 @@ function renderBreakdown(kind, transactions) {
     <div class="tx-row">
       <div>
         <div class="tx-contact">${escapeHtml(t.contact || t.reference || 'Untitled')}${t.reference && t.reference.includes('REC-') ? '<span class="tx-badge">Recurring</span>' : ''}</div>
-        <div class="tx-date">${fmtDate(t.date)}</div>
+        <div class="tx-date">${fmtDate(t.date)}${t.xero_url ? ` · <a href="${t.xero_url}" target="_blank" rel="noopener" class="xero-link" onclick="event.stopPropagation();">View in Xero →</a>` : ''}</div>
       </div>
       <div class="tx-amount ${kind}">${kind === 'in' ? '+' : '−'}${fmtMoney(t.amount_gbp)}</div>
     </div>
@@ -457,20 +475,44 @@ function toggleBreakdown(kind) {
   card.classList.toggle('open', willOpen);
 }
 
+let lastOverdue = [];
+
 function renderAlerts(d) {
   const list = document.getElementById('alerts-list');
   const overdue = d.overdue || [];
+  lastOverdue = overdue;
   if (!overdue.length) {
     list.innerHTML = '<div class="empty">✅ No overdue invoices — everything on track.</div>';
     return;
   }
-  list.innerHTML = overdue.map(o => `
+  list.innerHTML = overdue.map((o, i) => `
     <div class="alert-item">
       <span class="dot ${o.priority === 'HIGH' ? 'red' : o.priority === 'MEDIUM' ? 'amber' : 'green'}"></span>
-      <span class="alert-text"><b>${escapeHtml(o.contact)}</b> — ${o.days_overdue} days overdue</span>
+      <span class="alert-text">
+        <b>${escapeHtml(o.contact)}</b> — ${o.days_overdue} days overdue
+        ${o.xero_url ? ` · <a href="${o.xero_url}" target="_blank" rel="noopener" class="xero-link">View in Xero →</a>` : ''}
+      </span>
       <span class="alert-amount">${fmtMoney(o.amount)}</span>
+      <button class="btn sm outline" onclick="chaseAlert(${i})">Chase</button>
     </div>
   `).join('');
+}
+
+// Opens a pre-filled draft in the user's own email client (mailto:) asking
+// for payment — logistics (sending via Resend, tracking replies, etc) can
+// come later; for now this is the button existing and doing something
+// useful with zero backend involvement.
+function chaseAlert(index) {
+  const o = lastOverdue[index];
+  if (!o) return;
+  const to = o.contact_email || '';
+  const subject = `Payment reminder — invoice ${o.days_overdue} days overdue`;
+  const body = `Hi ${o.contact},\n\n`
+    + `Just a quick note to say our records show a payment of ${fmtMoney(o.amount)} is now ${o.days_overdue} days overdue.\n\n`
+    + `Could you let us know when we can expect this? Happy to resend the invoice if that's useful.\n\n`
+    + `Thanks,\n`;
+  const mailto = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  window.location.href = mailto;
 }
 
 function fmtDate(s) {
@@ -483,16 +525,26 @@ function fmtDate(s) {
 let chartBands = null; // {best:[...], likely:[...], worst:[...]} daily_series arrays
 let hoveredIndex = null;
 
+function niceStep(range, targetTicks) {
+  const raw = range / targetTicks;
+  const mag = Math.pow(10, Math.floor(Math.log10(raw || 1)));
+  const norm = raw / mag;
+  const step = norm < 1.5 ? 1 : norm < 3 ? 2 : norm < 7 ? 5 : 10;
+  return step * mag;
+}
+
 function chartGeometry(canvas) {
-  const w = canvas.clientWidth, h = 240, pad = 26;
+  const w = canvas.clientWidth, h = 260;
+  const padLeft = 58, padRight = 14, padTop = 14, padBottom = 30;
   const likely = chartBands ? chartBands.likely.daily_series : [];
   const best = chartBands ? chartBands.best.daily_series : [];
   const worst = chartBands ? chartBands.worst.daily_series : [];
-  const allBalances = [...likely, ...best, ...worst].map(p => p.balance);
-  const min = Math.min(0, ...allBalances), max = Math.max(1, ...allBalances);
-  const x = i => pad + (i / Math.max(1, likely.length - 1)) * (w - pad * 2);
-  const y = v => h - pad - ((v - min) / ((max - min) || 1)) * (h - pad * 2);
-  return {w, h, pad, x, y};
+  const threshold = window.__cfSafeBalance || 0;
+  const allBalances = [...likely, ...best, ...worst].map(p => p.balance).concat([0, threshold]);
+  const min = Math.min(...allBalances), max = Math.max(1, ...allBalances);
+  const x = i => padLeft + (i / Math.max(1, likely.length - 1)) * (w - padLeft - padRight);
+  const y = v => h - padBottom - ((v - min) / ((max - min) || 1)) * (h - padTop - padBottom);
+  return {w, h, pad: padLeft, padLeft, padRight, padTop, padBottom, x, y, min, max, len: likely.length};
 }
 
 function drawChart(bands) {
@@ -507,19 +559,46 @@ function drawChart(bands) {
   const ctx = canvas.getContext('2d');
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, w, h);
+  ctx.font = '11px Inter,sans-serif';
   if (!likely.daily_series && !Array.isArray(likely)) return;
   const likelySeries = likely.daily_series || likely;
   const bestSeries = best.daily_series || best;
   const worstSeries = worst.daily_series || worst;
   if (!likelySeries.length) return;
 
-  const {pad, x, y} = chartGeometry(canvas);
-
-  // zero / safe-balance threshold line
+  const {padLeft, padRight, padTop, padBottom, x, y, min, max} = chartGeometry(canvas);
   const threshold = window.__cfSafeBalance || 0;
-  ctx.strokeStyle = '#CBD5E1'; ctx.lineWidth = 1; ctx.setLineDash([4, 4]);
-  ctx.beginPath(); ctx.moveTo(pad, y(threshold)); ctx.lineTo(w - pad, y(threshold)); ctx.stroke();
-  ctx.setLineDash([]);
+
+  // Y-axis: a handful of "nice" £ tick values, with light horizontal
+  // gridlines — the "totals on the vertical axis" the chart was missing.
+  const yStep = niceStep(max - min, 4);
+  ctx.textAlign = 'right'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#94A3B8';
+  ctx.strokeStyle = '#EEF2F7'; ctx.lineWidth = 1;
+  for (let v = Math.ceil(min / yStep) * yStep; v <= max; v += yStep) {
+    const yy = y(v);
+    ctx.beginPath(); ctx.moveTo(padLeft, yy); ctx.lineTo(w - padRight, yy); ctx.stroke();
+    ctx.fillText(fmtMoneyShort(v), padLeft - 8, yy);
+  }
+
+  // X-axis: date ticks every ~10 days.
+  const xStep = Math.max(1, Math.round(likelySeries.length / 6));
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.fillStyle = '#94A3B8';
+  likelySeries.forEach((p, i) => {
+    if (i % xStep !== 0 && i !== likelySeries.length - 1) return;
+    ctx.fillText(fmtDateShort(p.date), x(i), h - padBottom + 8);
+  });
+
+  // £0 line — solid, always present, distinct from the (dashed) safe-
+  // balance threshold line below it, which may sit at a different value.
+  ctx.strokeStyle = '#94A3B8'; ctx.lineWidth = 1.25; ctx.setLineDash([]);
+  ctx.beginPath(); ctx.moveTo(padLeft, y(0)); ctx.lineTo(w - padRight, y(0)); ctx.stroke();
+
+  // Safe-balance / overdraft threshold line, if it's not just £0 again.
+  if (threshold !== 0) {
+    ctx.strokeStyle = '#F59E0B'; ctx.lineWidth = 1.25; ctx.setLineDash([5, 4]);
+    ctx.beginPath(); ctx.moveTo(padLeft, y(threshold)); ctx.lineTo(w - padRight, y(threshold)); ctx.stroke();
+    ctx.setLineDash([]);
+  }
 
   const line = (series, color, width, dash) => {
     ctx.strokeStyle = color; ctx.lineWidth = width; ctx.lineJoin = 'round';
@@ -557,11 +636,23 @@ function drawChart(bands) {
   const idx = hoveredIndex != null ? hoveredIndex : parseInt(document.getElementById('date-slider').value || 0, 10);
   if (likelySeries[idx]) {
     ctx.strokeStyle = 'rgba(15,23,42,0.35)'; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(x(idx), pad); ctx.lineTo(x(idx), h - pad); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x(idx), padTop); ctx.lineTo(x(idx), h - padBottom); ctx.stroke();
     ctx.fillStyle = likelySeries[idx].balance < threshold ? '#EF4444' : '#1E3A5F';
     ctx.beginPath(); ctx.arc(x(idx), y(likelySeries[idx].balance), 5, 0, Math.PI * 2); ctx.fill();
     ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
   }
+}
+
+function fmtMoneyShort(n) {
+  const abs = Math.abs(n);
+  const sign = n < 0 ? '-' : '';
+  if (abs >= 1000) return sign + '£' + (abs / 1000).toFixed(abs % 1000 === 0 ? 0 : 1) + 'k';
+  return sign + '£' + Math.round(abs);
+}
+
+function fmtDateShort(s) {
+  const d = new Date(s);
+  return d.toLocaleDateString('en-GB', {day: 'numeric', month: 'short'});
 }
 
 function setupChartHover() {
@@ -616,10 +707,6 @@ function onScrub(value) {
   drawChart();
 }
 
-function probBadgeClass(pct) {
-  return pct >= 60 ? 'high' : pct >= 30 ? 'mid' : 'low';
-}
-
 async function loadPipeline() {
   const list = document.getElementById('pipeline-list');
   try {
@@ -638,10 +725,16 @@ async function loadPipeline() {
       return `
       <div class="pipeline-item">
         <div>
-          <div class="pipeline-name">${escapeHtml(it.name || 'Untitled')}
-            ${status === 'open' ? `<span class="prob-badge ${probBadgeClass(it.probability_pct)}">${it.probability_pct}% likely</span>` : ''}
+          <div class="pipeline-name">${escapeHtml(it.name || 'Untitled')}</div>
+          <div class="pipeline-meta ${overdue ? 'overdue' : ''}">${fmtMoney(it.value_gbp)} · ${overdue ? 'Overdue since' : 'Due'} ${fmtDate(it.due_date)}
+            ${it.xero_url ? ` · <a href="${it.xero_url}" target="_blank" rel="noopener" class="xero-link">View in Xero →</a>` : ''}
           </div>
-          <div class="pipeline-meta ${overdue ? 'overdue' : ''}">${fmtMoney(it.value_gbp)} · ${overdue ? 'Overdue since' : 'Due'} ${fmtDate(it.due_date)}</div>
+          ${status === 'open' ? `
+          <div class="prob-input-row">
+            <span>Win probability —</span>
+            <input type="number" min="0" max="100" value="${it.probability_pct}" onchange="setProbability(${it.id}, this.value)">
+            <span>% (your estimate, not calculated)</span>
+          </div>` : ''}
         </div>
         <div class="toggle-btns">
           <button class="toggle-btn won ${status === 'won' ? 'active' : ''}" onclick="togglePipeline(${it.id}, 'won')"><span class="toggle-check">✓</span> Won</button>
@@ -671,20 +764,38 @@ async function togglePipeline(id, status) {
   }
 }
 
-// --- Settings (safe-balance threshold) --------------------------------
+async function setProbability(id, value) {
+  const pct = Math.max(0, Math.min(100, parseInt(value, 10) || 0));
+  try {
+    await fetch(pipelineToggleUrl(id), {
+      method: 'PATCH', credentials: 'same-origin',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({probability_pct: pct}),
+    });
+    loadDashboard();
+  } catch (e) {
+    alert('Could not update — try again.');
+  }
+}
+
+// --- Settings (overdraft limit / safe-balance threshold) ---------------
+// The field only ever shows/accepts a positive magnitude — "how big is
+// your overdraft" — the minus sign is implicit and applied here, not
+// something the user can edit or delete out of the field.
 async function loadSettings() {
   if (!isAdminPreview) return;
   try {
     const r = await fetch(settingsUrl, {credentials: 'same-origin'});
     if (!r.ok) return;
     const d = await r.json();
-    document.getElementById('safe-balance-input').value = d.safe_balance_gbp;
+    document.getElementById('safe-balance-input').value = Math.abs(d.safe_balance_gbp);
   } catch (e) {}
 }
 
 async function saveSafeBalance() {
-  const val = parseFloat(document.getElementById('safe-balance-input').value);
-  if (Number.isNaN(val)) { alert('Enter a number.'); return; }
+  const magnitude = parseFloat(document.getElementById('safe-balance-input').value);
+  if (Number.isNaN(magnitude) || magnitude < 0) { alert('Enter a positive number — the overdraft limit\'s size.'); return; }
+  const val = -Math.abs(magnitude);
   try {
     await fetch(settingsUrl, {
       method: 'PATCH', credentials: 'same-origin',
@@ -762,12 +873,33 @@ function askExample(btn) {
   sendChatMessage();
 }
 
+// Minimal markdown -> HTML for bot replies: **bold**, paragraph breaks, and
+// "- " bullet lists. escapeHtml first so nothing in the model's own text
+// can inject markup — only the patterns we explicitly build below become
+// real tags. Deliberately not a general markdown parser (no links/tables/
+// headers) — the system prompt only asks for these three constructs.
+function renderBotMarkdown(text) {
+  const escaped = escapeHtml(text);
+  const withBold = escaped.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
+  const blocks = withBold.split(/\n\s*\n/).map(block => {
+    const lines = block.split('\n').filter(l => l.trim());
+    if (lines.every(l => /^[-•]\s+/.test(l.trim()))) {
+      return '<ul style="margin:6px 0;padding-left:18px;">' +
+        lines.map(l => `<li>${l.trim().replace(/^[-•]\s+/, '')}</li>`).join('') + '</ul>';
+    }
+    return `<p style="margin:0 0 8px;">${lines.join('<br>')}</p>`;
+  });
+  return blocks.join('');
+}
+
 function appendChatMessage(text, sender) {
   const wrap = document.getElementById('chat-messages');
   const div = document.createElement('div');
   div.className = 'chat-msg ' + sender;
   div.innerHTML = `<div class="bubble"></div>`;
-  div.querySelector('.bubble').textContent = text;
+  const bubble = div.querySelector('.bubble');
+  if (sender === 'bot') bubble.innerHTML = renderBotMarkdown(text);
+  else bubble.textContent = text;
   wrap.appendChild(div);
   wrap.scrollTop = wrap.scrollHeight;
   return div;

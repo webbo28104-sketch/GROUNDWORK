@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Expenses — Groundwork Cashflow</title>
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@700;800&family=JetBrains+Mono:wght@600&display=swap" rel="stylesheet">
+<script src="../config.js"></script>
+<style>
+:root{
+  --green:#16A34A; --green-bright:#22C55E; --green-glow:rgba(34,197,94,.25);
+  --amber:#D97706; --amber-bright:#F59E0B;
+  --red:#DC2626; --red-bright:#EF4444;
+  --bg:#F1F5F9; --text:#0F172A; --sub:#64748B; --navy:#1E3A5F; --navy-bright:#2E4E7E;
+  --line:#E2E8F0;
+}
+*{box-sizing:border-box;}
+html,body{margin:0;font-family:Inter,sans-serif;color:var(--text);background:
+  radial-gradient(1200px 600px at 15% -10%, #E8EFFB 0%, transparent 60%),
+  radial-gradient(1000px 500px at 110% 10%, #EAF7EF 0%, transparent 55%),
+  var(--bg);
+  min-height:100vh;
+}
+h1,h2,h3{font-family:'Plus Jakarta Sans','Inter',sans-serif;margin:0;}
+a{color:inherit;}
+.app-header{background:linear-gradient(135deg,var(--navy),#152B45);color:#fff;padding:0 20px;height:58px;display:flex;align-items:center;justify-content:space-between;box-shadow:0 2px 12px rgba(15,23,42,.15);}
+.app-header .logo{font-weight:800;font-size:16px;letter-spacing:-.02em;text-decoration:none;color:#fff;display:flex;align-items:center;gap:8px;}
+.app-header nav a{color:rgba(255,255,255,.65);text-decoration:none;font-size:13.5px;font-weight:600;margin-left:20px;transition:color .15s;}
+.app-header nav a:hover,.app-header nav a.active{color:#fff;}
+.wrap{max-width:1080px;margin:0 auto;padding:26px 20px 80px;}
+.page-head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:10px;}
+.page-head h1{font-size:26px;letter-spacing:-.02em;}
+.total-pill{background:#fff;border-radius:12px;padding:12px 18px;font-size:14px;box-shadow:0 1px 2px rgba(15,23,42,.05);}
+.total-pill b{font-family:'Plus Jakarta Sans',sans-serif;font-size:20px;color:var(--red);margin-left:6px;}
+.card{background:#fff;border-radius:16px;padding:0;margin-bottom:20px;box-shadow:0 1px 2px rgba(15,23,42,.05);overflow:hidden;}
+table{width:100%;border-collapse:collapse;font-size:13.5px;}
+th{text-align:left;padding:12px 18px;font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--sub);border-bottom:1px solid var(--line);background:var(--bg);}
+td{padding:13px 18px;border-bottom:1px solid var(--line);vertical-align:top;}
+tr:last-child td{border-bottom:none;}
+tr:hover td{background:#F8FAFC;}
+.contact{font-weight:700;}
+.badge{display:inline-block;font-size:10px;font-weight:800;padding:2px 7px;border-radius:20px;margin-left:6px;vertical-align:middle;text-transform:uppercase;}
+.badge.recurring{background:#EEF2F7;color:var(--sub);}
+.badge.prob{background:#FEF3C7;color:#B45309;}
+.amount{font-weight:800;font-family:'Plus Jakarta Sans',sans-serif;color:var(--red);text-align:right;}
+.xero-link{color:var(--navy);font-weight:700;text-decoration:none;font-size:12px;}
+.xero-link:hover{text-decoration:underline;}
+.empty{color:var(--sub);font-size:13.5px;text-align:center;padding:40px 0;}
+</style>
+</head>
+<body>
+
+<header class="app-header">
+  <a href="/index.html" class="logo">💷 Groundwork Cashflow</a>
+  <nav id="top-nav">
+    <a href="dashboard.html">Dashboard</a>
+    <a href="income.html">Income</a>
+    <a href="expenses.html" class="active">Expenses</a>
+    <a href="upgrade.html">Upgrade</a>
+    <a href="/account">Account</a>
+  </nav>
+</header>
+<script>
+document.querySelectorAll('#top-nav a[href$=".html"]').forEach(a => {
+  const qs = location.search;
+  if (qs) a.href = a.getAttribute('href') + qs;
+});
+</script>
+
+<div class="wrap">
+  <div class="page-head">
+    <h1>Money going out</h1>
+    <div class="total-pill">Next 60 days<b id="total">£--</b></div>
+  </div>
+  <div class="card">
+    <table>
+      <thead><tr><th>Contact</th><th>Date</th><th style="text-align:right;">Amount</th></tr></thead>
+      <tbody id="rows"><tr><td colspan="3" class="empty">Loading…</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+const params = new URLSearchParams(location.search);
+const isAdminPreview = params.get('admin') === '1';
+const API_BASE = isAdminPreview ? '/api/cashflow/admin-preview' : '/api/cashflow';
+const useFixture = params.get('fixture') !== '0';
+const dashboardUrl = isAdminPreview ? `${API_BASE}/dashboard` : `${API_BASE}/dashboard${useFixture ? '?fixture=1' : ''}`;
+
+function fmtMoney(n) {
+  if (n === undefined || n === null) return '£--';
+  const neg = n < 0;
+  return (neg ? '-£' : '£') + Math.round(Math.abs(n)).toLocaleString('en-GB');
+}
+function fmtDate(s) {
+  const d = new Date(s);
+  return d.toLocaleDateString('en-GB', {day: '2-digit', month: 'short', year: 'numeric'});
+}
+function escapeHtml(s) {
+  const d = document.createElement('div'); d.textContent = s == null ? '' : s; return d.innerHTML;
+}
+
+async function load() {
+  try {
+    const r = await fetch(dashboardUrl, {credentials: 'same-origin'});
+    if (isAdminPreview && r.status === 401) { location.href = '/admin/login'; return; }
+    if (!isAdminPreview && r.status === 401) { location.href = '/account/login'; return; }
+    if (!r.ok) return;
+    const d = await r.json();
+    render(d.bands.likely.transactions || []);
+  } catch (e) {
+    document.getElementById('rows').innerHTML = '<tr><td colspan="3" class="empty">Could not load.</td></tr>';
+  }
+}
+
+function render(transactions) {
+  const rows = transactions.filter(t => t.type === 'outgoing').sort((a, b) => a.date.localeCompare(b.date));
+  const total = rows.reduce((sum, t) => sum + t.amount_gbp, 0);
+  document.getElementById('total').textContent = fmtMoney(total);
+  if (!rows.length) {
+    document.getElementById('rows').innerHTML = '<tr><td colspan="3" class="empty">Nothing going out over this period.</td></tr>';
+    return;
+  }
+  document.getElementById('rows').innerHTML = rows.map(t => `
+    <tr>
+      <td>
+        <span class="contact">${escapeHtml(t.contact || t.reference || 'Untitled')}</span>
+        ${t.reference && t.reference.includes('REC-') ? '<span class="badge recurring">Recurring</span>' : ''}
+        ${t.xero_url ? `<div><a href="${t.xero_url}" target="_blank" rel="noopener" class="xero-link">View in Xero →</a></div>` : ''}
+      </td>
+      <td>${fmtDate(t.date)}</td>
+      <td class="amount">−${fmtMoney(t.amount_gbp)}</td>
+    </tr>
+  `).join('');
+}
+
+load();
+</script>
+</body>
+</html>

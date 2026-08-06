@@ -435,15 +435,24 @@ def _admin_preview_fixture_data():
     return build_fixture_data(**kwargs)
 
 
+_ADMIN_PREVIEW_PROB_KEY = "admin_cf_preview_probability_overrides"
+
+
+def _admin_preview_probability_overrides():
+    return {int(k): v for k, v in session.get(_ADMIN_PREVIEW_PROB_KEY, {}).items()}
+
+
 def _admin_preview_quotes_with_overrides(data):
-    """Pipeline quotes with the admin's manual Won/Lost override applied —
-    Won forces probability to 100% (certain, same as any other confirmed
-    event), Lost drops it to 0% (never counted, in any scenario band).
-    Anything neither toggled keeps its own probability_pct estimate, so it
-    still contributes to the "likely" band at that weight — this is the
-    "buts and maybes" mechanic: a manual override for the ones you're sure
-    about, a probability-weighted estimate for everything you're not."""
+    """Pipeline quotes with the admin's manual overrides applied. Two
+    independent controls, both plain admin INPUT — this app never infers or
+    calculates a win probability on its own:
+      - Won/Lost status forces probability to 100%/0% (certain either way).
+      - Left "Open", the probability is whatever the admin typed into the
+        per-quote number field (defaults to the fixture's starting
+        estimate) — that's what feeds the "Likely" band's expected-value
+        math (see forecast_engine.calculate_scenario_bands)."""
     won_ids, lost_ids = _admin_preview_won_ids(), _admin_preview_lost_ids()
+    overrides = _admin_preview_probability_overrides()
     quotes = []
     for i, inv in enumerate(data["invoices"]):
         item = dict(inv)
@@ -451,6 +460,8 @@ def _admin_preview_quotes_with_overrides(data):
             item["probability_pct"] = 100
         elif i in lost_ids:
             item["probability_pct"] = 0
+        elif i in overrides:
+            item["probability_pct"] = overrides[i]
         quotes.append(item)
     return quotes
 
@@ -482,9 +493,11 @@ def cashflow_admin_preview_dashboard():
 def cashflow_admin_preview_pipeline():
     data = _admin_preview_fixture_data()
     won_ids, lost_ids = _admin_preview_won_ids(), _admin_preview_lost_ids()
+    overrides = _admin_preview_probability_overrides()
     return jsonify({"items": [
         {"id": i, "name": inv["contact_name"], "value_gbp": inv["amount_gbp"],
-         "due_date": inv["due_date"], "probability_pct": inv.get("probability_pct", 100),
+         "due_date": inv["due_date"], "xero_url": inv.get("xero_url"),
+         "probability_pct": overrides.get(i, inv.get("probability_pct", 100)),
          "status": "won" if i in won_ids else "lost" if i in lost_ids else "open"}
         for i, inv in enumerate(data["invoices"])
     ]})
@@ -493,20 +506,35 @@ def cashflow_admin_preview_pipeline():
 @cashflow_admin_bp.route("/api/cashflow/admin-preview/pipeline/<int:item_id>", methods=["PATCH"])
 @_admin_required
 def cashflow_admin_preview_pipeline_toggle(item_id):
+    """Accepts `status` ("won"/"lost"/"open") and/or `probability_pct`
+    (0-100) — sent separately by the UI (status buttons vs. the probability
+    number field), so either can change without touching the other."""
     data = _admin_preview_fixture_data()
     if item_id < 0 or item_id >= len(data["invoices"]):
         return jsonify({"error": "not_found"}), 404
     body = request.get_json(silent=True) or {}
-    status = body.get("status", "open")  # "won" | "lost" | "open"
-    won_ids, lost_ids = _admin_preview_won_ids(), _admin_preview_lost_ids()
-    won_ids.discard(item_id)
-    lost_ids.discard(item_id)
-    if status == "won":
-        won_ids.add(item_id)
-    elif status == "lost":
-        lost_ids.add(item_id)
-    session[_ADMIN_PREVIEW_WON_KEY] = list(won_ids)
-    session[_ADMIN_PREVIEW_LOST_KEY] = list(lost_ids)
+
+    if "status" in body:
+        status = body["status"]  # "won" | "lost" | "open"
+        won_ids, lost_ids = _admin_preview_won_ids(), _admin_preview_lost_ids()
+        won_ids.discard(item_id)
+        lost_ids.discard(item_id)
+        if status == "won":
+            won_ids.add(item_id)
+        elif status == "lost":
+            lost_ids.add(item_id)
+        session[_ADMIN_PREVIEW_WON_KEY] = list(won_ids)
+        session[_ADMIN_PREVIEW_LOST_KEY] = list(lost_ids)
+
+    if "probability_pct" in body:
+        try:
+            pct = max(0, min(100, int(body["probability_pct"])))
+        except (TypeError, ValueError):
+            return jsonify({"error": "invalid probability_pct"}), 400
+        overrides = _admin_preview_probability_overrides()
+        overrides[item_id] = pct
+        session[_ADMIN_PREVIEW_PROB_KEY] = overrides
+
     return jsonify({"ok": True})
 
 
@@ -522,7 +550,11 @@ def cashflow_admin_preview_settings():
     body = request.get_json(silent=True) or {}
     if "safe_balance_gbp" in body:
         try:
-            session[_ADMIN_PREVIEW_SAFE_BALANCE_KEY] = float(body["safe_balance_gbp"])
+            # An overdraft limit/comfort buffer is a floor BELOW zero by
+            # definition — force negative here too, not just in the UI
+            # (which sends a positive "limit" figure and negates it), so a
+            # direct API call can't set a nonsensical positive threshold.
+            session[_ADMIN_PREVIEW_SAFE_BALANCE_KEY] = -abs(float(body["safe_balance_gbp"]))
         except (TypeError, ValueError):
             return jsonify({"error": "invalid safe_balance_gbp"}), 400
     return jsonify({"ok": True})

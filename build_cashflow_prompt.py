@@ -123,6 +123,16 @@ FIXTURE_RECURRING = [
 ]
 
 
+def _xero_link(section: str, record_id: str) -> str:
+    """Placeholder Xero deep-link — the real Xero integration (Phase 2)
+    would read the customer's actual tenant short code and record GUID
+    back from the API and build a real https://go.xero.com/... URL; this
+    stands in with the same shape so the UI hook (a "View in Xero" link on
+    every bill/invoice/quote) is already wired and just needs a real URL
+    swapped in once that integration exists — see xero_integration.py."""
+    return f"https://go.xero.com/{section}/View.aspx?InvoiceID={record_id}"
+
+
 def _add_months(d: datetime, n: int, day_of_month: int) -> datetime:
     month = d.month - 1 + n
     year = d.year + month // 12
@@ -147,12 +157,14 @@ def _expand_recurring(today: datetime, forecast_days: int) -> list:
             if occurrence > horizon:
                 break
             if occurrence.date() > today.date():
+                occurrence_id = f"{tmpl['id']}-{occurrence.strftime('%Y%m')}"
                 expanded.append({
-                    "id": f"{tmpl['id']}-{occurrence.strftime('%Y%m')}",
+                    "id": occurrence_id,
                     "contact_name": f"{tmpl['label']} — {occurrence.strftime('%b')}",
                     "amount_gbp": tmpl["amount_gbp"],
                     "due_date": occurrence.strftime("%Y-%m-%d"),
                     "recurring": True,
+                    "xero_url": _xero_link("AccountsPayable", occurrence_id),
                 })
             month_offset += step
     return expanded
@@ -197,22 +209,31 @@ def build_fixture_data(today: datetime = None, forecast_days: int = 60,
     confirmed_invoices = [
         # Already issued, overdue — real money owed, not a maybe. CIS
         # deducted at source since the client is a main contractor.
-        {"id": "INV-102", "contact_name": "Retail Fitout Co", "amount_gbp": 15000.00, "due_date": d(-14),
-         "cis_deduction_pct": 20, "probability_pct": 100},
+        {"id": "INV-102", "contact_name": "Retail Fitout Co", "contact_email": "accounts@retailfitout.example.com",
+         "amount_gbp": 15000.00, "due_date": d(-14), "cis_deduction_pct": 20, "probability_pct": 100,
+         "xero_url": _xero_link("AccountsReceivable", "INV-102")},
     ]
     pipeline_quotes = [
         # Genuinely uncertain — each carries its own confidence, editable
-        # in the UI. "Won"/"Not yet" toggling overrides this to 100%/0%;
-        # left alone, "Not yet" quotes still count at probability_pct in
-        # the Likely band (see forecast_engine.calculate_scenario_bands).
-        {"id": "QUOTE-101", "contact_name": "Kelvin Roofing Ltd", "amount_gbp": 8200.00, "due_date": d(9), "probability_pct": 70},
-        {"id": "QUOTE-103", "contact_name": "Marsh Construction", "amount_gbp": 4300.00, "due_date": d(26), "probability_pct": 40},
-        {"id": "QUOTE-104", "contact_name": "Oakfield Developments", "amount_gbp": 22000.00, "due_date": d(45), "probability_pct": 20},
+        # in the UI (an admin/director INPUT, not something the app
+        # infers — see cashflow_routes.py's pipeline probability-edit
+        # endpoint). "Won"/"Lost" toggling overrides this to 100%/0%; left
+        # "Open", a quote still counts at probability_pct in the Likely
+        # band (see forecast_engine.calculate_scenario_bands).
+        {"id": "QUOTE-101", "contact_name": "Kelvin Roofing Ltd", "contact_email": "office@kelvinroofing.example.com",
+         "amount_gbp": 8200.00, "due_date": d(9), "probability_pct": 70, "xero_url": _xero_link("Quotes", "QUOTE-101")},
+        {"id": "QUOTE-103", "contact_name": "Marsh Construction", "contact_email": "accounts@marshconstruction.example.com",
+         "amount_gbp": 4300.00, "due_date": d(26), "probability_pct": 40, "xero_url": _xero_link("Quotes", "QUOTE-103")},
+        {"id": "QUOTE-104", "contact_name": "Oakfield Developments", "contact_email": "finance@oakfielddev.example.com",
+         "amount_gbp": 22000.00, "due_date": d(45), "probability_pct": 20, "xero_url": _xero_link("Quotes", "QUOTE-104")},
     ]
     one_off_bills = [
-        {"id": "BILL-51", "contact_name": "Plant Hire Direct", "amount_gbp": 2100.00, "due_date": d(-1)},
-        {"id": "BILL-52", "contact_name": "Aggregates Supply Co", "amount_gbp": 6400.00, "due_date": d(14)},
-        {"id": "BILL-53", "contact_name": "HMRC — PAYE", "amount_gbp": 5200.00, "due_date": d(16)},
+        {"id": "BILL-51", "contact_name": "Plant Hire Direct", "amount_gbp": 2100.00, "due_date": d(-1),
+         "xero_url": _xero_link("AccountsPayable", "BILL-51")},
+        {"id": "BILL-52", "contact_name": "Aggregates Supply Co", "amount_gbp": 6400.00, "due_date": d(14),
+         "xero_url": _xero_link("AccountsPayable", "BILL-52")},
+        {"id": "BILL-53", "contact_name": "HMRC — PAYE", "amount_gbp": 5200.00, "due_date": d(16),
+         "xero_url": _xero_link("AccountsPayable", "BILL-53")},
     ]
     bills = one_off_bills + _expand_recurring(today, forecast_days)
     won_pipeline = [
@@ -220,8 +241,9 @@ def build_fixture_data(today: datetime = None, forecast_days: int = 60,
         # retention held on each until the defects liability period ends.
         # This is the fixture's demonstration of both features at once.
         {
-            "id": "QUOTE-9", "contact_name": "Smith Contract", "probability_pct": 100,
-            "retention_pct": 5, "retention_release_days": 180,
+            "id": "QUOTE-9", "contact_name": "Smith Contract", "contact_email": "accounts@smithcontract.example.com",
+            "probability_pct": 100, "retention_pct": 5, "retention_release_days": 180,
+            "xero_url": _xero_link("Contracts", "QUOTE-9"),
             "milestones": [
                 {"label": "deposit", "amount_gbp": 4000.00, "date": d(12)},
                 {"label": "mid-stage", "amount_gbp": 4000.00, "date": d(34)},
