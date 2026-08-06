@@ -30,7 +30,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 from build_prompt import build_research_prompt, build_site_prompt, PROMPT_VERSION_HASH
 from outreach.site_extract import extract_site_assets
-from models import SessionLocal, Lead, Generation, Account, GenerationImage, Domain, Prospect, SearchCell, PendingEmailDiscovery, EmailEventLog, OutreachTouch, DailySendCount, RampState, SmsDeliveryEvent, SurveyResponse, PreGenSurveyResponse, DiscoveryRunLog, InboundReply, EmailVariant, EvidenceFinding, OptimizerRunLog, PromptApproval, ProspectEvent, init_db
+from models import SessionLocal, Lead, Generation, Account, GenerationImage, Domain, Prospect, SearchCell, PendingEmailDiscovery, EmailEventLog, OutreachTouch, DailySendCount, RampState, SmsDeliveryEvent, SurveyResponse, PreGenSurveyResponse, DiscoveryRunLog, InboundReply, EmailVariant, EvidenceFinding, OptimizerRunLog, PromptApproval, ProspectEvent, XeroConnection, CashflowFunnelEvent, init_db
 from emails import (send_verification_email, send_resend_email, send_password_reset_email,
                     send_support_message_email, send_enquiry_email,
                     send_domain_order_admin_email, send_domain_order_customer_email,
@@ -1773,6 +1773,8 @@ def _admin_page(title: str, content: str, active: str = "") -> str:
         ("Domains &amp; margins", "/admin/domains", "domains"),
         ("Pipeline", "/admin/pipeline", "pipeline"),
         ("Funnel", "/admin/funnel", "funnel"),
+        ("Cashflow", "/admin/cashflow-funnel", "cashflow-funnel"),
+        ("Cashflow Preview", "/admin/cashflow-preview", "cashflow-preview"),
         ("Deliverability", "/admin/deliverability", "deliverability"),
         ("Variants", "/admin/variants", "variants"),
     ]
@@ -7723,6 +7725,115 @@ def admin_funnel():
         db.close()
 
 
+@app.route("/admin/cashflow-funnel")
+@admin_required
+def admin_cashflow_funnel():
+    """Acquisition funnel for Groundwork Cashflow — two sections, kept
+    separate because they're genuinely different funnels:
+    1. In-app funnel: CashflowFunnelEvent (signup/xero_connected/
+       dashboard_viewed/trial_started/paid + accountant_requested), covering
+       website-included upsell and standalone signup (with or without cold
+       outreach as the original touchpoint).
+    2. Cold-outreach send funnel: OutreachTouch(product="cashflow"), the
+       send-side counterpart to /admin/funnel's website view — deliberately
+       a separate table/page rather than a query-param toggle on that page,
+       since OutreachTouch's cohort-attribution logic there is built around
+       website-specific Prospect fields (opened_at/clicked_at/paid_at) that
+       don't apply to Cashflow's cashflow_* equivalents; showing a simpler
+       per-stage/per-channel send-count table here is more honest than
+       reusing that page's richer-looking but wrong-for-this-product stats."""
+    STAGES = ["signup", "xero_connected", "dashboard_viewed", "trial_started", "paid", "accountant_requested"]
+    SOURCES = ["website_included", "standalone_upsell", "standalone_direct"]
+    XERO_CONNECTION_CAP = 5
+    OUTREACH_STAGES = ["initial", "A", "B", "C", "D"]
+
+    db = SessionLocal()
+    try:
+        counts = {source: {stage: 0 for stage in STAGES} for source in SOURCES}
+        counts["(unspecified)"] = {stage: 0 for stage in STAGES}
+        rows = db.query(CashflowFunnelEvent.stage, CashflowFunnelEvent.source, func.count(CashflowFunnelEvent.id)) \
+                 .group_by(CashflowFunnelEvent.stage, CashflowFunnelEvent.source).all()
+        for stage, source, n in rows:
+            key = source if source in SOURCES else "(unspecified)"
+            if stage in counts[key]:
+                counts[key][stage] = n
+
+        active_connections = db.query(XeroConnection).filter(XeroConnection.status == "active").count()
+
+        def _row(label, stage_counts, stage_list):
+            cells = "".join(f'<td style="text-align:center;">{stage_counts[s]}</td>' for s in stage_list)
+            return f'<tr><td style="font-weight:700;">{label}</td>{cells}</tr>'
+
+        table_rows = "".join(_row(src.replace("_", " ").title(), counts[src], STAGES) for src in SOURCES + ["(unspecified)"])
+        header_cells = "".join(f'<th style="text-align:center;">{s.replace("_", " ").title()}</th>' for s in STAGES)
+
+        # Cold-outreach send funnel — touch counts (distinct prospects) per
+        # stage/channel, product="cashflow" only (OutreachTouch.product,
+        # see models.py — the whole mechanism that keeps this from mixing
+        # with website's touches in the same table).
+        outreach_counts = {stage: {"email": 0, "sms": 0} for stage in OUTREACH_STAGES}
+        touch_rows = db.query(OutreachTouch.stage, OutreachTouch.channel, OutreachTouch.prospect_id).filter(
+            OutreachTouch.product == "cashflow"
+        ).all()
+        seen = {(stage, channel): set() for stage in OUTREACH_STAGES for channel in ("email", "sms")}
+        for stage, channel, prospect_id in touch_rows:
+            if stage in outreach_counts and channel in ("email", "sms"):
+                seen[(stage, channel)].add(prospect_id)
+        for stage in OUTREACH_STAGES:
+            outreach_counts[stage]["email"] = len(seen[(stage, "email")])
+            outreach_counts[stage]["sms"] = len(seen[(stage, "sms")])
+
+        outreach_rows = "".join(
+            f'<tr><td style="font-weight:700;">{stage}</td>'
+            f'<td style="text-align:center;">{outreach_counts[stage]["email"]}</td>'
+            f'<td style="text-align:center;">{outreach_counts[stage]["sms"]}</td></tr>'
+            for stage in OUTREACH_STAGES
+        )
+
+        content = f"""
+<h1 class="adm-title">Groundwork Cashflow — acquisition funnel</h1>
+<p class="adm-sub">Per-stage signups, split by acquisition source. Separate from the website funnel — see
+/admin/funnel for that one and /admin/variants?product=cashflow for Cashflow's own A/B testing pool.</p>
+
+<div class="adm-card" style="padding:20px 24px;margin-bottom:24px;max-width:320px;">
+  <div style="font-size:13px;color:#9A9893;font-weight:600;text-transform:uppercase;letter-spacing:.04em;">Active Xero connections</div>
+  <div style="font-size:32px;font-weight:800;margin-top:6px;">{active_connections} <span style="font-size:16px;color:#9A9893;font-weight:600;">/ {XERO_CONNECTION_CAP} (Starter cap)</span></div>
+</div>
+
+<div class="adm-card" style="overflow-x:auto;margin-bottom:28px;">
+  <table><thead><tr><th>Source</th>{header_cells}</tr></thead>
+    <tbody>{table_rows}</tbody>
+  </table>
+</div>
+
+<h2 style="font-size:18px;font-weight:800;margin:0 0 6px;">Cold-outreach send funnel</h2>
+<p class="adm-sub" style="font-size:12.5px;">Distinct prospects touched per stage/channel (OutreachTouch.product="cashflow").
+Sending stays off until CASHFLOW_OUTREACH_LIVE is set AND a Cron service is pointed at outreach/cashflow_send_job.py —
+see that module's docstring. All-zero here means nothing has gone out yet, not that tracking is broken.</p>
+<div class="adm-card" style="overflow-x:auto;">
+  <table><thead><tr><th>Stage</th><th style="text-align:center;">Email</th><th style="text-align:center;">SMS</th></tr></thead>
+    <tbody>{outreach_rows}</tbody>
+  </table>
+</div>
+"""
+        return render_template_string(_admin_page("Cashflow Funnel", content, active="cashflow-funnel"))
+    finally:
+        db.close()
+
+
+@app.route("/admin/cashflow-preview")
+@admin_required
+def admin_cashflow_preview():
+    """Sends the admin to the real Cashflow dashboard page in its
+    ?admin=1 sandbox mode (cashflow_routes.py's /api/cashflow/admin-preview/*
+    endpoints — mock data only, no real Account/Xero/Stripe involved, pipeline
+    toggles held in the Flask session, nothing written to the DB). Exists so
+    the founder can click around a mock report before deciding this feature
+    is worth committing at all. The static page itself carries no sensitive
+    data — admin_required gates the API calls it makes, not this redirect."""
+    return redirect("/cashflow/dashboard.html?admin=1")
+
+
 _GMAIL_HARD_CEILING = 0.003  # 0.3% — not a circuit-breaker value in code (only
 # EMAIL_SPAM_RATE_TRIGGER, 0.1%, actually trips anything), this is the "degradation
 # begins well before this" reference ceiling docs/outreach-pipeline-spec.md
@@ -8137,10 +8248,15 @@ def admin_variants():
     see docs/cold-email-evidence-library.md's architecture note), and the
     optimizer job's recent run history (OptimizerRunLog) so this page stays
     checkable even if the job itself is misbehaving."""
+    product = request.args.get("product", "website").strip().lower()
+    if product not in ("website", "cashflow"):
+        product = "website"
     db = SessionLocal()
     try:
         stages = ["initial", "A", "B", "C", "D"]
-        variants = db.query(EmailVariant).order_by(EmailVariant.stage.asc(), EmailVariant.created_at.asc()).all()
+        variants = db.query(EmailVariant).filter(EmailVariant.product == product).order_by(
+            EmailVariant.stage.asc(), EmailVariant.created_at.asc()
+        ).all()
         by_stage = {}
         for v in variants:
             by_stage.setdefault(v.stage, []).append(v)
@@ -8241,12 +8357,19 @@ def admin_variants():
           </table>
         </div>"""
 
+        product_toggle = "".join(
+            f'<a href="/admin/variants?product={p}" style="margin-right:14px;font-weight:{"700" if p == product else "500"};'
+            f'color:{"#1C1C1C" if p == product else "#9A9893"};text-decoration:none;">{p.title()}</a>'
+            for p in ("website", "cashflow")
+        )
         content = f"""
 <h1 class="adm-title">Email variant testing</h1>
+<p style="margin:6px 0 14px;">{product_toggle}</p>
 <p class="adm-sub muted" style="font-size:12.5px;">Autonomous, evidence-grounded variant testing per outreach stage — no approval gate. See
 docs/cold-email-evidence-library.md and docs/outreach-pipeline-spec.md Section 19.
 Rates below are last-touch-attributed (see app.py's _stamp_latest_touch_outcome) — a real, honest limitation, not a bug, if a number here looks
-slightly off vs. the Funnel page's prospect-level rates.</p>
+slightly off vs. the Funnel page's prospect-level rates. Each product ({product}) runs its own independent variant pool per stage — see
+EmailVariant.product in models.py.</p>
 {''.join(stage_sections)}
 {findings_html}
 {run_log_html}
@@ -11712,6 +11835,22 @@ def _inject_watermark(html: str, job_id: str, *, show_toast: bool = False, track
 def job_photo(job_id, filename):
     job_dir = os.path.join(UPLOAD_DIR, job_id)
     return send_from_directory(job_dir, filename)
+
+
+# Groundwork Cashflow — registered here, near the bottom of the file, so
+# every name cashflow_routes.py might eventually need from this module
+# already exists on it by the time the import runs. cashflow_routes.py
+# currently has no import from app.py at all (only models/stripe/os), so
+# this is just keeping the registration close to the other route-wiring
+# rather than a hard requirement today — see that module's docstring.
+#
+# Only the admin-preview blueprint is registered for now — the product is
+# still being tested internally (see /admin/cashflow-preview), so the real
+# public surface (cashflow_bp: checkout, dashboard, pipeline, chat, Xero)
+# stays unregistered/unreachable until that's done. Register cashflow_bp
+# too (`app.register_blueprint(cashflow_bp)`) when ready to go live.
+from cashflow_routes import cashflow_admin_bp
+app.register_blueprint(cashflow_admin_bp)
 
 
 # Serve frontend static files. Explicit routes above (api/verify/account/admin)

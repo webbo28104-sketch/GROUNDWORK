@@ -28,6 +28,15 @@ Three tables:
   Only populated for generations created after this table was added; older
   generations have no rows here (see CLAUDE.md) and aren't retroactively
   editable — the original uploaded files no longer exist to backfill from.
+
+Groundwork Cashflow (Xero-connected cash flow forecasting, a second product
+alongside website generation) adds: XeroConnection (OAuth tokens per
+Account x tenant), CashflowSnapshot (cached forecast-engine output),
+CashflowPipelineItem (synced Xero quotes/invoices + won/not-won toggle),
+CashflowFunnelEvent (acquisition tracking, mirrors OutreachTouch). Cashflow
+entitlement/billing state lives directly on Account (cashflow_* columns)
+rather than a new table, since Account is already the one place email is
+unique.
 """
 import os
 from datetime import datetime
@@ -171,6 +180,24 @@ class Account(Base):
     password_hash = Column(String(255))  # nullable until the user sets a password
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
+    # Groundwork Cashflow entitlement/billing (added for the Cashflow launch).
+    # Independent of website billing (Generation.stripe_*) — an account can
+    # have a website subscription, a standalone cashflow subscription, both,
+    # or neither. "Included free with website" is NOT its own subscription
+    # here — it's inferred at request time (see cashflow_routes.py's
+    # cashflow_entitled()) by checking for a live Generation, so it
+    # self-heals if the website sub is cancelled without a separate
+    # cashflow-cancellation code path.
+    cashflow_stripe_customer_id = Column(String(255), nullable=True, index=True)
+    cashflow_stripe_subscription_id = Column(String(255), nullable=True, index=True)
+    cashflow_subscription_status = Column(String(30), nullable=True)
+    # "trialing" | "active" | "past_due" | "canceled" | None — mirrors
+    # Stripe's subscription.status, written by the webhook.
+    cashflow_trial_end = Column(DateTime, nullable=True)
+    cashflow_period_end = Column(DateTime, nullable=True)
+    cashflow_canceled_at = Column(DateTime, nullable=True)
+    cashflow_cancel_at_period_end = Column(Boolean, nullable=False, default=False)
+
 
 class GenerationImage(Base):
     __tablename__ = "generation_images"
@@ -259,6 +286,98 @@ class Domain(Base):
     # payment_intent matches this domain's stripe_payment_id (the one-time
     # purchase charge — not the recurring renewal subscription).
     refunded_at = Column(DateTime, nullable=True)
+
+
+class XeroConnection(Base):
+    """One row per Account x Xero tenant (organisation) connected. Kept
+    1:many on Account (rather than 1:1) in case a multi-entity user needs
+    more than one tenant later, though the Starter-tier cap (5 active
+    connections total, app-enforced in cashflow_routes.py) makes that rare
+    in practice today."""
+    __tablename__ = "xero_connections"
+
+    id = Column(Integer, primary_key=True)
+    account_id = Column(Integer, ForeignKey("accounts.id"), nullable=False, index=True)
+    tenant_id = Column(String(64), nullable=False)
+    tenant_name = Column(String(255), nullable=True)
+    # Tokens are Fernet-encrypted at rest (see xero_integration.py) — never
+    # stored raw, since a DB dump/leak would otherwise directly expose a
+    # customer's live accounting data.
+    access_token_encrypted = Column(Text, nullable=False)
+    refresh_token_encrypted = Column(Text, nullable=False)
+    token_expires_at = Column(DateTime, nullable=False)
+    scopes = Column(String(500), nullable=False)
+    status = Column(String(30), nullable=False, default="active")  # active, revoked, error
+    last_synced_at = Column(DateTime, nullable=True)
+    last_error = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (UniqueConstraint("account_id", "tenant_id", name="uq_xero_connections_account_tenant"),)
+
+
+class CashflowSnapshot(Base):
+    """One row per forecast-engine run — cached so the dashboard doesn't
+    recompute (and re-call DeepSeek) on every page load. Recomputed on a
+    pipeline won/not-won toggle or a manual refresh."""
+    __tablename__ = "cashflow_snapshots"
+
+    id = Column(Integer, primary_key=True)
+    account_id = Column(Integer, ForeignKey("accounts.id"), nullable=False, index=True)
+    xero_connection_id = Column(Integer, ForeignKey("xero_connections.id"), nullable=False, index=True)
+    current_balance_gbp = Column(Float, nullable=False)
+    projected_balance_gbp = Column(Float, nullable=False)
+    projection_date = Column(DateTime, nullable=False)
+    runway_days = Column(Integer, nullable=True)  # null if cash never goes negative in the horizon
+    traffic_light = Column(String(10), nullable=False)  # green | amber | red
+    money_in_60d_gbp = Column(Float, nullable=False)
+    money_out_60d_gbp = Column(Float, nullable=False)
+    daily_series_json = Column(JSON, nullable=False)  # [{date, in, out, balance}, ...] for the chart
+    raw_deepseek_response = Column(JSON, nullable=True)  # kept for debugging prompt/response drift
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class CashflowPipelineItem(Base):
+    """One row per Xero quote/invoice surfaced in the contract pipeline.
+    Amount/due date are re-synced from Xero (source of truth); is_won is the
+    one piece of state Xero doesn't have."""
+    __tablename__ = "cashflow_pipeline_items"
+
+    id = Column(Integer, primary_key=True)
+    account_id = Column(Integer, ForeignKey("accounts.id"), nullable=False, index=True)
+    xero_connection_id = Column(Integer, ForeignKey("xero_connections.id"), nullable=False, index=True)
+    xero_id = Column(String(64), nullable=False)  # Xero InvoiceID/QuoteID
+    xero_type = Column(String(20), nullable=False)  # "invoice" | "quote"
+    contact_name = Column(String(255), nullable=True)
+    amount_gbp = Column(Float, nullable=False)
+    due_date = Column(DateTime, nullable=True)
+    xero_status = Column(String(30), nullable=True)  # Xero's own status (DRAFT, SENT, AUTHORISED...)
+    is_won = Column(Boolean, nullable=False, default=False)
+    won_toggled_at = Column(DateTime, nullable=True)
+    synced_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (UniqueConstraint("xero_connection_id", "xero_id", name="uq_cashflow_pipeline_xero_id"),)
+
+
+class CashflowFunnelEvent(Base):
+    """One row per acquisition-funnel event for Groundwork Cashflow, mirroring
+    OutreachTouch's dedicated-log-table pattern that /admin/funnel reads.
+    Covers in-app upsell to existing website customers and direct standalone
+    signup (source="website_included"/"standalone_upsell"/"standalone_direct").
+    Cold-outreach-driven signups (added later, see Prospect.cashflow_* and
+    OutreachTouch.product) go through the SAME Stripe/session code paths
+    that log these events, so a cold-outreach conversion shows up here too —
+    OutreachTouch is the per-send record, this is the per-account funnel
+    stage, same relationship as the website funnel's OutreachTouch/Prospect."""
+    __tablename__ = "cashflow_funnel_events"
+
+    id = Column(Integer, primary_key=True)
+    account_id = Column(Integer, ForeignKey("accounts.id"), nullable=False, index=True)
+    stage = Column(String(40), nullable=False)
+    # stages: "signup" | "xero_connected" | "dashboard_viewed" | "trial_started" |
+    # "paid" | "accountant_requested" (chatbot.py's "talk to an accountant"
+    # tool — the warm-lead handoff to Groundwork's accountancy practice)
+    source = Column(String(30), nullable=True)  # "website_included" | "standalone_upsell" | "standalone_direct"
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
 
 
 class Prospect(Base):
@@ -420,6 +539,26 @@ class Prospect(Base):
     error_notes = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     processed_at = Column(DateTime, nullable=True)
+
+    # Groundwork Cashflow cold-outreach state (added alongside the Cashflow
+    # outreach engine) — a second, independent outreach funnel run against
+    # the SAME sourced Prospect pool, not a new pool. A prospect can be in
+    # both funnels at once (e.g. ignored the website pitch, later responded
+    # to the Cashflow one) — deliberately mirrors the website funnel_stage/
+    # touch/token fields above rather than sharing them, one-for-one, except
+    # for email_unsubscribed/sms_unsubscribed above, which stay SHARED
+    # across both campaigns (a STOP means stop everything from Groundwork).
+    cashflow_funnel_substage = Column(String(30), nullable=True)  # sent/opened/clicked/trial_started/cold
+    cashflow_token = Column(String(100), unique=True, nullable=True)
+    cashflow_short_code = Column(String(12), unique=True, nullable=True, index=True)
+    cashflow_touch_count = Column(Integer, nullable=True, default=0)
+    cashflow_sent_at = Column(DateTime, nullable=True)
+    cashflow_opened_at = Column(DateTime, nullable=True)
+    cashflow_clicked_at = Column(DateTime, nullable=True)
+    cashflow_trial_started_at = Column(DateTime, nullable=True)
+    cashflow_paid_at = Column(DateTime, nullable=True)
+    cashflow_last_touch_at = Column(DateTime, nullable=True)
+    cashflow_email_version_sent = Column(String(50), nullable=True)
 
 
 class SurveyResponse(Base):
@@ -674,20 +813,20 @@ class HourlySendCount(Base):
     """One row per (channel, hour_bucket) — added 2026-07-21 alongside the
     hourly email ramp (Section 15's daily volume is still the 7-day health-
     signal denominator via DailySendCount, unchanged; this is a second,
-    finer-grained counter purely for the per-hour send cap, so sending 60
-    emails in the first hour of an 08:00-19:00 window can't happen just
-    because the day's total budget hasn't been used up yet). hour_bucket was
-    "YYYY-MM-DD-HH", UTC, until 2026-07-23, when email switched to a 15-min
-    slot cadence (outreach/ramp.py's _slot_bucket) — email's bucket is now
-    "YYYY-MM-DD-HH-S" (S = 0-3, 16 chars), SMS's is unchanged at 13. Column
-    widened to fit both (String(13) crashed send-job-cron outright on the
-    first email insert after the cadence change — StringDataRightTruncation,
-    not caught/handled anywhere, so the whole job died)."""
+    finer-grained counter purely for the per-slot send cap, so sending too
+    many emails in the first slot of the 03:00-22:00 window can't happen
+    just because the day's total budget hasn't been used up yet). Despite
+    the table/column name (kept — same "misleading name, updated docstring"
+    pattern as run_daily_send in outreach/send_job.py), hour_bucket has been
+    a 15-MINUTE bucket since 2026-07-22 ("YYYY-MM-DD-HH-MM", UTC, MM one of
+    00/15/30/45), not hourly — widened from VARCHAR(13) via
+    _ensure_column_width below. Still naturally resets with no cron/cleanup
+    step needed — old rows are just never queried again."""
     __tablename__ = "hourly_send_counts"
 
     id = Column(Integer, primary_key=True)
     channel = Column(String(10), nullable=False)  # "email" / "sms"
-    hour_bucket = Column(String(20), nullable=False)  # "YYYY-MM-DD-HH" or "YYYY-MM-DD-HH-S", UTC
+    hour_bucket = Column(String(16), nullable=False)  # "YYYY-MM-DD-HH-MM", UTC, 15-min slot
     count = Column(Integer, nullable=False, default=0)
 
     __table_args__ = (UniqueConstraint("channel", "hour_bucket", name="uq_hourly_send_counts_channel_hour"),)
@@ -795,6 +934,11 @@ class OutreachTouch(Base):
     opened_at = Column(DateTime, nullable=True)
     clicked_at = Column(DateTime, nullable=True)
     paid_at = Column(DateTime, nullable=True)
+    # "website" | "cashflow" — added alongside the Cashflow outreach engine
+    # so /admin/funnel and /admin/variants can filter to either campaign's
+    # touches without needing a second table. Defaults every pre-existing
+    # row to "website" (the only product that existed before this column).
+    product = Column(String(20), nullable=False, default="website")
 
 
 class EmailVariant(Base):
@@ -861,6 +1005,12 @@ class EmailVariant(Base):
     isolated_variable = Column(String(50), nullable=True)
     notes = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    # "website" | "cashflow" — widens selection from keying on `stage` alone
+    # to (product, stage), so each product runs its own independent A/B
+    # pool. Cashflow variant_ids are prefixed "cf-" (e.g. "cf-initial-v1")
+    # to stay unique against website's "initial-v1" under the same global
+    # unique constraint on variant_id, without changing that constraint.
+    product = Column(String(20), nullable=False, default="website")
 
 
 class EvidenceFinding(Base):
@@ -998,6 +1148,13 @@ def init_db():
     _ensure_column(Domain.__tablename__, "last_repriced_period_end", "TIMESTAMP")
     _ensure_column(Domain.__tablename__, "renewal_payment_failed_at", "TIMESTAMP")
     _ensure_column(Domain.__tablename__, "refunded_at", "TIMESTAMP")
+    _ensure_column(Account.__tablename__, "cashflow_stripe_customer_id", "VARCHAR(255)")
+    _ensure_column(Account.__tablename__, "cashflow_stripe_subscription_id", "VARCHAR(255)")
+    _ensure_column(Account.__tablename__, "cashflow_subscription_status", "VARCHAR(30)")
+    _ensure_column(Account.__tablename__, "cashflow_trial_end", "TIMESTAMP")
+    _ensure_column(Account.__tablename__, "cashflow_period_end", "TIMESTAMP")
+    _ensure_column(Account.__tablename__, "cashflow_canceled_at", "TIMESTAMP")
+    _ensure_column(Account.__tablename__, "cashflow_cancel_at_period_end", "BOOLEAN NOT NULL DEFAULT FALSE")
     # Prospect / SearchCell columns — create_all() handles brand-new tables, but
     # these _ensure_column calls backfill columns onto an older prospects table
     # that predates a given field (same dependency-free migration pattern above).
@@ -1061,12 +1218,26 @@ def init_db():
     _ensure_column(Prospect.__tablename__, "extraction_quality", "VARCHAR(10)")
     _ensure_column(Prospect.__tablename__, "website_quality", "VARCHAR(20)")
     _ensure_column(Prospect.__tablename__, "income_tier", "VARCHAR(10)")
+    _ensure_column(Prospect.__tablename__, "cashflow_funnel_substage", "VARCHAR(30)")
+    _ensure_column(Prospect.__tablename__, "cashflow_token", "VARCHAR(100)")
+    _ensure_column(Prospect.__tablename__, "cashflow_short_code", "VARCHAR(12)")
+    _ensure_column(Prospect.__tablename__, "cashflow_touch_count", "INTEGER DEFAULT 0")
+    _ensure_column(Prospect.__tablename__, "cashflow_sent_at", "TIMESTAMP")
+    _ensure_column(Prospect.__tablename__, "cashflow_opened_at", "TIMESTAMP")
+    _ensure_column(Prospect.__tablename__, "cashflow_clicked_at", "TIMESTAMP")
+    _ensure_column(Prospect.__tablename__, "cashflow_trial_started_at", "TIMESTAMP")
+    _ensure_column(Prospect.__tablename__, "cashflow_paid_at", "TIMESTAMP")
+    _ensure_column(Prospect.__tablename__, "cashflow_last_touch_at", "TIMESTAMP")
+    _ensure_column(Prospect.__tablename__, "cashflow_email_version_sent", "VARCHAR(50)")
+    _ensure_column(OutreachTouch.__tablename__, "product", "VARCHAR(20) NOT NULL DEFAULT 'website'")
+    _ensure_column(EmailVariant.__tablename__, "product", "VARCHAR(20) NOT NULL DEFAULT 'website'")
     _ensure_column(SearchCell.__tablename__, "last_searched_at", "TIMESTAMP")
     _ensure_column(SearchCell.__tablename__, "search_count", "INTEGER DEFAULT 0")
     _ensure_column(SearchCell.__tablename__, "results_found", "INTEGER DEFAULT 0")
     _ensure_column(PendingVisionCheck.__tablename__, "screenshot_path", "VARCHAR(500)")
     _ensure_column(PendingEmailDiscovery.__tablename__, "website", "VARCHAR(500)")
     _ensure_column(RampState.__tablename__, "consecutive_clean_days", "INTEGER DEFAULT 0")
+    _ensure_column_width(HourlySendCount.__tablename__, "hour_bucket", 16)
     _ensure_column(OutreachTouch.__tablename__, "variant_id", "VARCHAR(30)")
     _ensure_column(OutreachTouch.__tablename__, "opened_at", "TIMESTAMP")
     _ensure_column(OutreachTouch.__tablename__, "clicked_at", "TIMESTAMP")

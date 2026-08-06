@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Groundwork Cashflow</title>
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@700;800&display=swap" rel="stylesheet">
+<script src="../config.js"></script>
+<style>
+:root{
+  --green:#22C55E; --amber:#F59E0B; --red:#EF4444;
+  --bg:#F8FAFC; --text:#1E293B; --navy:#1E3A5F;
+}
+*{box-sizing:border-box;}
+html,body{margin:0;font-family:Inter,sans-serif;color:var(--text);background:var(--bg);}
+h1,h2,h3{font-family:'Plus Jakarta Sans','Inter',sans-serif;margin:0;}
+a{color:inherit;}
+
+.app-header{background:var(--navy);color:#fff;padding:0 20px;height:56px;display:flex;align-items:center;justify-content:space-between;}
+.app-header .logo{font-weight:800;font-size:16px;letter-spacing:-.02em;text-decoration:none;color:#fff;}
+.app-header nav a{color:rgba(255,255,255,.75);text-decoration:none;font-size:13.5px;font-weight:600;margin-left:18px;}
+.app-header nav a.active{color:#fff;}
+
+.wrap{max-width:1000px;margin:0 auto;padding:28px 20px 60px;}
+
+.top-banner{background:#fff;border:1px solid #E2E8F0;border-radius:14px;padding:16px 20px;margin-bottom:22px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;}
+.top-banner.connected{border-left:4px solid var(--green);}
+.top-banner.disconnected{border-left:4px solid var(--amber);}
+.btn{display:inline-flex;align-items:center;gap:7px;background:var(--navy);color:#fff;font-weight:700;font-size:14px;padding:10px 16px;border-radius:8px;text-decoration:none;border:none;cursor:pointer;}
+.btn.outline{background:#fff;border:1.5px solid #CBD5E1;color:var(--text);}
+
+.balance-card{background:#fff;border-radius:16px;padding:28px 26px;margin-bottom:22px;border-top:5px solid var(--green);}
+.balance-card.amber{border-top-color:var(--amber);}
+.balance-card.red{border-top-color:var(--red);}
+.balance-label{font-size:13px;color:#64748B;font-weight:600;text-transform:uppercase;letter-spacing:.04em;}
+.balance-amount{font-size:clamp(34px,6vw,48px);font-weight:800;letter-spacing:-.03em;margin:6px 0 4px;}
+.balance-sub{font-size:14.5px;color:#64748B;}
+
+.kpi-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:22px;}
+.kpi-card{background:#fff;border-radius:12px;padding:18px 20px;}
+.kpi-label{font-size:12.5px;color:#64748B;font-weight:600;}
+.kpi-value{font-size:24px;font-weight:800;margin-top:4px;}
+
+.card{background:#fff;border-radius:14px;padding:22px;margin-bottom:22px;}
+.card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;}
+.card-header h2{font-size:16.5px;}
+
+#chart-canvas{width:100%;height:220px;display:block;}
+
+.pipeline-item{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;border-bottom:1px solid #E2E8F0;}
+.pipeline-item:last-child{border-bottom:none;}
+.pipeline-name{font-weight:700;font-size:14.5px;}
+.pipeline-meta{font-size:13px;color:#64748B;margin-top:2px;}
+.toggle-btns{display:flex;gap:6px;}
+.toggle-btn{border:1.5px solid #CBD5E1;background:#fff;border-radius:7px;padding:6px 12px;font-size:13px;font-weight:700;cursor:pointer;}
+.toggle-btn.yes.active{background:var(--green);border-color:var(--green);color:#fff;}
+.toggle-btn.no.active{background:#E2E8F0;border-color:#CBD5E1;}
+
+.alert-item{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #E2E8F0;font-size:14px;}
+.alert-item:last-child{border-bottom:none;}
+.dot{width:9px;height:9px;border-radius:50%;flex-shrink:0;}
+.dot.red{background:var(--red);} .dot.amber{background:var(--amber);} .dot.green{background:var(--green);}
+
+.empty{color:#64748B;font-size:14px;text-align:center;padding:20px 0;}
+
+/* Chatbot widget */
+.chat-widget{position:fixed;bottom:20px;right:20px;width:360px;max-width:calc(100vw - 24px);background:#fff;border-radius:12px;box-shadow:0 10px 40px rgba(0,0,0,.15);overflow:hidden;display:flex;flex-direction:column;z-index:100;}
+.chat-header{background:var(--navy);padding:13px 16px;color:#fff;display:flex;align-items:center;gap:9px;cursor:pointer;font-weight:700;font-size:14px;}
+.chat-header .dot{width:7px;height:7px;border-radius:50%;background:var(--green);}
+.chat-header span.label{flex:1;}
+.chat-body{display:flex;flex-direction:column;max-height:400px;}
+.chat-widget.collapsed .chat-body{display:none;}
+.chat-messages{flex:1;overflow-y:auto;padding:14px;background:#F8FAFC;max-height:300px;}
+.chat-msg{margin-bottom:10px;font-size:13.5px;line-height:1.5;}
+.chat-msg.user{text-align:right;}
+.chat-msg .bubble{display:inline-block;padding:8px 12px;border-radius:10px;max-width:85%;text-align:left;}
+.chat-msg.bot .bubble{background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.06);}
+.chat-msg.user .bubble{background:var(--navy);color:#fff;}
+.chat-examples{display:flex;flex-direction:column;gap:5px;margin-top:8px;}
+.chat-example-btn{background:#EEF2F7;border:none;padding:6px 10px;border-radius:6px;font-size:12px;text-align:left;cursor:pointer;color:var(--navy);}
+.chat-input-row{display:flex;gap:7px;padding:11px;border-top:1px solid #E2E8F0;}
+.chat-input-row input{flex:1;border:1px solid #CBD5E1;border-radius:7px;padding:8px 10px;font-size:13.5px;font-family:inherit;}
+.chat-input-row button{background:var(--navy);color:#fff;border:none;border-radius:7px;padding:8px 14px;font-weight:700;font-size:13px;cursor:pointer;}
+</style>
+</head>
+<body>
+
+<header class="app-header">
+  <a href="/index.html" class="logo">Groundwork Cashflow</a>
+  <nav>
+    <a href="dashboard.html" class="active">Dashboard</a>
+    <a href="upgrade.html">Upgrade</a>
+    <a href="/account">Account</a>
+  </nav>
+</header>
+
+<div class="wrap">
+
+  <div id="xero-banner" class="top-banner disconnected">
+    <span id="xero-banner-text">Connect your Xero account to see your real cash flow forecast. Showing sample data below.</span>
+    <a href="/api/cashflow/xero/connect" class="btn" id="xero-connect-btn">Connect Xero</a>
+  </div>
+
+  <div class="balance-card" id="balance-card">
+    <div class="balance-label">Projected cash position</div>
+    <div class="balance-amount" id="balance-amount">£--</div>
+    <div class="balance-sub" id="balance-sub">Loading…</div>
+  </div>
+
+  <div class="kpi-row">
+    <div class="kpi-card"><div class="kpi-label">Coming in — next 60 days</div><div class="kpi-value" id="kpi-in">£--</div></div>
+    <div class="kpi-card"><div class="kpi-label">Going out — next 60 days</div><div class="kpi-value" id="kpi-out">£--</div></div>
+    <div class="kpi-card"><div class="kpi-label">Cash runway</div><div class="kpi-value" id="kpi-runway">--</div></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><h2>Cash flow — next 60 days</h2></div>
+    <canvas id="chart-canvas"></canvas>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><h2>Contract pipeline</h2><span style="font-size:13px;color:#64748B;">Toggle to include in forecast</span></div>
+    <div id="pipeline-list"><div class="empty">Loading…</div></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><h2>Payment alerts</h2></div>
+    <div id="alerts-list"><div class="empty">No alerts yet — connect Xero to see real payment risks.</div></div>
+  </div>
+
+</div>
+
+<div class="chat-widget" id="chat-widget">
+  <div class="chat-header" onclick="toggleChat()">
+    <span class="dot"></span>
+    <span class="label">Ask about your cash flow</span>
+    <span id="chat-toggle-icon">▾</span>
+  </div>
+  <div class="chat-body">
+    <div class="chat-messages" id="chat-messages">
+      <div class="chat-msg bot">
+        <div class="bubble">
+          Hi! Ask me anything about your cash flow.
+          <div class="chat-examples">
+            <button class="chat-example-btn" onclick="askExample(this)">Will I have enough cash next month?</button>
+            <button class="chat-example-btn" onclick="askExample(this)">Which invoices are overdue?</button>
+            <button class="chat-example-btn" onclick="askExample(this)">What if I win a £10,000 contract?</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="chat-input-row">
+      <input type="text" id="chat-input" placeholder="Ask about your cash flow…" onkeypress="if(event.key==='Enter')sendChatMessage();">
+      <button onclick="sendChatMessage()">Send</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// Fixture mode lets this page (and the underlying /api/cashflow/dashboard
+// endpoint) be built and verified before a real Xero connection exists —
+// see cashflow_routes.py's dashboard/pipeline handlers. Remove the
+// ?fixture=1 default once Xero integration (Phase 2) is live and an
+// account can have a real XeroConnection.
+//
+// ?admin=1 is a separate, admin-session-gated sandbox (cashflow_routes.py's
+// /api/cashflow/admin-preview/*) — no Account/Stripe/Xero involved at all,
+// pipeline toggles are held in the Flask session only. Used from
+// /admin/cashflow-preview so the founder can click around mock reports
+// before deciding to commit this feature.
+const params = new URLSearchParams(location.search);
+const isAdminPreview = params.get('admin') === '1';
+const useFixture = params.get('fixture') !== '0';
+const qs = useFixture ? '?fixture=1' : '';
+const API_BASE = isAdminPreview ? '/api/cashflow/admin-preview' : '/api/cashflow';
+const dashboardUrl = isAdminPreview ? `${API_BASE}/dashboard` : `${API_BASE}/dashboard${qs}`;
+const pipelineUrl = isAdminPreview ? `${API_BASE}/pipeline` : `${API_BASE}/pipeline${qs}`;
+const pipelineToggleUrl = (id) => `${API_BASE}/pipeline/${id}`;
+const chatUrl = `${API_BASE}/chat`;
+
+if (isAdminPreview) {
+  document.getElementById('xero-banner-text').textContent =
+    'Admin preview — mock data only, nothing here touches a real account, Xero, or Stripe.';
+  document.getElementById('xero-connect-btn').style.display = 'none';
+}
+
+function fmtMoney(n) {
+  if (n === undefined || n === null) return '£--';
+  return '£' + Math.round(n).toLocaleString('en-GB');
+}
+
+function trafficClass(light) {
+  return light === 'red' ? 'red' : light === 'amber' ? 'amber' : '';
+}
+
+async function loadDashboard() {
+  try {
+    const r = await fetch(dashboardUrl, {credentials: 'same-origin'});
+    if (!isAdminPreview && r.status === 401) { location.href = '/account/login'; return; }
+    if (!isAdminPreview && r.status === 403) { location.href = 'upgrade.html'; return; }
+    if (isAdminPreview && r.status === 401) { location.href = '/admin/login'; return; }
+    if (!r.ok) {
+      document.getElementById('balance-sub').textContent = 'Could not load your forecast — try refreshing.';
+      return;
+    }
+    const d = await r.json();
+    renderDashboard(d);
+  } catch (e) {
+    document.getElementById('balance-sub').textContent = 'Could not load your forecast — try refreshing.';
+  }
+}
+
+function renderDashboard(d) {
+  document.getElementById('balance-amount').textContent = fmtMoney(d.projected_balance_gbp);
+  document.getElementById('balance-sub').textContent =
+    'On ' + fmtDate(d.projection_date) + (d.runway_days != null ? ' · ' + d.runway_days + ' days of runway' : '');
+  document.getElementById('balance-card').className = 'balance-card ' + trafficClass(d.traffic_light);
+  document.getElementById('kpi-in').textContent = fmtMoney(d.money_in_60d_gbp);
+  document.getElementById('kpi-out').textContent = fmtMoney(d.money_out_60d_gbp);
+  document.getElementById('kpi-runway').textContent = d.runway_days != null ? d.runway_days + ' days' : '60+ days';
+  drawChart(d.daily_series || []);
+}
+
+function fmtDate(s) {
+  if (!s) return '--';
+  const d = new Date(s);
+  return d.toLocaleDateString('en-GB', {day: '2-digit', month: 'short', year: 'numeric'});
+}
+
+function drawChart(series) {
+  const canvas = document.getElementById('chart-canvas');
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth, h = 220;
+  canvas.width = w * dpr; canvas.height = h * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, w, h);
+  if (!series.length) return;
+
+  const balances = series.map(p => p.balance);
+  const min = Math.min(0, ...balances), max = Math.max(...balances);
+  const pad = 24;
+  const x = i => pad + (i / (series.length - 1)) * (w - pad * 2);
+  const y = v => h - pad - ((v - min) / (max - min || 1)) * (h - pad * 2);
+
+  // zero line
+  ctx.strokeStyle = '#CBD5E1'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(pad, y(0)); ctx.lineTo(w - pad, y(0)); ctx.stroke();
+
+  // balance line
+  ctx.strokeStyle = '#1E3A5F'; ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  series.forEach((p, i) => i === 0 ? ctx.moveTo(x(i), y(p.balance)) : ctx.lineTo(x(i), y(p.balance)));
+  ctx.stroke();
+
+  // fill
+  ctx.lineTo(x(series.length - 1), y(0)); ctx.lineTo(x(0), y(0)); ctx.closePath();
+  ctx.fillStyle = 'rgba(30,58,95,0.08)'; ctx.fill();
+
+  // points, coloured by sign
+  series.forEach((p, i) => {
+    ctx.fillStyle = p.balance < 0 ? '#EF4444' : '#22C55E';
+    ctx.beginPath(); ctx.arc(x(i), y(p.balance), 2.2, 0, Math.PI * 2); ctx.fill();
+  });
+}
+
+async function loadPipeline() {
+  const list = document.getElementById('pipeline-list');
+  try {
+    const r = await fetch(pipelineUrl, {credentials: 'same-origin'});
+    if (!r.ok) { list.innerHTML = '<div class="empty">Could not load pipeline.</div>'; return; }
+    const d = await r.json();
+    if (!d.items || !d.items.length) {
+      list.innerHTML = '<div class="empty">No outstanding quotes or invoices in your pipeline.</div>';
+      return;
+    }
+    list.innerHTML = d.items.map(it => `
+      <div class="pipeline-item">
+        <div>
+          <div class="pipeline-name">${escapeHtml(it.name || 'Untitled')}</div>
+          <div class="pipeline-meta">${fmtMoney(it.value_gbp)} · Due ${fmtDate(it.due_date)}</div>
+        </div>
+        <div class="toggle-btns">
+          <button class="toggle-btn yes ${it.won ? 'active' : ''}" onclick="togglePipeline(${it.id}, true, this)">Won</button>
+          <button class="toggle-btn no ${!it.won ? 'active' : ''}" onclick="togglePipeline(${it.id}, false, this)">Not yet</button>
+        </div>
+      </div>
+    `).join('');
+  } catch (e) {
+    list.innerHTML = '<div class="empty">Could not load pipeline.</div>';
+  }
+}
+
+async function togglePipeline(id, won, btn) {
+  if (useFixture && !isAdminPreview) { alert('Sample data — connect Xero to toggle real contracts.'); return; }
+  try {
+    await fetch(pipelineToggleUrl(id), {
+      method: 'PATCH', credentials: 'same-origin',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({won}),
+    });
+    loadPipeline();
+    loadDashboard();
+  } catch (e) {
+    alert('Could not update — try again.');
+  }
+}
+
+function escapeHtml(s) {
+  const d = document.createElement('div'); d.textContent = s; return d.innerHTML;
+}
+
+// --- Chatbot ---------------------------------------------------------
+let chatHistory = [];
+
+function toggleChat() {
+  const widget = document.getElementById('chat-widget');
+  widget.classList.toggle('collapsed');
+  document.getElementById('chat-toggle-icon').textContent = widget.classList.contains('collapsed') ? '▸' : '▾';
+}
+
+function askExample(btn) {
+  document.getElementById('chat-input').value = btn.textContent;
+  sendChatMessage();
+}
+
+function appendChatMessage(text, sender) {
+  const wrap = document.getElementById('chat-messages');
+  const div = document.createElement('div');
+  div.className = 'chat-msg ' + sender;
+  div.innerHTML = `<div class="bubble"></div>`;
+  div.querySelector('.bubble').textContent = text;
+  wrap.appendChild(div);
+  wrap.scrollTop = wrap.scrollHeight;
+  return div;
+}
+
+async function sendChatMessage() {
+  const input = document.getElementById('chat-input');
+  const query = input.value.trim();
+  if (!query) return;
+  input.value = '';
+  appendChatMessage(query, 'user');
+  const thinking = appendChatMessage('…', 'bot');
+
+  try {
+    const r = await fetch(chatUrl, {
+      method: 'POST', credentials: 'same-origin',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({query, history: chatHistory}),
+    });
+    const d = await r.json();
+    thinking.remove();
+    if (!r.ok) {
+      appendChatMessage(d.error || 'Something went wrong — try again.', 'bot');
+      return;
+    }
+    appendChatMessage(d.response, 'bot');
+    chatHistory.push({role: 'user', content: query}, {role: 'assistant', content: d.response});
+  } catch (e) {
+    thinking.remove();
+    appendChatMessage('Something went wrong — try again.', 'bot');
+  }
+}
+
+loadDashboard();
+loadPipeline();
+window.addEventListener('resize', loadDashboard);
+</script>
+</body>
+</html>

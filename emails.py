@@ -439,6 +439,34 @@ def send_admin_daily_summary_email(day_label: str, emails_sent: int, clicked: in
     _send(support_inbox, f"Daily summary — {emails_sent} sent, {clicked} clicked, {signed_up} signed up", html)
 
 
+def send_admin_cashflow_accountant_request_email(account_email: str, reason: str) -> None:
+    """Notify the admin inbox when a Cashflow customer asks the chatbot's
+    "talk to an accountant" tool for a consultation (chatbot.py) — the
+    warm-lead handoff the whole product exists to generate for Groundwork's
+    accountancy practice, per the original business brief. Not reachable
+    yet outside the admin-only Cashflow preview sandbox (no public account/
+    Cashflow flow is live), so this is dormant in production for now."""
+    support_inbox = _env_email_or_warn("SUPPORT_INBOX_EMAIL")
+    e = escape(account_email or "")
+    r = escape(reason or "(no reason given)")
+    html = f"""<div style="font-family:Arial,Helvetica,sans-serif;background:#F5F3EE;padding:32px 20px;">
+  <div style="max-width:480px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;">
+    <div style="background:#1E3A5F;padding:20px 28px;">
+      <span style="color:#fff;font-weight:800;font-size:18px;letter-spacing:-.03em;">Groundwork Cashflow</span>
+    </div>
+    <div style="padding:28px;">
+      <div style="display:inline-block;background:#DBEAFE;color:#1E3A5F;font-size:12px;font-weight:700;padding:3px 10px;border-radius:20px;margin-bottom:12px;">Accountant requested</div>
+      <h2 style="margin:0 0 8px;font-size:19px;color:#1C1C1C;">A customer wants to talk to an accountant</h2>
+      <table style="width:100%;border-collapse:collapse;">
+        <tr><td style="padding:8px 0;font-size:14px;color:#5C5A56;width:110px;">Account</td><td style="padding:8px 0;font-size:14px;font-weight:700;color:#1C1C1C;">{e}</td></tr>
+        <tr><td style="padding:8px 0;font-size:14px;color:#5C5A56;">Reason</td><td style="padding:8px 0;font-size:14px;color:#1C1C1C;">{r}</td></tr>
+      </table>
+    </div>
+  </div>
+</div>"""
+    _send(support_inbox, f"Accountant requested — {account_email or 'unknown account'}", html)
+
+
 def send_domain_order_customer_email(to_email: str, domain: str, business_name: str) -> None:
     """Confirm to the customer that their domain order has been received."""
     biz = business_name or "your website"
