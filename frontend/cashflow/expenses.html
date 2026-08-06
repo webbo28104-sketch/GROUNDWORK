@@ -12,34 +12,29 @@
 <style>
 :root{
   --green:#16A34A; --green-bright:#22C55E; --green-glow:rgba(34,197,94,.25);
+  --accent:#3B82F6; --accent-bright:#2563EB; --accent-glow:rgba(59,130,246,.25); --dark:#1C1C1C;
   --amber:#D97706; --amber-bright:#F59E0B;
   --red:#DC2626; --red-bright:#EF4444;
-  --bg:#F1F5F9; --text:#0F172A; --sub:#64748B; --navy:#1E3A5F; --navy-bright:#2E4E7E;
-  --line:#E2E8F0;
+  --bg:#FAFAF8; --text:#1C1C1C; --sub:#5C5A56; --navy:#3B82F6; --navy-bright:#2563EB;
+  --line:#E2E0DA;
 }
 *{box-sizing:border-box;}
-html,body{margin:0;font-family:Inter,sans-serif;color:var(--text);background:
-  radial-gradient(1200px 600px at 15% -10%, #E8EFFB 0%, transparent 60%),
-  radial-gradient(1000px 500px at 110% 10%, #EAF7EF 0%, transparent 55%),
-  var(--bg);
-  min-height:100vh;
-}
+html,body{margin:0;font-family:Inter,sans-serif;color:var(--text);background:var(--bg);min-height:100vh;}
 h1,h2,h3{font-family:'Plus Jakarta Sans','Inter',sans-serif;margin:0;}
 a{color:inherit;}
-.app-header{background:linear-gradient(135deg,var(--navy),#152B45);color:#fff;padding:0 20px;height:58px;display:flex;align-items:center;justify-content:space-between;box-shadow:0 2px 12px rgba(15,23,42,.15);}
+.app-header{background:var(--dark);border-bottom:1px solid #2C2C2C;color:#fff;padding:0 20px;height:64px;display:flex;align-items:center;justify-content:space-between;}
 .app-header .logo{font-weight:800;font-size:15px;letter-spacing:-.01em;text-decoration:none;color:#fff;display:flex;align-items:center;gap:9px;}
-.logo-mark{width:26px;height:26px;border-radius:7px;background:linear-gradient(135deg,#22C55E,#16A34A);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-family:'Plus Jakarta Sans',sans-serif;font-weight:800;font-size:13px;color:#0F2E1C;}
 .logo-word{display:flex;flex-direction:column;line-height:1.05;}
-.logo-word b{font-weight:800;}
-.logo-word span{font-size:9.5px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:rgba(255,255,255,.55);}
-.app-header nav a{color:rgba(255,255,255,.65);text-decoration:none;font-size:13.5px;font-weight:600;margin-left:20px;transition:color .15s;}
-.app-header nav a:hover,.app-header nav a.active{color:#fff;}
+.logo-word b{font-weight:800;font-size:16px;letter-spacing:-.02em;}
+.logo-word span{font-size:9.5px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--navy);}
+.app-header nav a{color:#9A9893;text-decoration:none;font-size:13.5px;font-weight:600;margin-left:20px;transition:color .15s;}
+.app-header nav a:hover,.app-header nav a.active{color:var(--navy);}
 .wrap{max-width:1080px;margin:0 auto;padding:26px 20px 80px;}
 .page-head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:10px;}
 .page-head h1{font-size:26px;letter-spacing:-.02em;}
 .total-pill{background:#fff;border-radius:12px;padding:12px 18px;font-size:14px;box-shadow:0 1px 2px rgba(15,23,42,.05);}
 .total-pill b{font-family:'Plus Jakarta Sans',sans-serif;font-size:20px;color:var(--red);margin-left:6px;}
-.card{background:#fff;border-radius:16px;padding:0;margin-bottom:20px;box-shadow:0 1px 2px rgba(15,23,42,.05);overflow:hidden;}
+.card{background:#fff;border:1px solid var(--line);border-radius:16px;padding:0;margin-bottom:20px;box-shadow:0 1px 2px rgba(15,23,42,.04);overflow:hidden;}
 table{width:100%;border-collapse:collapse;font-size:13.5px;}
 th{text-align:left;padding:12px 18px;font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--sub);border-bottom:1px solid var(--line);background:var(--bg);}
 td{padding:13px 18px;border-bottom:1px solid var(--line);vertical-align:top;}
@@ -69,7 +64,7 @@ tr:hover td{background:#F8FAFC;}
 <body>
 
 <header class="app-header">
-  <a href="/index.html" class="logo"><span class="logo-mark">G</span><span class="logo-word"><b>Groundwork</b><span>Cashflow</span></span></a>
+  <a href="/index.html" class="logo"><svg viewBox="0 0 48 48" width="28" height="28" fill="none" aria-hidden="true"><path d="M 37 13.1 A 17 17 0 1 0 41 24 L 27 24" stroke="#3B82F6" stroke-width="4.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M 30.9 18.2 A 9 9 0 1 0 30.9 29.8" stroke="#3B82F6" stroke-width="4.6" stroke-linecap="round"/></svg><span class="logo-word"><b>Groundwork</b><span>Cashflow</span></span></a>
   <nav id="top-nav">
     <a href="dashboard.html">Dashboard</a>
     <a href="income.html">Income</a>
