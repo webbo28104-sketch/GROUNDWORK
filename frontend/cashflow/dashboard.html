@@ -119,11 +119,6 @@ a{color:inherit;}
 .chart-tooltip b{font-size:14px;}
 .chart-tooltip .tt-date{color:#94A3B8;font-size:11px;margin-bottom:3px;}
 .chart-tooltip .tt-row{display:flex;justify-content:space-between;gap:14px;}
-.scrubber-row{display:flex;align-items:center;gap:14px;margin-top:16px;}
-.scrubber-row input[type=range]{flex:1;accent-color:var(--navy);}
-.scrubber-readout{background:var(--bg);border-radius:10px;padding:10px 14px;font-size:13px;min-width:220px;text-align:right;}
-.scrubber-readout b{font-size:16px;font-family:'Plus Jakarta Sans',sans-serif;}
-.scrubber-readout .range{font-size:11px;color:var(--sub);display:block;margin-top:2px;}
 
 .chart-legend{display:flex;gap:18px;flex-wrap:wrap;font-size:12px;font-weight:700;color:var(--sub);margin-bottom:6px;}
 .chart-legend span{display:inline-flex;align-items:center;gap:6px;}
@@ -255,10 +250,10 @@ document.querySelectorAll('#top-nav a[href$=".html"]').forEach(a => {
 
   <div class="card">
     <div class="card-header">
-      <h2>Cash flow — next 60 days</h2>
-      <span class="card-sub">Hover the chart, or drag the slider to check any date</span>
+      <h2>Cash flow forecast</h2>
+      <span class="card-sub">Hover the chart to check any date</span>
     </div>
-    <div class="chart-legend">
+    <div class="chart-legend" id="chart-legend">
       <span><span class="swatch" style="background:#16A34A;"></span>Best case — every quote lands</span>
       <span><span class="swatch" style="background:#1E3A5F;height:4px;"></span>Likely — probability-weighted</span>
       <span><span class="swatch" style="background:#DC2626;"></span>Worst case — no quote lands</span>
@@ -266,10 +261,6 @@ document.querySelectorAll('#top-nav a[href$=".html"]').forEach(a => {
     <div class="chart-wrap">
       <canvas id="chart-canvas"></canvas>
       <div class="chart-tooltip" id="chart-tooltip"></div>
-    </div>
-    <div class="scrubber-row">
-      <input type="range" id="date-slider" min="0" max="60" value="0" oninput="onScrub(this.value)">
-      <div class="scrubber-readout" id="scrubber-readout">Today: £--</div>
     </div>
   </div>
 
@@ -382,6 +373,15 @@ function fmtMoney(n) {
   return (neg ? '-£' : '£') + Math.round(Math.abs(n)).toLocaleString('en-GB');
 }
 
+function fmtAsOf(iso) {
+  const d = new Date(iso);
+  const diffH = Math.round((Date.now() - d.getTime()) / 3600000);
+  if (diffH < 1) return 'just now';
+  if (diffH < 24) return diffH + 'h ago';
+  return d.toLocaleDateString('en-GB', {day: 'numeric', month: 'short'}) + ' ' +
+    d.toLocaleTimeString('en-GB', {hour: '2-digit', minute: '2-digit'});
+}
+
 function trafficClass(light) {
   return light === 'red' ? 'red' : light === 'amber' ? 'amber' : '';
 }
@@ -440,19 +440,30 @@ function renderDashboard(d) {
   pill.className = 'status-pill ' + (cls || 'green');
   document.getElementById('status-pill-text').textContent = trafficLabel(likely.traffic_light);
 
+  const bestSeriesForCheck = best.daily_series || best;
+  const worstSeriesForCheck = worst.daily_series || worst;
+  const hasRange = bestSeriesForCheck.length === worstSeriesForCheck.length &&
+    bestSeriesForCheck.some((p, i) => Math.round(p.balance) !== Math.round(worstSeriesForCheck[i].balance));
+  window.__cfHasRange = hasRange;
+  document.getElementById('chart-legend').style.display = hasRange ? '' : 'none';
+
   const runwayLine = document.getElementById('runway-line');
-  let mainLine, rangeLine;
+  let mainLine, rangeLine = '';
   if (likely.runway_days != null) {
     mainLine = `⚠️ At the most likely pace, cash drops below your ${fmtMoney(d.safe_balance_gbp)} threshold in <b>${likely.runway_days} days</b> — around <b>${fmtDate(likely.runway_date)}</b>.`;
   } else {
     mainLine = `✅ Cash stays above your ${fmtMoney(d.safe_balance_gbp)} threshold for the full forecast, most likely.`;
   }
-  if (worst.runway_days != null && worst.runway_days !== likely.runway_days) {
-    rangeLine = `Worst case, that's day <b>${worst.runway_days}</b> (${fmtDate(worst.runway_date)}) if every open quote falls through.`;
-  } else if (best.runway_days == null && likely.runway_days != null) {
-    rangeLine = `Best case — if every open quote lands — you never cross the threshold at all.`;
+  if (hasRange) {
+    if (worst.runway_days != null && worst.runway_days !== likely.runway_days) {
+      rangeLine = `Worst case, that's day <b>${worst.runway_days}</b> (${fmtDate(worst.runway_date)}) if every open quote falls through.`;
+    } else if (best.runway_days == null && likely.runway_days != null) {
+      rangeLine = `Best case — if every open quote lands — you never cross the threshold at all.`;
+    } else {
+      rangeLine = `Range across every open quote: best ${fmtMoney(best.projected_balance_gbp)}, worst ${fmtMoney(worst.projected_balance_gbp)}.`;
+    }
   } else {
-    rangeLine = `Range across every open quote: best ${fmtMoney(best.projected_balance_gbp)}, worst ${fmtMoney(worst.projected_balance_gbp)}.`;
+    rangeLine = `Every quote is confirmed won or lost — no uncertainty left to show a range for.`;
   }
   runwayLine.innerHTML = `<div class="line">${mainLine}</div><div class="range-note">${rangeLine}</div>`;
 
@@ -465,10 +476,6 @@ function renderDashboard(d) {
   renderBreakdown('out', likely.transactions || []);
 
   drawChart(bands);
-  const slider = document.getElementById('date-slider');
-  slider.max = Math.max(0, (likely.daily_series || []).length - 1);
-  slider.value = 0;
-  onScrub(0);
 }
 
 function renderBreakdown(kind, transactions) {
@@ -633,8 +640,11 @@ function drawChart(bands) {
   };
 
   // shaded range between best and worst — the visual answer to "how much
-  // does this actually depend on quotes I haven't won yet"
-  if (bestSeries.length === worstSeries.length) {
+  // does this actually depend on quotes I haven't won yet" — skipped
+  // entirely once every quote is confirmed won/lost, since best===worst
+  // then and a zero-width "range" is just visual noise.
+  const hasRange = window.__cfHasRange !== false;
+  if (hasRange && bestSeries.length === worstSeries.length) {
     ctx.beginPath();
     bestSeries.forEach((p, i) => i === 0 ? ctx.moveTo(x(i), y(p.balance)) : ctx.lineTo(x(i), y(p.balance)));
     for (let i = worstSeries.length - 1; i >= 0; i--) ctx.lineTo(x(i), y(worstSeries[i].balance));
@@ -643,8 +653,10 @@ function drawChart(bands) {
     ctx.fill();
   }
 
-  line(bestSeries, '#16A34A', 1.5, [3, 4]);
-  line(worstSeries, '#DC2626', 1.5, [3, 4]);
+  if (hasRange) {
+    line(bestSeries, '#16A34A', 1.5, [3, 4]);
+    line(worstSeries, '#DC2626', 1.5, [3, 4]);
+  }
   line(likelySeries, '#1E3A5F', 3, null);
 
   // likely-line points, coloured by sign
@@ -655,9 +667,10 @@ function drawChart(bands) {
     ctx.beginPath(); ctx.arc(x(i), y(p.balance), 2.6, 0, Math.PI * 2); ctx.fill();
   });
 
-  // hovered/selected marker (on the likely line)
-  const idx = hoveredIndex != null ? hoveredIndex : parseInt(document.getElementById('date-slider').value || 0, 10);
-  if (likelySeries[idx]) {
+  // hovered marker (on the likely line) — only while the mouse is actually
+  // over the chart now that there's no slider to fall back to a position.
+  if (hoveredIndex != null && likelySeries[hoveredIndex]) {
+    const idx = hoveredIndex;
     ctx.strokeStyle = 'rgba(15,23,42,0.35)'; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(x(idx), padTop); ctx.lineTo(x(idx), h - padBottom); ctx.stroke();
     ctx.fillStyle = likelySeries[idx].balance < threshold ? '#EF4444' : '#1E3A5F';
@@ -686,9 +699,15 @@ function setupChartHover() {
     const likelySeries = chartBands.likely.daily_series;
     if (!likelySeries.length) return;
     const rect = canvas.getBoundingClientRect();
-    const {pad} = chartGeometry(canvas);
+    const {padLeft, padRight} = chartGeometry(canvas);
+    // rect is in CSS pixels, same coordinate space chartGeometry's x()/y()
+    // use (canvas.clientWidth, pre-devicePixelRatio scaling) — mapping
+    // mouse position back to a data index has to use the SAME asymmetric
+    // padLeft/padRight the chart was actually drawn with, not a single
+    // shared `pad` value, or the two drift apart (most visible near the
+    // right edge, where padRight is much smaller than padLeft).
     const relX = e.clientX - rect.left;
-    let idx = Math.round(((relX - pad) / (rect.width - pad * 2)) * (likelySeries.length - 1));
+    let idx = Math.round(((relX - padLeft) / (rect.width - padLeft - padRight)) * (likelySeries.length - 1));
     idx = Math.max(0, Math.min(likelySeries.length - 1, idx));
     hoveredIndex = idx;
     drawChart();
@@ -697,11 +716,14 @@ function setupChartHover() {
     const eventsHtml = (pL.events || []).map(ev =>
       `<div class="tt-row"><span>${escapeHtml(ev.contact)}</span><span>${ev.type === 'incoming' ? '+' : '−'}${fmtMoney(ev.amount_gbp)}</span></div>`
     ).join('');
+    const rangeRows = window.__cfHasRange !== false ? `
+      <div class="tt-row" style="color:#86EFAC;"><span>Best</span><span>${fmtMoney(pB.balance)}</span></div>
+      <div class="tt-row" style="color:#FCA5A5;"><span>Worst</span><span>${fmtMoney(pW.balance)}</span></div>
+    ` : '';
     tooltip.innerHTML = `
       <div class="tt-date">${fmtDate(pL.date)}</div>
       <b>${fmtMoney(pL.balance)}</b> <span style="color:#94A3B8;font-size:11px;">likely</span>
-      <div class="tt-row" style="color:#86EFAC;"><span>Best</span><span>${fmtMoney(pB.balance)}</span></div>
-      <div class="tt-row" style="color:#FCA5A5;"><span>Worst</span><span>${fmtMoney(pW.balance)}</span></div>
+      ${rangeRows}
       ${eventsHtml ? '<div style="margin-top:6px;border-top:1px solid rgba(255,255,255,.15);padding-top:6px;">' + eventsHtml + '</div>' : ''}
     `;
     tooltip.style.opacity = '1';
@@ -748,7 +770,7 @@ async function loadPipeline() {
       return `
       <div class="pipeline-item">
         <div>
-          <div class="pipeline-name">${escapeHtml(it.name || 'Untitled')}${it.is_custom ? '<span class="custom-tag">Raised by hand</span>' : ''}</div>
+          <div class="pipeline-name">${escapeHtml(it.name || 'Untitled')}${it.is_custom ? '<span class="custom-tag">Raised by hand</span>' : ''}${it.source === 'draft_invoice' ? '<span class="custom-tag" style="background:#EEF2F7;color:var(--sub);">Draft invoice</span>' : ''}</div>
           <div class="pipeline-meta ${overdue ? 'overdue' : ''}">${fmtMoney(it.value_gbp)} · ${overdue ? 'Overdue since' : 'Due'} ${fmtDate(it.due_date)}
             ${it.xero_url ? ` · <a href="${it.xero_url}" target="_blank" rel="noopener" class="xero-link">View in Xero →</a>` : ''}
           </div>
@@ -763,7 +785,7 @@ async function loadPipeline() {
           <button class="toggle-btn won ${status === 'won' ? 'active' : ''}" onclick="togglePipeline(${it.id}, 'won')"><span class="toggle-check">✓</span> Won</button>
           <button class="toggle-btn open ${status === 'open' ? 'active' : ''}" onclick="togglePipeline(${it.id}, 'open')"><span class="toggle-check">✓</span> Open</button>
           <button class="toggle-btn lost ${status === 'lost' ? 'active' : ''}" onclick="togglePipeline(${it.id}, 'lost')"><span class="toggle-check">✓</span> Lost</button>
-          ${it.is_custom ? `<button class="withdraw-btn" title="Withdraw this quote" onclick="withdrawQuote(${it.id})">✕</button>` : ''}
+          <button class="withdraw-btn" title="Delete this quote" onclick="withdrawQuote(${it.id})">✕</button>
         </div>
       </div>
     `;
@@ -829,7 +851,7 @@ async function raiseQuote(evt) {
 }
 
 async function withdrawQuote(id) {
-  if (!confirm('Withdraw this quote? This only removes the one you raised by hand.')) return;
+  if (!confirm('Delete this quote from your pipeline? This only affects this forecast preview, not Xero.')) return;
   try {
     await fetch(pipelineToggleUrl(id), {method: 'DELETE', credentials: 'same-origin'});
     loadPipeline();
@@ -894,7 +916,7 @@ async function loadAccounts() {
         <div class="account-icon">${ACCOUNT_ICONS[a.type] || '💰'}</div>
         <div>
           <div class="account-name">${escapeHtml(a.name)}</div>
-          <div class="account-inst">${escapeHtml(a.institution || '')}</div>
+          <div class="account-inst">${escapeHtml(a.institution || '')}${a.as_of ? ` · synced ${fmtAsOf(a.as_of)}` : ''}</div>
         </div>
         <div class="account-balance ${a.balance_gbp < 0 ? 'neg' : ''}">${fmtMoney(a.balance_gbp)}</div>
       </div>

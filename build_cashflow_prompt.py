@@ -93,9 +93,14 @@ FIXTURE_ACCOUNTS = [
     # when deciding whether the toggle/what-if mechanics earn their keep.
     # type drives the icon/grouping in the accounts panel, not the math (a
     # credit card's negative balance already nets out correctly either way).
-    {"id": "acc-current", "name": "Business Current Account", "institution": "Barclays", "type": "bank", "balance_gbp": 6800.00},
-    {"id": "acc-savings", "name": "Instant Access Savings", "institution": "Barclays", "type": "bank", "balance_gbp": 6200.00},
-    {"id": "acc-amex", "name": "Business Credit Card", "institution": "Amex", "type": "credit_card", "balance_gbp": -2000.00},
+    # sync_lag_hours: how stale each feed realistically is — a real Xero
+    # bank feed isn't instantaneous, and a credit card typically lags a
+    # current account. Turned into a real "as of" timestamp per account by
+    # build_fixture_data() below, not shown as a static label, so it stays
+    # honest about when each balance was actually last confirmed.
+    {"id": "acc-current", "name": "Business Current Account", "institution": "Barclays", "type": "bank", "balance_gbp": 6800.00, "sync_lag_hours": 2},
+    {"id": "acc-savings", "name": "Instant Access Savings", "institution": "Barclays", "type": "bank", "balance_gbp": 6200.00, "sync_lag_hours": 26},
+    {"id": "acc-amex", "name": "Business Credit Card", "institution": "Amex", "type": "credit_card", "balance_gbp": -2000.00, "sync_lag_hours": 8},
 ]
 
 # Recurring cost/liability templates — expanded into concrete dated bill
@@ -202,6 +207,10 @@ def build_fixture_data(today: datetime = None, forecast_days: int = 60,
     current_balance_gbp = sum(
         a["balance_gbp"] for a in FIXTURE_ACCOUNTS if a["id"] not in excluded_account_ids
     )
+    accounts = [
+        {**a, "as_of": (today - timedelta(hours=a["sync_lag_hours"])).isoformat()}
+        for a in FIXTURE_ACCOUNTS
+    ]
 
     def d(offset_days):
         return (today + timedelta(days=offset_days)).strftime("%Y-%m-%d")
@@ -220,12 +229,27 @@ def build_fixture_data(today: datetime = None, forecast_days: int = 60,
         # endpoint). "Won"/"Lost" toggling overrides this to 100%/0%; left
         # "Open", a quote still counts at probability_pct in the Likely
         # band (see forecast_engine.calculate_scenario_bands).
+        #
+        # source: "quote" (Xero's Quotes API — a real quote object, not yet
+        # accepted) vs "draft_invoice" (Xero's Invoices API with
+        # Status=DRAFT — raised but not yet approved/sent, so still
+        # editable and not yet a real debt). Both are pullable from Xero
+        # and both represent "not confirmed yet," which is why they sit in
+        # the same pipeline here — the source tag is just for the UI badge
+        # and for pointing xero_url at the right section (a draft invoice
+        # lives under Accounts Receivable, not the Quotes list).
         {"id": "QUOTE-101", "contact_name": "Kelvin Roofing Ltd", "contact_email": "office@kelvinroofing.example.com",
-         "amount_gbp": 8200.00, "due_date": d(9), "probability_pct": 70, "xero_url": _xero_link("Quotes", "QUOTE-101")},
+         "amount_gbp": 8200.00, "due_date": d(9), "probability_pct": 70, "source": "quote",
+         "xero_url": _xero_link("Quotes", "QUOTE-101")},
         {"id": "QUOTE-103", "contact_name": "Marsh Construction", "contact_email": "accounts@marshconstruction.example.com",
-         "amount_gbp": 4300.00, "due_date": d(26), "probability_pct": 40, "xero_url": _xero_link("Quotes", "QUOTE-103")},
+         "amount_gbp": 4300.00, "due_date": d(26), "probability_pct": 40, "source": "quote",
+         "xero_url": _xero_link("Quotes", "QUOTE-103")},
         {"id": "QUOTE-104", "contact_name": "Oakfield Developments", "contact_email": "finance@oakfielddev.example.com",
-         "amount_gbp": 22000.00, "due_date": d(45), "probability_pct": 20, "xero_url": _xero_link("Quotes", "QUOTE-104")},
+         "amount_gbp": 22000.00, "due_date": d(45), "probability_pct": 20, "source": "quote",
+         "xero_url": _xero_link("Quotes", "QUOTE-104")},
+        {"id": "DRAFT-201", "contact_name": "Pemberton Homes", "contact_email": "accounts@pembertonhomes.example.com",
+         "amount_gbp": 6750.00, "due_date": d(20), "probability_pct": 80, "source": "draft_invoice",
+         "xero_url": _xero_link("AccountsReceivable", "DRAFT-201")},
     ]
     one_off_bills = [
         {"id": "BILL-51", "contact_name": "Plant Hire Direct", "amount_gbp": 2100.00, "due_date": d(-1),
@@ -256,7 +280,7 @@ def build_fixture_data(today: datetime = None, forecast_days: int = 60,
         "current_balance_gbp": current_balance_gbp,
         "safe_balance_gbp": safe_balance_gbp,
         "forecast_days": forecast_days,
-        "accounts": FIXTURE_ACCOUNTS,
+        "accounts": accounts,
         "confirmed_invoices": confirmed_invoices,
         "invoices": pipeline_quotes,  # kept as "invoices" — the key name cashflow_routes.py's pipeline toggle already reads
         "bills": bills,

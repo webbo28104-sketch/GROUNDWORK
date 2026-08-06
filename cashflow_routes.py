@@ -410,6 +410,17 @@ _ADMIN_PREVIEW_EXCLUDED_ACCOUNTS_KEY = "admin_cf_preview_excluded_accounts"
 _ADMIN_PREVIEW_SAFE_BALANCE_KEY = "admin_cf_preview_safe_balance"
 _ADMIN_PREVIEW_CUSTOM_QUOTES_KEY = "admin_cf_preview_custom_quotes"
 _ADMIN_PREVIEW_CUSTOM_BILLS_KEY = "admin_cf_preview_custom_bills"
+_ADMIN_PREVIEW_DELETED_QUOTES_KEY = "admin_cf_preview_deleted_quote_ids"
+
+
+def _admin_preview_deleted_quote_ids():
+    """Quotes removed entirely from the pipeline — unlike Won/Lost (which
+    still record what happened to a real opportunity), Delete is for "this
+    shouldn't be on the list at all" and works on ANY quote, fixture or
+    hand-raised, since a director should be able to clean up the list
+    either way. Filtered out everywhere data["invoices"] gets enumerated,
+    not just hidden client-side."""
+    return set(session.get(_ADMIN_PREVIEW_DELETED_QUOTES_KEY, []))
 _ADMIN_PREVIEW_FORECAST_DAYS_KEY = "admin_cf_preview_forecast_days"
 DEFAULT_FORECAST_DAYS = 60
 MAX_FORECAST_DAYS = 730  # 2 years — generous ceiling, not a hard product limit
@@ -487,8 +498,11 @@ def _admin_preview_quotes_with_overrides(data):
         math (see forecast_engine.calculate_scenario_bands)."""
     won_ids, lost_ids = _admin_preview_won_ids(), _admin_preview_lost_ids()
     overrides = _admin_preview_probability_overrides()
+    deleted_ids = _admin_preview_deleted_quote_ids()
     quotes = []
     for i, inv in enumerate(data["invoices"]):
+        if i in deleted_ids:
+            continue
         item = dict(inv)
         if i in won_ids:
             item["probability_pct"] = 100
@@ -540,13 +554,16 @@ def cashflow_admin_preview_pipeline():
     fixture_count = _admin_preview_fixture_quote_count()
     won_ids, lost_ids = _admin_preview_won_ids(), _admin_preview_lost_ids()
     overrides = _admin_preview_probability_overrides()
+    deleted_ids = _admin_preview_deleted_quote_ids()
     return jsonify({"items": [
         {"id": i, "name": inv["contact_name"], "value_gbp": inv["amount_gbp"],
          "due_date": inv["due_date"], "xero_url": inv.get("xero_url"),
+         "source": inv.get("source", "quote"),
          "probability_pct": overrides.get(i, inv.get("probability_pct", 100)),
          "status": "won" if i in won_ids else "lost" if i in lost_ids else "open",
          "is_custom": i >= fixture_count}
         for i, inv in enumerate(data["invoices"])
+        if i not in deleted_ids
     ]})
 
 
@@ -583,19 +600,29 @@ def cashflow_admin_preview_pipeline_toggle(item_id):
     """PATCH accepts `status` ("won"/"lost"/"open") and/or `probability_pct`
     (0-100) — sent separately by the UI (status buttons vs. the probability
     number field), so either can change without touching the other. DELETE
-    withdraws a quote raised by hand — fixture quotes can't be deleted,
-    only marked Lost, since they represent something real in (mock) Xero."""
+    removes ANY quote from the pipeline entirely — fixture or hand-raised —
+    for "this shouldn't be on the list at all" (wrong data, duplicate,
+    irrelevant), as distinct from Lost (a real opportunity that didn't
+    convert, still worth keeping as a record). Marks the id deleted rather
+    than mutating the underlying list, so every other quote's id stays
+    stable."""
     data = _admin_preview_fixture_data()
     if item_id < 0 or item_id >= len(data["invoices"]):
         return jsonify({"error": "not_found"}), 404
 
     if request.method == "DELETE":
-        fixture_count = _admin_preview_fixture_quote_count()
-        if item_id < fixture_count:
-            return jsonify({"error": "cannot delete a fixture quote — mark it Lost instead"}), 400
-        quotes = _admin_preview_custom_quotes()
-        del quotes[item_id - fixture_count]
-        session[_ADMIN_PREVIEW_CUSTOM_QUOTES_KEY] = quotes
+        deleted_ids = _admin_preview_deleted_quote_ids()
+        deleted_ids.add(item_id)
+        session[_ADMIN_PREVIEW_DELETED_QUOTES_KEY] = list(deleted_ids)
+        # Tidy up any other state held against this id — it no longer
+        # means anything once the quote itself is gone.
+        won_ids, lost_ids = _admin_preview_won_ids(), _admin_preview_lost_ids()
+        won_ids.discard(item_id); lost_ids.discard(item_id)
+        session[_ADMIN_PREVIEW_WON_KEY] = list(won_ids)
+        session[_ADMIN_PREVIEW_LOST_KEY] = list(lost_ids)
+        overrides = _admin_preview_probability_overrides()
+        overrides.pop(item_id, None)
+        session[_ADMIN_PREVIEW_PROB_KEY] = overrides
         return jsonify({"ok": True})
 
     body = request.get_json(silent=True) or {}
@@ -711,11 +738,14 @@ def cashflow_admin_preview_accounts():
     """Bank accounts / credit cards feeding the mock current balance —
     unselecting one (PATCH below) removes it from current_balance_gbp and
     recomputes the whole forecast, same as unlinking an account in Xero
-    would. FIXTURE_ACCOUNTS itself lives in build_cashflow_prompt.py."""
-    from build_cashflow_prompt import FIXTURE_ACCOUNTS
+    would. Uses _admin_preview_fixture_data()'s computed `accounts` (which
+    carries the real "as of" sync timestamp per account, not the raw
+    FIXTURE_ACCOUNTS constant) so this stays consistent with what the
+    dashboard used to compute current_balance_gbp."""
     excluded = _admin_preview_excluded_accounts()
+    accounts = _admin_preview_fixture_data()["accounts"]
     return jsonify({"accounts": [
-        {**a, "included": a["id"] not in excluded} for a in FIXTURE_ACCOUNTS
+        {**a, "included": a["id"] not in excluded} for a in accounts
     ]})
 
 
