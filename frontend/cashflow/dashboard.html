@@ -20,7 +20,7 @@
 }
 *{box-sizing:border-box;}
 html,body{margin:0;font-family:Inter,sans-serif;color:var(--text);background:var(--bg);min-height:100vh;}
-h1,h2,h3{font-family:'Plus Jakarta Sans','Inter',sans-serif;margin:0;}
+h1,h2,h3{font-family:'Plus Jakarta Sans','Inter',sans-serif;font-weight:800;letter-spacing:-.02em;margin:0;}
 a{color:inherit;}
 .mono{font-family:'JetBrains Mono',monospace;}
 
@@ -33,6 +33,10 @@ a{color:inherit;}
 .app-header nav a:hover,.app-header nav a.active{color:var(--navy);}
 
 .wrap{max-width:1080px;margin:0 auto;padding:26px 20px 80px;}
+.s-label{font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--navy);margin-bottom:6px;}
+.page-head{margin-bottom:20px;}
+.page-head h1{font-size:clamp(24px,3vw,32px);letter-spacing:-.025em;}
+.card-eyebrow{font-size:11px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--navy);margin-bottom:4px;}
 
 .top-banner{background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px 18px;margin-bottom:20px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:13.5px;}
 .top-banner.connected{border-left:4px solid var(--green-bright);}
@@ -140,8 +144,7 @@ a{color:inherit;}
 .account-row{display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid var(--line);}
 .account-row:last-child{border-bottom:none;}
 .account-row input[type=checkbox]{width:18px;height:18px;accent-color:var(--navy);cursor:pointer;flex-shrink:0;}
-.account-icon{width:34px;height:34px;border-radius:9px;background:var(--navy);color:#fff;display:flex;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace;font-size:8.5px;font-weight:700;letter-spacing:.02em;flex-shrink:0;}
-.account-icon.credit_card{background:var(--sub);}
+.account-icon{width:36px;height:36px;border-radius:10px;background:#EAF1FD;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
 .account-name{font-weight:700;font-size:14px;}
 .account-inst{font-size:12px;color:var(--sub);}
 .account-balance{margin-left:auto;font-weight:800;font-family:'Plus Jakarta Sans',sans-serif;font-size:15px;}
@@ -220,6 +223,11 @@ document.querySelectorAll('#top-nav a[href$=".html"]').forEach(a => {
 
 <div class="wrap">
 
+  <div class="page-head">
+    <div class="s-label">Overview</div>
+    <h1>Cash flow forecast</h1>
+  </div>
+
   <div id="xero-banner" class="top-banner disconnected">
     <span id="xero-banner-text">Connect your Xero account to see your real cash flow forecast. Showing sample data below.</span>
     <a href="/api/cashflow/xero/connect" class="btn" id="xero-connect-btn">Connect Xero</a>
@@ -257,7 +265,10 @@ document.querySelectorAll('#top-nav a[href$=".html"]').forEach(a => {
 
   <div class="card">
     <div class="card-header">
-      <h2>Cash flow forecast</h2>
+      <div>
+        <div class="card-eyebrow">Forecast</div>
+        <h2>Cash flow forecast</h2>
+      </div>
       <span class="card-sub">Hover the chart to check any date</span>
     </div>
     <div class="chart-legend" id="chart-legend">
@@ -272,7 +283,7 @@ document.querySelectorAll('#top-nav a[href$=".html"]').forEach(a => {
   </div>
 
   <div class="card">
-    <div class="card-header"><h2>Cash flow settings</h2></div>
+    <div class="card-header"><div><div class="card-eyebrow">Configuration</div><h2>Cash flow settings</h2></div></div>
     <div class="settings-row">
       <div class="settings-field">
         <label for="safe-balance-input">Overdraft limit / minimum buffer</label>
@@ -292,12 +303,12 @@ document.querySelectorAll('#top-nav a[href$=".html"]').forEach(a => {
   </div>
 
   <div class="card">
-    <div class="card-header"><h2>Connected accounts</h2><span class="card-sub">Unselect to exclude from your balance</span></div>
+    <div class="card-header"><div><div class="card-eyebrow">Xero sync</div><h2>Connected accounts</h2></div><span class="card-sub">Unselect to exclude from your balance</span></div>
     <div id="accounts-list"><div class="empty">Loading…</div></div>
   </div>
 
   <div class="card">
-    <div class="card-header"><h2>Quotes</h2><span class="card-sub">Won locks it in · Lost drops it · leave it Open to count it at its win probability in the Likely line</span></div>
+    <div class="card-header"><div><div class="card-eyebrow">Pipeline</div><h2>Quotes</h2></div><span class="card-sub">Won locks it in · Lost drops it · leave it Open to count it at its win probability in the Likely line</span></div>
     <div id="pipeline-list"><div class="empty">Loading…</div></div>
     <form id="raise-quote-form" class="raise-form" onsubmit="return raiseQuote(event)">
       <div class="raise-field">
@@ -321,7 +332,7 @@ document.querySelectorAll('#top-nav a[href$=".html"]').forEach(a => {
   </div>
 
   <div class="card">
-    <div class="card-header"><h2>Payment alerts</h2></div>
+    <div class="card-header"><div><div class="card-eyebrow">Risk</div><h2>Payment alerts</h2></div></div>
     <div id="alerts-list"><div class="empty">No alerts yet — connect Xero to see real payment risks.</div></div>
   </div>
 
@@ -965,7 +976,10 @@ async function saveSettings() {
 }
 
 // --- Accounts panel --------------------------------------------------
-const ACCOUNT_ICONS = {bank: 'BANK', credit_card: 'CARD'};
+const ACCOUNT_ICONS = {
+  bank: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#2257CC" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M4 21V10l8-6 8 6v11"/><path d="M9 21v-6h6v6"/></svg>',
+  credit_card: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#2257CC" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2.4"/><path d="M2 10h20"/></svg>',
+};
 
 async function loadAccounts() {
   const list = document.getElementById('accounts-list');
@@ -983,7 +997,7 @@ async function loadAccounts() {
       return `
       <div class="account-row">
         <input type="checkbox" ${a.included ? 'checked' : ''} onchange="toggleAccount('${a.id}', this.checked)">
-        <div class="account-icon ${escapeHtml(a.type || '')}">${ACCOUNT_ICONS[a.type] || 'ACCT'}</div>
+        <div class="account-icon">${ACCOUNT_ICONS[a.type] || ACCOUNT_ICONS.bank}</div>
         <div>
           <div class="account-name">${escapeHtml(a.name)}</div>
           <div class="account-inst">${escapeHtml(a.institution || '')}${a.as_of ? ` · synced ${fmtAsOf(a.as_of)}` : ''}</div>
