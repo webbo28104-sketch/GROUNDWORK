@@ -23,7 +23,7 @@ from datetime import datetime
 from openai import OpenAI
 
 from models import SessionLocal, Account, XeroConnection, CashflowPipelineItem, CashflowFunnelEvent
-from forecast_engine import CashFlowEngine
+from forecast_engine import CashFlowEngine, _add_invoice_from_dict
 from build_cashflow_prompt import FIXTURE_INPUT
 from emails import send_admin_cashflow_accountant_request_email
 
@@ -53,7 +53,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "get_forecast",
-            "description": "Get the current 60-day cash flow forecast: projected balance, cash runway, money in/out.",
+            "description": "Get the current 60-day cash flow forecast as three scenarios — best (every open quote lands), likely (each quote weighted by its win probability), and worst (no open quote lands) — each with its own projected balance, cash runway, and money in/out. Always mention which scenario a figure comes from when answering.",
             "parameters": {"type": "object", "properties": {}},
         },
     },
@@ -141,13 +141,24 @@ def _account_forecast_data(db, account):
 
 
 def _engine_from_data(data):
-    engine = CashFlowEngine(current_balance=data["current_balance_gbp"], forecast_days=60)
-    for inv in data["invoices"]:
-        engine.add_invoice(datetime.fromisoformat(inv["due_date"]), inv["amount_gbp"], inv.get("id", ""), inv.get("contact_name", ""))
+    """Builds a CashFlowEngine from any of: confirmed_invoices (certain,
+    already-issued), invoices (pipeline quotes — may carry probability_pct/
+    cis_deduction_pct/retention_pct), won_pipeline (confirmed contracts —
+    may be staged via `milestones` instead of a single due_date). Uses
+    forecast_engine's own _add_invoice_from_dict so every field this engine
+    understands (CIS, retention, staging, probability) is honoured
+    identically to the admin-preview dashboard endpoint — the chatbot's
+    numbers must never diverge from what the chart is showing."""
+    engine = CashFlowEngine(
+        current_balance=data["current_balance_gbp"], forecast_days=60,
+        safe_balance_gbp=data.get("safe_balance_gbp", 0.0),
+    )
+    for inv in data.get("confirmed_invoices", []) + data.get("invoices", []):
+        _add_invoice_from_dict(engine, inv)
     for bill in data.get("bills", []):
         engine.add_bill(datetime.fromisoformat(bill["due_date"]), bill["amount_gbp"], bill.get("id", ""), bill.get("contact_name", ""))
     for item in data.get("won_pipeline", []):
-        engine.add_invoice(datetime.fromisoformat(item["due_date"]), item["amount_gbp"], item.get("id", ""), item.get("contact_name", ""))
+        _add_invoice_from_dict(engine, item)
     return engine
 
 
@@ -162,10 +173,10 @@ def _run_tool(tool_name, tool_args, db, account):
         return engine.calculate_forecast()
     if tool_name == "get_overdue_invoices":
         engine, data = _engine_for_account(db, account)
-        return {"overdue": engine.detect_overdue_invoices(data["invoices"])}
+        return {"overdue": engine.detect_overdue_invoices(data.get("confirmed_invoices", []) + data["invoices"])}
     if tool_name == "get_payment_risks":
         engine, data = _engine_for_account(db, account)
-        return {"risks": engine.detect_payment_risks(data["invoices"])}
+        return {"risks": engine.detect_payment_risks(data.get("confirmed_invoices", []) + data["invoices"])}
     if tool_name == "run_scenario":
         engine, _ = _engine_for_account(db, account)
         return engine.run_scenario(tool_args)
@@ -194,11 +205,15 @@ def _run_tool_fixture(tool_name, tool_args, data):
     committing at all."""
     engine = _engine_from_data(data)
     if tool_name == "get_forecast":
-        return engine.calculate_forecast()
+        # Bands, not a single line — the pipeline quotes in this dataset
+        # carry probability_pct, so "the" forecast is actually a range
+        # (best/likely/worst); see calculate_scenario_bands()'s docstring.
+        return engine.calculate_scenario_bands()
     if tool_name == "get_overdue_invoices":
-        return {"overdue": engine.detect_overdue_invoices(data["invoices"] + data["won_pipeline"])}
+        confirmed = data.get("confirmed_invoices", [])
+        return {"overdue": engine.detect_overdue_invoices(confirmed + data["invoices"] + data["won_pipeline"])}
     if tool_name == "get_payment_risks":
-        return {"risks": engine.detect_payment_risks(data["invoices"])}
+        return {"risks": engine.detect_payment_risks(data.get("confirmed_invoices", []) + data["invoices"])}
     if tool_name == "run_scenario":
         return engine.run_scenario(tool_args)
     if tool_name == "talk_to_accountant":

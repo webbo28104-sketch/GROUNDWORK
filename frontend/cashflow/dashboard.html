@@ -65,8 +65,11 @@ a{color:inherit;}
 .balance-amount{font-family:'Plus Jakarta Sans',sans-serif;font-size:clamp(40px,7vw,58px);font-weight:800;letter-spacing:-.03em;margin:10px 0 2px;position:relative;line-height:1;}
 .balance-sub{font-size:14.5px;color:var(--sub);position:relative;}
 .balance-sub b{color:var(--text);font-weight:700;}
-.runway-line{margin-top:14px;padding-top:14px;border-top:1px solid var(--line);font-size:13.5px;color:var(--sub);position:relative;display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.runway-line{margin-top:14px;padding-top:14px;border-top:1px solid var(--line);font-size:13.5px;color:var(--sub);position:relative;display:flex;flex-direction:column;gap:6px;}
+.runway-line .line{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
 .runway-line b{color:var(--text);}
+.range-note{font-size:12.5px;color:var(--sub);position:relative;}
+.range-note b{color:var(--text);}
 
 /* KPI row */
 .kpi-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-bottom:20px;}
@@ -102,8 +105,21 @@ a{color:inherit;}
 .chart-tooltip .tt-row{display:flex;justify-content:space-between;gap:14px;}
 .scrubber-row{display:flex;align-items:center;gap:14px;margin-top:16px;}
 .scrubber-row input[type=range]{flex:1;accent-color:var(--navy);}
-.scrubber-readout{background:var(--bg);border-radius:10px;padding:10px 14px;font-size:13px;min-width:200px;text-align:right;}
+.scrubber-readout{background:var(--bg);border-radius:10px;padding:10px 14px;font-size:13px;min-width:220px;text-align:right;}
 .scrubber-readout b{font-size:16px;font-family:'Plus Jakarta Sans',sans-serif;}
+.scrubber-readout .range{font-size:11px;color:var(--sub);display:block;margin-top:2px;}
+
+.chart-legend{display:flex;gap:18px;flex-wrap:wrap;font-size:12px;font-weight:700;color:var(--sub);margin-bottom:6px;}
+.chart-legend span{display:inline-flex;align-items:center;gap:6px;}
+.chart-legend .swatch{width:14px;height:3px;border-radius:2px;display:inline-block;}
+
+/* Settings */
+.settings-row{display:flex;align-items:center;gap:14px;flex-wrap:wrap;}
+.settings-field{display:flex;flex-direction:column;gap:5px;}
+.settings-field label{font-size:12.5px;font-weight:700;color:var(--sub);}
+.settings-field .field-help{font-size:11.5px;color:var(--sub);font-weight:400;max-width:280px;}
+.settings-field input[type=number]{border:1.5px solid #CBD5E1;border-radius:8px;padding:9px 11px;font-size:14px;font-family:'JetBrains Mono',monospace;width:150px;}
+.settings-field input[type=number]:focus{outline:2px solid var(--navy);outline-offset:-1px;}
 
 /* Accounts */
 .account-row{display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid var(--line);}
@@ -116,16 +132,21 @@ a{color:inherit;}
 .account-balance.neg{color:var(--red);}
 .accounts-total{display:flex;justify-content:space-between;padding-top:12px;margin-top:6px;border-top:2px solid var(--text);font-weight:800;font-size:14.5px;}
 
-.pipeline-item{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 0;border-bottom:1px solid var(--line);}
+.pipeline-item{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 0;border-bottom:1px solid var(--line);flex-wrap:wrap;}
 .pipeline-item:last-child{border-bottom:none;}
-.pipeline-name{font-weight:700;font-size:14.5px;}
+.pipeline-name{font-weight:700;font-size:14.5px;display:flex;align-items:center;gap:7px;flex-wrap:wrap;}
 .pipeline-meta{font-size:12.5px;color:var(--sub);margin-top:2px;}
 .pipeline-meta.overdue{color:var(--red);font-weight:700;}
+.prob-badge{font-size:10.5px;font-weight:800;padding:2px 7px;border-radius:20px;letter-spacing:.02em;}
+.prob-badge.high{background:#DCFCE7;color:#15803D;}
+.prob-badge.mid{background:#FEF3C7;color:#B45309;}
+.prob-badge.low{background:#FEE2E2;color:#B91C1C;}
 .toggle-btns{display:flex;gap:6px;flex-shrink:0;}
 .toggle-btn{border:1.5px solid #CBD5E1;background:#fff;color:var(--sub);border-radius:8px;padding:7px 13px;font-size:12.5px;font-weight:700;cursor:pointer;transition:all .12s;display:flex;align-items:center;gap:5px;}
 .toggle-btn:hover{border-color:#94A3B8;}
-.toggle-btn.yes.active{background:var(--green-bright);border-color:var(--green-bright);color:#fff;box-shadow:0 3px 10px -2px var(--green-glow);}
-.toggle-btn.no.active{background:var(--text);border-color:var(--text);color:#fff;}
+.toggle-btn.won.active{background:var(--green-bright);border-color:var(--green-bright);color:#fff;box-shadow:0 3px 10px -2px var(--green-glow);}
+.toggle-btn.open.active{background:var(--amber-bright);border-color:var(--amber-bright);color:#fff;box-shadow:0 3px 10px -2px var(--amber-glow);}
+.toggle-btn.lost.active{background:var(--text);border-color:var(--text);color:#fff;}
 .toggle-check{opacity:0;font-weight:900;}
 .toggle-btn.active .toggle-check{opacity:1;}
 
@@ -211,6 +232,11 @@ a{color:inherit;}
       <h2>Cash flow — next 60 days</h2>
       <span class="card-sub">Hover the chart, or drag the slider to check any date</span>
     </div>
+    <div class="chart-legend">
+      <span><span class="swatch" style="background:#16A34A;"></span>Best case — every quote lands</span>
+      <span><span class="swatch" style="background:#1E3A5F;height:4px;"></span>Likely — probability-weighted</span>
+      <span><span class="swatch" style="background:#DC2626;"></span>Worst case — no quote lands</span>
+    </div>
     <div class="chart-wrap">
       <canvas id="chart-canvas"></canvas>
       <div class="chart-tooltip" id="chart-tooltip"></div>
@@ -222,12 +248,24 @@ a{color:inherit;}
   </div>
 
   <div class="card">
+    <div class="card-header"><h2>Cash flow settings</h2></div>
+    <div class="settings-row">
+      <div class="settings-field">
+        <label for="safe-balance-input">Minimum safe balance / overdraft limit</label>
+        <input type="number" id="safe-balance-input" step="500">
+        <span class="field-help">Runway is measured against this, not £0 — set it to your real overdraft limit or the buffer you never want to go below. Negative values are a facility (e.g. -10000 for a £10k overdraft).</span>
+      </div>
+      <button class="btn sm" onclick="saveSafeBalance()">Save</button>
+    </div>
+  </div>
+
+  <div class="card">
     <div class="card-header"><h2>Connected accounts</h2><span class="card-sub">Unselect to exclude from your balance</span></div>
     <div id="accounts-list"><div class="empty">Loading…</div></div>
   </div>
 
   <div class="card">
-    <div class="card-header"><h2>Contract pipeline</h2><span class="card-sub">Toggle to include in forecast</span></div>
+    <div class="card-header"><h2>Contract pipeline</h2><span class="card-sub">Won locks it in · Lost drops it · leave it Open to count it at its win probability in the Likely line</span></div>
     <div id="pipeline-list"><div class="empty">Loading…</div></div>
   </div>
 
@@ -286,6 +324,7 @@ const pipelineUrl = isAdminPreview ? `${API_BASE}/pipeline` : `${API_BASE}/pipel
 const pipelineToggleUrl = (id) => `${API_BASE}/pipeline/${id}`;
 const accountsUrl = `${API_BASE}/accounts`;
 const accountToggleUrl = (id) => `${API_BASE}/accounts/${id}`;
+const settingsUrl = `${API_BASE}/settings`;
 const chatUrl = `${API_BASE}/chat`;
 
 if (isAdminPreview) {
@@ -347,33 +386,46 @@ async function loadDashboard() {
 }
 
 function renderDashboard(d) {
-  animateNumber(document.getElementById('balance-amount'), d.projected_balance_gbp);
-  document.getElementById('balance-sub').textContent =
-    'Projected for ' + fmtDate(d.projection_date) + ' — starting from ' + fmtMoney(d.current_balance_gbp) + ' today';
-  const cls = trafficClass(d.traffic_light);
+  const bands = d.bands;
+  const likely = bands.likely, best = bands.best, worst = bands.worst;
+  window.__cfSafeBalance = d.safe_balance_gbp || 0;
+
+  animateNumber(document.getElementById('balance-amount'), likely.projected_balance_gbp);
+  document.getElementById('balance-sub').innerHTML =
+    'Most likely for ' + fmtDate(likely.projection_date) + ' — starting from ' + fmtMoney(d.current_balance_gbp) + ' today';
+  const cls = trafficClass(likely.traffic_light);
   document.getElementById('balance-card').className = 'balance-card ' + cls;
   const pill = document.getElementById('status-pill');
   pill.className = 'status-pill ' + (cls || 'green');
-  document.getElementById('status-pill-text').textContent = trafficLabel(d.traffic_light);
+  document.getElementById('status-pill-text').textContent = trafficLabel(likely.traffic_light);
 
   const runwayLine = document.getElementById('runway-line');
-  if (d.runway_days != null) {
-    runwayLine.innerHTML = `⚠️ At current pace, cash goes negative in <b>${d.runway_days} days</b> — around <b>${fmtDate(d.runway_date)}</b>.`;
+  let mainLine, rangeLine;
+  if (likely.runway_days != null) {
+    mainLine = `⚠️ At the most likely pace, cash drops below your ${fmtMoney(d.safe_balance_gbp)} threshold in <b>${likely.runway_days} days</b> — around <b>${fmtDate(likely.runway_date)}</b>.`;
   } else {
-    runwayLine.innerHTML = `✅ Cash stays positive for the full 60-day forecast.`;
+    mainLine = `✅ Cash stays above your ${fmtMoney(d.safe_balance_gbp)} threshold for the full forecast, most likely.`;
   }
+  if (worst.runway_days != null && worst.runway_days !== likely.runway_days) {
+    rangeLine = `Worst case, that's day <b>${worst.runway_days}</b> (${fmtDate(worst.runway_date)}) if every open quote falls through.`;
+  } else if (best.runway_days == null && likely.runway_days != null) {
+    rangeLine = `Best case — if every open quote lands — you never cross the threshold at all.`;
+  } else {
+    rangeLine = `Range across every open quote: best ${fmtMoney(best.projected_balance_gbp)}, worst ${fmtMoney(worst.projected_balance_gbp)}.`;
+  }
+  runwayLine.innerHTML = `<div class="line">${mainLine}</div><div class="range-note">${rangeLine}</div>`;
 
-  document.getElementById('kpi-in').textContent = fmtMoney(d.money_in_60d_gbp);
-  document.getElementById('kpi-out').textContent = fmtMoney(d.money_out_60d_gbp);
-  document.getElementById('kpi-runway').textContent = d.runway_days != null ? d.runway_days + ' days' : '60+ days';
-  document.getElementById('kpi-runway-date').textContent = d.runway_days != null ? 'around ' + fmtDate(d.runway_date) : 'no shortfall projected';
+  document.getElementById('kpi-in').textContent = fmtMoney(likely.money_in_60d_gbp);
+  document.getElementById('kpi-out').textContent = fmtMoney(likely.money_out_60d_gbp);
+  document.getElementById('kpi-runway').textContent = likely.runway_days != null ? likely.runway_days + ' days' : '60+ days';
+  document.getElementById('kpi-runway-date').textContent = likely.runway_days != null ? 'around ' + fmtDate(likely.runway_date) : 'no shortfall projected';
 
-  renderBreakdown('in', d.transactions || []);
-  renderBreakdown('out', d.transactions || []);
+  renderBreakdown('in', likely.transactions || []);
+  renderBreakdown('out', likely.transactions || []);
 
-  drawChart(d.daily_series || []);
+  drawChart(bands);
   const slider = document.getElementById('date-slider');
-  slider.max = Math.max(0, (d.daily_series || []).length - 1);
+  slider.max = Math.max(0, (likely.daily_series || []).length - 1);
   slider.value = 0;
   onScrub(0);
 }
@@ -427,21 +479,26 @@ function fmtDate(s) {
   return d.toLocaleDateString('en-GB', {day: '2-digit', month: 'short', year: 'numeric'});
 }
 
-// --- Chart: hover tooltip + click-drag date scrubber ---------------------
-let chartSeries = [];
+// --- Chart: 3 scenario lines + shaded range, hover tooltip, date scrubber -
+let chartBands = null; // {best:[...], likely:[...], worst:[...]} daily_series arrays
 let hoveredIndex = null;
 
 function chartGeometry(canvas) {
   const w = canvas.clientWidth, h = 240, pad = 26;
-  const balances = chartSeries.map(p => p.balance);
-  const min = Math.min(0, ...balances), max = Math.max(1, ...balances);
-  const x = i => pad + (i / Math.max(1, chartSeries.length - 1)) * (w - pad * 2);
+  const likely = chartBands ? chartBands.likely.daily_series : [];
+  const best = chartBands ? chartBands.best.daily_series : [];
+  const worst = chartBands ? chartBands.worst.daily_series : [];
+  const allBalances = [...likely, ...best, ...worst].map(p => p.balance);
+  const min = Math.min(0, ...allBalances), max = Math.max(1, ...allBalances);
+  const x = i => pad + (i / Math.max(1, likely.length - 1)) * (w - pad * 2);
   const y = v => h - pad - ((v - min) / ((max - min) || 1)) * (h - pad * 2);
   return {w, h, pad, x, y};
 }
 
-function drawChart(series) {
-  chartSeries = series;
+function drawChart(bands) {
+  if (bands) chartBands = bands;
+  if (!chartBands) return;
+  const {likely, best, worst} = chartBands;
   const canvas = document.getElementById('chart-canvas');
   const dpr = window.devicePixelRatio || 1;
   const {w, h} = chartGeometry(canvas);
@@ -450,45 +507,59 @@ function drawChart(series) {
   const ctx = canvas.getContext('2d');
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, w, h);
-  if (!series.length) return;
+  if (!likely.daily_series && !Array.isArray(likely)) return;
+  const likelySeries = likely.daily_series || likely;
+  const bestSeries = best.daily_series || best;
+  const worstSeries = worst.daily_series || worst;
+  if (!likelySeries.length) return;
 
   const {pad, x, y} = chartGeometry(canvas);
 
-  // zero line
+  // zero / safe-balance threshold line
+  const threshold = window.__cfSafeBalance || 0;
   ctx.strokeStyle = '#CBD5E1'; ctx.lineWidth = 1; ctx.setLineDash([4, 4]);
-  ctx.beginPath(); ctx.moveTo(pad, y(0)); ctx.lineTo(w - pad, y(0)); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(pad, y(threshold)); ctx.lineTo(w - pad, y(threshold)); ctx.stroke();
   ctx.setLineDash([]);
 
-  // gradient fill under the line
-  const grad = ctx.createLinearGradient(0, 0, 0, h);
-  grad.addColorStop(0, 'rgba(30,58,95,0.16)');
-  grad.addColorStop(1, 'rgba(30,58,95,0.01)');
-  ctx.beginPath();
-  series.forEach((p, i) => i === 0 ? ctx.moveTo(x(i), y(p.balance)) : ctx.lineTo(x(i), y(p.balance)));
-  ctx.lineTo(x(series.length - 1), y(0)); ctx.lineTo(x(0), y(0)); ctx.closePath();
-  ctx.fillStyle = grad; ctx.fill();
+  const line = (series, color, width, dash) => {
+    ctx.strokeStyle = color; ctx.lineWidth = width; ctx.lineJoin = 'round';
+    ctx.setLineDash(dash || []);
+    ctx.beginPath();
+    series.forEach((p, i) => i === 0 ? ctx.moveTo(x(i), y(p.balance)) : ctx.lineTo(x(i), y(p.balance)));
+    ctx.stroke();
+    ctx.setLineDash([]);
+  };
 
-  // balance line
-  ctx.strokeStyle = '#1E3A5F'; ctx.lineWidth = 2.75; ctx.lineJoin = 'round';
-  ctx.beginPath();
-  series.forEach((p, i) => i === 0 ? ctx.moveTo(x(i), y(p.balance)) : ctx.lineTo(x(i), y(p.balance)));
-  ctx.stroke();
+  // shaded range between best and worst — the visual answer to "how much
+  // does this actually depend on quotes I haven't won yet"
+  if (bestSeries.length === worstSeries.length) {
+    ctx.beginPath();
+    bestSeries.forEach((p, i) => i === 0 ? ctx.moveTo(x(i), y(p.balance)) : ctx.lineTo(x(i), y(p.balance)));
+    for (let i = worstSeries.length - 1; i >= 0; i--) ctx.lineTo(x(i), y(worstSeries[i].balance));
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(30,58,95,0.07)';
+    ctx.fill();
+  }
 
-  // points, coloured by sign — only every few points to avoid clutter
-  const step = Math.max(1, Math.round(series.length / 30));
-  series.forEach((p, i) => {
-    if (i % step !== 0 && i !== series.length - 1) return;
-    ctx.fillStyle = p.balance < 0 ? '#EF4444' : '#22C55E';
-    ctx.beginPath(); ctx.arc(x(i), y(p.balance), 2.4, 0, Math.PI * 2); ctx.fill();
+  line(bestSeries, '#16A34A', 1.5, [3, 4]);
+  line(worstSeries, '#DC2626', 1.5, [3, 4]);
+  line(likelySeries, '#1E3A5F', 3, null);
+
+  // likely-line points, coloured by sign
+  const step = Math.max(1, Math.round(likelySeries.length / 30));
+  likelySeries.forEach((p, i) => {
+    if (i % step !== 0 && i !== likelySeries.length - 1) return;
+    ctx.fillStyle = p.balance < threshold ? '#EF4444' : '#22C55E';
+    ctx.beginPath(); ctx.arc(x(i), y(p.balance), 2.6, 0, Math.PI * 2); ctx.fill();
   });
 
-  // hovered/selected marker
+  // hovered/selected marker (on the likely line)
   const idx = hoveredIndex != null ? hoveredIndex : parseInt(document.getElementById('date-slider').value || 0, 10);
-  if (series[idx]) {
+  if (likelySeries[idx]) {
     ctx.strokeStyle = 'rgba(15,23,42,0.35)'; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(x(idx), pad); ctx.lineTo(x(idx), h - pad); ctx.stroke();
-    ctx.fillStyle = series[idx].balance < 0 ? '#EF4444' : '#1E3A5F';
-    ctx.beginPath(); ctx.arc(x(idx), y(series[idx].balance), 5, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = likelySeries[idx].balance < threshold ? '#EF4444' : '#1E3A5F';
+    ctx.beginPath(); ctx.arc(x(idx), y(likelySeries[idx].balance), 5, 0, Math.PI * 2); ctx.fill();
     ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
   }
 }
@@ -497,44 +568,56 @@ function setupChartHover() {
   const canvas = document.getElementById('chart-canvas');
   const tooltip = document.getElementById('chart-tooltip');
   canvas.addEventListener('mousemove', (e) => {
-    if (!chartSeries.length) return;
+    if (!chartBands) return;
+    const likelySeries = chartBands.likely.daily_series;
+    if (!likelySeries.length) return;
     const rect = canvas.getBoundingClientRect();
-    const {pad, x} = chartGeometry(canvas);
+    const {pad} = chartGeometry(canvas);
     const relX = e.clientX - rect.left;
-    let idx = Math.round(((relX - pad) / (rect.width - pad * 2)) * (chartSeries.length - 1));
-    idx = Math.max(0, Math.min(chartSeries.length - 1, idx));
+    let idx = Math.round(((relX - pad) / (rect.width - pad * 2)) * (likelySeries.length - 1));
+    idx = Math.max(0, Math.min(likelySeries.length - 1, idx));
     hoveredIndex = idx;
-    drawChart(chartSeries);
+    drawChart();
 
-    const p = chartSeries[idx];
-    const eventsHtml = (p.events || []).map(ev =>
+    const pL = likelySeries[idx], pB = chartBands.best.daily_series[idx], pW = chartBands.worst.daily_series[idx];
+    const eventsHtml = (pL.events || []).map(ev =>
       `<div class="tt-row"><span>${escapeHtml(ev.contact)}</span><span>${ev.type === 'incoming' ? '+' : '−'}${fmtMoney(ev.amount_gbp)}</span></div>`
     ).join('');
     tooltip.innerHTML = `
-      <div class="tt-date">${fmtDate(p.date)}</div>
-      <b>${fmtMoney(p.balance)}</b>
+      <div class="tt-date">${fmtDate(pL.date)}</div>
+      <b>${fmtMoney(pL.balance)}</b> <span style="color:#94A3B8;font-size:11px;">likely</span>
+      <div class="tt-row" style="color:#86EFAC;"><span>Best</span><span>${fmtMoney(pB.balance)}</span></div>
+      <div class="tt-row" style="color:#FCA5A5;"><span>Worst</span><span>${fmtMoney(pW.balance)}</span></div>
       ${eventsHtml ? '<div style="margin-top:6px;border-top:1px solid rgba(255,255,255,.15);padding-top:6px;">' + eventsHtml + '</div>' : ''}
     `;
     tooltip.style.opacity = '1';
     let left = relX + 14;
-    if (left + 170 > rect.width) left = relX - 184;
+    if (left + 180 > rect.width) left = relX - 194;
     tooltip.style.left = left + 'px';
     tooltip.style.top = '6px';
   });
   canvas.addEventListener('mouseleave', () => {
     hoveredIndex = null;
     tooltip.style.opacity = '0';
-    drawChart(chartSeries);
+    drawChart();
   });
 }
 
 function onScrub(value) {
   const idx = parseInt(value, 10);
-  const p = chartSeries[idx];
+  if (!chartBands) return;
+  const pL = chartBands.likely.daily_series[idx];
+  const pB = chartBands.best.daily_series[idx];
+  const pW = chartBands.worst.daily_series[idx];
   const readout = document.getElementById('scrubber-readout');
-  if (!p) { readout.textContent = 'Today: £--'; return; }
-  readout.innerHTML = `${idx === 0 ? 'Today' : fmtDate(p.date)}: <b>${fmtMoney(p.balance)}</b>`;
-  drawChart(chartSeries);
+  if (!pL) { readout.textContent = 'Today: £--'; return; }
+  readout.innerHTML = `${idx === 0 ? 'Today' : fmtDate(pL.date)}: <b>${fmtMoney(pL.balance)}</b>` +
+    `<span class="range">Range: ${fmtMoney(pW.balance)} – ${fmtMoney(pB.balance)}</span>`;
+  drawChart();
+}
+
+function probBadgeClass(pct) {
+  return pct >= 60 ? 'high' : pct >= 30 ? 'mid' : 'low';
 }
 
 async function loadPipeline() {
@@ -544,22 +627,26 @@ async function loadPipeline() {
     if (!r.ok) { list.innerHTML = '<div class="empty">Could not load pipeline.</div>'; return; }
     const d = await r.json();
     if (!d.items || !d.items.length) {
-      list.innerHTML = '<div class="empty">No outstanding quotes or invoices in your pipeline.</div>';
+      list.innerHTML = '<div class="empty">No outstanding quotes in your pipeline.</div>';
       return;
     }
     const today = new Date(); today.setHours(0,0,0,0);
     list.innerHTML = d.items.map(it => {
       const due = new Date(it.due_date);
       const overdue = due < today;
+      const status = it.status || 'open';
       return `
       <div class="pipeline-item">
         <div>
-          <div class="pipeline-name">${escapeHtml(it.name || 'Untitled')}</div>
+          <div class="pipeline-name">${escapeHtml(it.name || 'Untitled')}
+            ${status === 'open' ? `<span class="prob-badge ${probBadgeClass(it.probability_pct)}">${it.probability_pct}% likely</span>` : ''}
+          </div>
           <div class="pipeline-meta ${overdue ? 'overdue' : ''}">${fmtMoney(it.value_gbp)} · ${overdue ? 'Overdue since' : 'Due'} ${fmtDate(it.due_date)}</div>
         </div>
         <div class="toggle-btns">
-          <button class="toggle-btn yes ${it.won ? 'active' : ''}" onclick="togglePipeline(${it.id}, true, this)"><span class="toggle-check">✓</span> Won</button>
-          <button class="toggle-btn no ${!it.won ? 'active' : ''}" onclick="togglePipeline(${it.id}, false, this)"><span class="toggle-check">✓</span> Not yet</button>
+          <button class="toggle-btn won ${status === 'won' ? 'active' : ''}" onclick="togglePipeline(${it.id}, 'won')"><span class="toggle-check">✓</span> Won</button>
+          <button class="toggle-btn open ${status === 'open' ? 'active' : ''}" onclick="togglePipeline(${it.id}, 'open')"><span class="toggle-check">✓</span> Open</button>
+          <button class="toggle-btn lost ${status === 'lost' ? 'active' : ''}" onclick="togglePipeline(${it.id}, 'lost')"><span class="toggle-check">✓</span> Lost</button>
         </div>
       </div>
     `;
@@ -569,18 +656,44 @@ async function loadPipeline() {
   }
 }
 
-async function togglePipeline(id, won, btn) {
+async function togglePipeline(id, status) {
   if (useFixture && !isAdminPreview) { alert('Sample data — connect Xero to toggle real contracts.'); return; }
   try {
     await fetch(pipelineToggleUrl(id), {
       method: 'PATCH', credentials: 'same-origin',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({won}),
+      body: JSON.stringify({status}),
     });
     loadPipeline();
     loadDashboard();
   } catch (e) {
     alert('Could not update — try again.');
+  }
+}
+
+// --- Settings (safe-balance threshold) --------------------------------
+async function loadSettings() {
+  if (!isAdminPreview) return;
+  try {
+    const r = await fetch(settingsUrl, {credentials: 'same-origin'});
+    if (!r.ok) return;
+    const d = await r.json();
+    document.getElementById('safe-balance-input').value = d.safe_balance_gbp;
+  } catch (e) {}
+}
+
+async function saveSafeBalance() {
+  const val = parseFloat(document.getElementById('safe-balance-input').value);
+  if (Number.isNaN(val)) { alert('Enter a number.'); return; }
+  try {
+    await fetch(settingsUrl, {
+      method: 'PATCH', credentials: 'same-origin',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({safe_balance_gbp: val}),
+    });
+    loadDashboard();
+  } catch (e) {
+    alert('Could not save — try again.');
   }
 }
 
@@ -692,7 +805,8 @@ setupChartHover();
 loadDashboard();
 loadPipeline();
 loadAccounts();
-window.addEventListener('resize', () => drawChart(chartSeries));
+loadSettings();
+window.addEventListener('resize', () => drawChart());
 </script>
 </body>
 </html>

@@ -405,11 +405,17 @@ def cashflow_chat():
 # once the admin's session ends.
 
 _ADMIN_PREVIEW_WON_KEY = "admin_cf_preview_won_ids"
+_ADMIN_PREVIEW_LOST_KEY = "admin_cf_preview_lost_ids"
 _ADMIN_PREVIEW_EXCLUDED_ACCOUNTS_KEY = "admin_cf_preview_excluded_accounts"
+_ADMIN_PREVIEW_SAFE_BALANCE_KEY = "admin_cf_preview_safe_balance"
 
 
 def _admin_preview_won_ids():
     return set(session.get(_ADMIN_PREVIEW_WON_KEY, []))
+
+
+def _admin_preview_lost_ids():
+    return set(session.get(_ADMIN_PREVIEW_LOST_KEY, []))
 
 
 def _admin_preview_excluded_accounts():
@@ -418,37 +424,68 @@ def _admin_preview_excluded_accounts():
 
 def _admin_preview_fixture_data():
     """Fresh (not frozen-at-import-time) fixture data, respecting the
-    session's account-exclusion state — see build_fixture_data()'s
-    docstring for why fresh matters (recurring-expense dates, overdue
-    framing) and cashflow_routes.py's module docstring for why this whole
-    sandbox never touches the real DB."""
+    session's account-exclusion and safe-balance-threshold state — see
+    build_fixture_data()'s docstring for why fresh matters (recurring-
+    expense dates, overdue framing) and cashflow_routes.py's module
+    docstring for why this whole sandbox never touches the real DB."""
     from build_cashflow_prompt import build_fixture_data
-    return build_fixture_data(excluded_account_ids=_admin_preview_excluded_accounts())
+    kwargs = {"excluded_account_ids": _admin_preview_excluded_accounts()}
+    if _ADMIN_PREVIEW_SAFE_BALANCE_KEY in session:
+        kwargs["safe_balance_gbp"] = session[_ADMIN_PREVIEW_SAFE_BALANCE_KEY]
+    return build_fixture_data(**kwargs)
+
+
+def _admin_preview_quotes_with_overrides(data):
+    """Pipeline quotes with the admin's manual Won/Lost override applied —
+    Won forces probability to 100% (certain, same as any other confirmed
+    event), Lost drops it to 0% (never counted, in any scenario band).
+    Anything neither toggled keeps its own probability_pct estimate, so it
+    still contributes to the "likely" band at that weight — this is the
+    "buts and maybes" mechanic: a manual override for the ones you're sure
+    about, a probability-weighted estimate for everything you're not."""
+    won_ids, lost_ids = _admin_preview_won_ids(), _admin_preview_lost_ids()
+    quotes = []
+    for i, inv in enumerate(data["invoices"]):
+        item = dict(inv)
+        if i in won_ids:
+            item["probability_pct"] = 100
+        elif i in lost_ids:
+            item["probability_pct"] = 0
+        quotes.append(item)
+    return quotes
 
 
 @cashflow_admin_bp.route("/api/cashflow/admin-preview/dashboard")
 @_admin_required
 def cashflow_admin_preview_dashboard():
     data = _admin_preview_fixture_data()
-    won_ids = _admin_preview_won_ids()
-    toggled_invoices = [inv for i, inv in enumerate(data["invoices"]) if i in won_ids]
-    result = run_forecast_raw(
-        data["current_balance_gbp"], toggled_invoices, data["bills"], data["won_pipeline"],
+    quotes = _admin_preview_quotes_with_overrides(data)
+    all_invoices = data["confirmed_invoices"] + quotes
+
+    bands = run_forecast_raw(
+        data["current_balance_gbp"], all_invoices, data["bills"], data["won_pipeline"],
+        safe_balance_gbp=data["safe_balance_gbp"], bands=True,
     )
-    result["overdue"] = CashFlowEngine(data["current_balance_gbp"]).detect_overdue_invoices(
-        data["invoices"] + data["won_pipeline"]
+    overdue = CashFlowEngine(data["current_balance_gbp"]).detect_overdue_invoices(
+        data["confirmed_invoices"] + data["won_pipeline"]
     )
-    return jsonify(result)
+    return jsonify({
+        "bands": bands,
+        "current_balance_gbp": data["current_balance_gbp"],
+        "safe_balance_gbp": data["safe_balance_gbp"],
+        "overdue": overdue,
+    })
 
 
 @cashflow_admin_bp.route("/api/cashflow/admin-preview/pipeline")
 @_admin_required
 def cashflow_admin_preview_pipeline():
     data = _admin_preview_fixture_data()
-    won_ids = _admin_preview_won_ids()
+    won_ids, lost_ids = _admin_preview_won_ids(), _admin_preview_lost_ids()
     return jsonify({"items": [
         {"id": i, "name": inv["contact_name"], "value_gbp": inv["amount_gbp"],
-         "due_date": inv["due_date"], "won": i in won_ids}
+         "due_date": inv["due_date"], "probability_pct": inv.get("probability_pct", 100),
+         "status": "won" if i in won_ids else "lost" if i in lost_ids else "open"}
         for i, inv in enumerate(data["invoices"])
     ]})
 
@@ -460,12 +497,34 @@ def cashflow_admin_preview_pipeline_toggle(item_id):
     if item_id < 0 or item_id >= len(data["invoices"]):
         return jsonify({"error": "not_found"}), 404
     body = request.get_json(silent=True) or {}
-    won_ids = _admin_preview_won_ids()
-    if body.get("won"):
+    status = body.get("status", "open")  # "won" | "lost" | "open"
+    won_ids, lost_ids = _admin_preview_won_ids(), _admin_preview_lost_ids()
+    won_ids.discard(item_id)
+    lost_ids.discard(item_id)
+    if status == "won":
         won_ids.add(item_id)
-    else:
-        won_ids.discard(item_id)
+    elif status == "lost":
+        lost_ids.add(item_id)
     session[_ADMIN_PREVIEW_WON_KEY] = list(won_ids)
+    session[_ADMIN_PREVIEW_LOST_KEY] = list(lost_ids)
+    return jsonify({"ok": True})
+
+
+@cashflow_admin_bp.route("/api/cashflow/admin-preview/settings", methods=["GET", "PATCH"])
+@_admin_required
+def cashflow_admin_preview_settings():
+    """Director-configurable assumptions — currently just the safe-balance
+    threshold (overdraft limit / minimum comfort buffer). Session-only,
+    same as every other admin-preview toggle."""
+    if request.method == "GET":
+        data = _admin_preview_fixture_data()
+        return jsonify({"safe_balance_gbp": data["safe_balance_gbp"]})
+    body = request.get_json(silent=True) or {}
+    if "safe_balance_gbp" in body:
+        try:
+            session[_ADMIN_PREVIEW_SAFE_BALANCE_KEY] = float(body["safe_balance_gbp"])
+        except (TypeError, ValueError):
+            return jsonify({"error": "invalid safe_balance_gbp"}), 400
     return jsonify({"ok": True})
 
 
@@ -511,8 +570,7 @@ def cashflow_admin_preview_chat():
     history = data.get("history") or []
 
     fixture_data = _admin_preview_fixture_data()
-    won_ids = _admin_preview_won_ids()
-    fixture_data["invoices"] = [inv for i, inv in enumerate(fixture_data["invoices"]) if i in won_ids]
+    fixture_data["invoices"] = _admin_preview_quotes_with_overrides(fixture_data)
 
     from chatbot import get_chatbot_response_fixture
     try:

@@ -98,18 +98,28 @@ FIXTURE_ACCOUNTS = [
     {"id": "acc-amex", "name": "Business Credit Card", "institution": "Amex", "type": "credit_card", "balance_gbp": -2000.00},
 ]
 
-# Recurring cost templates — expanded into concrete dated bill line items
-# by build_fixture_data() for every occurrence inside the forecast window.
-# This is what "estimations on recurring expenses" means in practice: rent/
-# payroll/subscriptions/asset finance don't show up as a single Xero bill
-# each — Xero would surface them as a repeating bill template or bank rule,
-# which the real Xero integration (Phase 2) will read directly; the fixture
-# approximates that by expanding a simple monthly template here.
+# Recurring cost/liability templates — expanded into concrete dated bill
+# line items by build_fixture_data() for every occurrence inside the
+# forecast window. This is what "estimations on recurring expenses" means
+# in practice: rent/payroll/subscriptions/asset finance/VAT don't show up
+# as a single Xero bill each — Xero would surface rent/payroll/etc as a
+# repeating bill template or bank rule (the real Xero integration, Phase 2,
+# will read those directly) and VAT as a periodic liability building up on
+# the VAT control account; the fixture approximates both by expanding
+# simple monthly/quarterly templates here. frequency: "monthly" (day_of_month
+# used) or "quarterly" (day_of_month used, one occurrence every 3 months).
 FIXTURE_RECURRING = [
-    {"id": "REC-RENT", "label": "Yard & office rent", "contact_name": "Riverside Estates Ltd", "amount_gbp": 1800.00, "day_of_month": 1},
-    {"id": "REC-PAYROLL", "label": "Payroll", "contact_name": "Staff wages", "amount_gbp": 7200.00, "day_of_month": 28},
-    {"id": "REC-SAAS", "label": "Software & subscriptions", "contact_name": "Various SaaS", "amount_gbp": 340.00, "day_of_month": 15},
-    {"id": "REC-VAN", "label": "Van lease", "contact_name": "Fleet Finance Ltd", "amount_gbp": 580.00, "day_of_month": 20},
+    {"id": "REC-RENT", "label": "Yard & office rent", "contact_name": "Riverside Estates Ltd", "amount_gbp": 1800.00, "day_of_month": 1, "frequency": "monthly"},
+    {"id": "REC-PAYROLL", "label": "Payroll", "contact_name": "Staff wages", "amount_gbp": 7200.00, "day_of_month": 28, "frequency": "monthly"},
+    {"id": "REC-SAAS", "label": "Software & subscriptions", "contact_name": "Various SaaS", "amount_gbp": 340.00, "day_of_month": 15, "frequency": "monthly"},
+    {"id": "REC-VAN", "label": "Van lease", "contact_name": "Fleet Finance Ltd", "amount_gbp": 580.00, "day_of_month": 20, "frequency": "monthly"},
+    # VAT: the quarterly liability directors get caught out by — it builds
+    # up silently on the output side of every invoice and then takes one
+    # lump sum out. Not itemised elsewhere in this fixture (no separate VAT
+    # line on each invoice/bill — that level of modeling is a real Phase 2
+    # Xero-data job), so this is a flat estimate standing in for "roughly
+    # what HMRC will want this quarter."
+    {"id": "REC-VAT", "label": "VAT payment", "contact_name": "HMRC — VAT", "amount_gbp": 6100.00, "day_of_month": 7, "frequency": "quarterly"},
 ]
 
 
@@ -125,10 +135,12 @@ def _add_months(d: datetime, n: int, day_of_month: int) -> datetime:
 def _expand_recurring(today: datetime, forecast_days: int) -> list:
     """One concrete, dated bill entry per occurrence of each recurring
     template that falls strictly after today and within the forecast
-    window — e.g. two payroll runs and two rent payments over 60 days."""
+    window — e.g. two payroll runs and two rent payments over 60 days, or
+    one VAT payment every third month."""
     horizon = today + timedelta(days=forecast_days)
     expanded = []
     for tmpl in FIXTURE_RECURRING:
+        step = 3 if tmpl.get("frequency") == "quarterly" else 1
         month_offset = 0
         while True:
             occurrence = _add_months(today.replace(day=1), month_offset, tmpl["day_of_month"])
@@ -142,12 +154,12 @@ def _expand_recurring(today: datetime, forecast_days: int) -> list:
                     "due_date": occurrence.strftime("%Y-%m-%d"),
                     "recurring": True,
                 })
-            month_offset += 1
+            month_offset += step
     return expanded
 
 
 def build_fixture_data(today: datetime = None, forecast_days: int = 60,
-                        excluded_account_ids: set = None) -> dict:
+                        excluded_account_ids: set = None, safe_balance_gbp: float = -5000.0) -> dict:
     """Builds the full fixture dataset fresh, relative to `today` — call
     this rather than reaching for a frozen constant wherever the caller can
     (cashflow_routes.py's admin-preview endpoints, chatbot.py's fixture
@@ -156,7 +168,22 @@ def build_fixture_data(today: datetime = None, forecast_days: int = 60,
 
     excluded_account_ids: FIXTURE_ACCOUNTS ids to leave out of
     current_balance_gbp — the "unselect a bank account or credit card"
-    control in the admin preview's accounts panel."""
+    control in the admin preview's accounts panel.
+
+    safe_balance_gbp: the runway/traffic-light threshold — defaults to
+    -£5,000 standing in for a modest overdraft facility, NOT £0, since
+    "days until literally zero" is rarely the number that matters to a
+    director; see forecast_engine.CashFlowEngine's docstring.
+
+    confirmed_invoices vs pipeline_quotes: confirmed_invoices are real,
+    already-issued Xero invoices — certain (probability 100%), always
+    counted, and what detect_overdue_invoices checks. pipeline_quotes are
+    genuinely uncertain — not yet won, each with its own probability_pct,
+    and what the Contract Pipeline UI's Won/Not-yet toggle acts on. Mixing
+    the two in one list (as an earlier version of this fixture did) meant
+    an already-issued overdue invoice sat in the same "toggle to include"
+    UI as a speculative quote, which is a real-money/maybe-money conflation
+    a director would immediately distrust."""
     today = today or datetime.utcnow()
     excluded_account_ids = excluded_account_ids or set()
 
@@ -167,10 +194,20 @@ def build_fixture_data(today: datetime = None, forecast_days: int = 60,
     def d(offset_days):
         return (today + timedelta(days=offset_days)).strftime("%Y-%m-%d")
 
-    invoices = [
-        {"id": "INV-101", "contact_name": "Kelvin Roofing Ltd", "amount_gbp": 8200.00, "due_date": d(9)},
-        {"id": "INV-102", "contact_name": "Retail Fitout Co", "amount_gbp": 15000.00, "due_date": d(-14)},
-        {"id": "INV-103", "contact_name": "Marsh Construction", "amount_gbp": 4300.00, "due_date": d(26)},
+    confirmed_invoices = [
+        # Already issued, overdue — real money owed, not a maybe. CIS
+        # deducted at source since the client is a main contractor.
+        {"id": "INV-102", "contact_name": "Retail Fitout Co", "amount_gbp": 15000.00, "due_date": d(-14),
+         "cis_deduction_pct": 20, "probability_pct": 100},
+    ]
+    pipeline_quotes = [
+        # Genuinely uncertain — each carries its own confidence, editable
+        # in the UI. "Won"/"Not yet" toggling overrides this to 100%/0%;
+        # left alone, "Not yet" quotes still count at probability_pct in
+        # the Likely band (see forecast_engine.calculate_scenario_bands).
+        {"id": "QUOTE-101", "contact_name": "Kelvin Roofing Ltd", "amount_gbp": 8200.00, "due_date": d(9), "probability_pct": 70},
+        {"id": "QUOTE-103", "contact_name": "Marsh Construction", "amount_gbp": 4300.00, "due_date": d(26), "probability_pct": 40},
+        {"id": "QUOTE-104", "contact_name": "Oakfield Developments", "amount_gbp": 22000.00, "due_date": d(45), "probability_pct": 20},
     ]
     one_off_bills = [
         {"id": "BILL-51", "contact_name": "Plant Hire Direct", "amount_gbp": 2100.00, "due_date": d(-1)},
@@ -179,13 +216,26 @@ def build_fixture_data(today: datetime = None, forecast_days: int = 60,
     ]
     bills = one_off_bills + _expand_recurring(today, forecast_days)
     won_pipeline = [
-        {"id": "QUOTE-9", "contact_name": "Smith Contract", "amount_gbp": 12000.00, "due_date": d(34)},
+        # A real, signed, staged contract — paid in three milestones, 5%
+        # retention held on each until the defects liability period ends.
+        # This is the fixture's demonstration of both features at once.
+        {
+            "id": "QUOTE-9", "contact_name": "Smith Contract", "probability_pct": 100,
+            "retention_pct": 5, "retention_release_days": 180,
+            "milestones": [
+                {"label": "deposit", "amount_gbp": 4000.00, "date": d(12)},
+                {"label": "mid-stage", "amount_gbp": 4000.00, "date": d(34)},
+                {"label": "completion", "amount_gbp": 4000.00, "date": d(50)},
+            ],
+        },
     ]
 
     return {
         "current_balance_gbp": current_balance_gbp,
+        "safe_balance_gbp": safe_balance_gbp,
         "accounts": FIXTURE_ACCOUNTS,
-        "invoices": invoices,
+        "confirmed_invoices": confirmed_invoices,
+        "invoices": pipeline_quotes,  # kept as "invoices" — the key name cashflow_routes.py's pipeline toggle already reads
         "bills": bills,
         "won_pipeline": won_pipeline,
     }
