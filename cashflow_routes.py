@@ -38,7 +38,7 @@ from models import (
     SessionLocal, Account, Generation, Prospect,
     XeroConnection, CashflowSnapshot, CashflowPipelineItem, CashflowFunnelEvent,
 )
-from forecast_engine import run_forecast_raw, run_forecast_fixture, ForecastError
+from forecast_engine import run_forecast_raw, run_forecast_fixture, ForecastError, CashFlowEngine
 from build_cashflow_prompt import FIXTURE_INPUT
 
 cashflow_bp = Blueprint("cashflow", __name__)
@@ -404,23 +404,39 @@ def cashflow_chat():
 # so playing with it can't leave stray rows behind and resets automatically
 # once the admin's session ends.
 
-_ADMIN_PREVIEW_SESSION_KEY = "admin_cf_preview_won_ids"
+_ADMIN_PREVIEW_WON_KEY = "admin_cf_preview_won_ids"
+_ADMIN_PREVIEW_EXCLUDED_ACCOUNTS_KEY = "admin_cf_preview_excluded_accounts"
 
 
 def _admin_preview_won_ids():
-    return set(session.get(_ADMIN_PREVIEW_SESSION_KEY, []))
+    return set(session.get(_ADMIN_PREVIEW_WON_KEY, []))
+
+
+def _admin_preview_excluded_accounts():
+    return set(session.get(_ADMIN_PREVIEW_EXCLUDED_ACCOUNTS_KEY, []))
+
+
+def _admin_preview_fixture_data():
+    """Fresh (not frozen-at-import-time) fixture data, respecting the
+    session's account-exclusion state — see build_fixture_data()'s
+    docstring for why fresh matters (recurring-expense dates, overdue
+    framing) and cashflow_routes.py's module docstring for why this whole
+    sandbox never touches the real DB."""
+    from build_cashflow_prompt import build_fixture_data
+    return build_fixture_data(excluded_account_ids=_admin_preview_excluded_accounts())
 
 
 @cashflow_admin_bp.route("/api/cashflow/admin-preview/dashboard")
 @_admin_required
 def cashflow_admin_preview_dashboard():
+    data = _admin_preview_fixture_data()
     won_ids = _admin_preview_won_ids()
-    toggled_invoices = [inv for i, inv in enumerate(FIXTURE_INPUT["invoices"]) if i in won_ids]
+    toggled_invoices = [inv for i, inv in enumerate(data["invoices"]) if i in won_ids]
     result = run_forecast_raw(
-        FIXTURE_INPUT["current_balance_gbp"],
-        toggled_invoices,
-        FIXTURE_INPUT["bills"],
-        FIXTURE_INPUT["won_pipeline"],
+        data["current_balance_gbp"], toggled_invoices, data["bills"], data["won_pipeline"],
+    )
+    result["overdue"] = CashFlowEngine(data["current_balance_gbp"]).detect_overdue_invoices(
+        data["invoices"] + data["won_pipeline"]
     )
     return jsonify(result)
 
@@ -428,26 +444,58 @@ def cashflow_admin_preview_dashboard():
 @cashflow_admin_bp.route("/api/cashflow/admin-preview/pipeline")
 @_admin_required
 def cashflow_admin_preview_pipeline():
+    data = _admin_preview_fixture_data()
     won_ids = _admin_preview_won_ids()
     return jsonify({"items": [
         {"id": i, "name": inv["contact_name"], "value_gbp": inv["amount_gbp"],
          "due_date": inv["due_date"], "won": i in won_ids}
-        for i, inv in enumerate(FIXTURE_INPUT["invoices"])
+        for i, inv in enumerate(data["invoices"])
     ]})
 
 
 @cashflow_admin_bp.route("/api/cashflow/admin-preview/pipeline/<int:item_id>", methods=["PATCH"])
 @_admin_required
 def cashflow_admin_preview_pipeline_toggle(item_id):
-    if item_id < 0 or item_id >= len(FIXTURE_INPUT["invoices"]):
+    data = _admin_preview_fixture_data()
+    if item_id < 0 or item_id >= len(data["invoices"]):
         return jsonify({"error": "not_found"}), 404
-    data = request.get_json(silent=True) or {}
+    body = request.get_json(silent=True) or {}
     won_ids = _admin_preview_won_ids()
-    if data.get("won"):
+    if body.get("won"):
         won_ids.add(item_id)
     else:
         won_ids.discard(item_id)
-    session[_ADMIN_PREVIEW_SESSION_KEY] = list(won_ids)
+    session[_ADMIN_PREVIEW_WON_KEY] = list(won_ids)
+    return jsonify({"ok": True})
+
+
+@cashflow_admin_bp.route("/api/cashflow/admin-preview/accounts")
+@_admin_required
+def cashflow_admin_preview_accounts():
+    """Bank accounts / credit cards feeding the mock current balance —
+    unselecting one (PATCH below) removes it from current_balance_gbp and
+    recomputes the whole forecast, same as unlinking an account in Xero
+    would. FIXTURE_ACCOUNTS itself lives in build_cashflow_prompt.py."""
+    from build_cashflow_prompt import FIXTURE_ACCOUNTS
+    excluded = _admin_preview_excluded_accounts()
+    return jsonify({"accounts": [
+        {**a, "included": a["id"] not in excluded} for a in FIXTURE_ACCOUNTS
+    ]})
+
+
+@cashflow_admin_bp.route("/api/cashflow/admin-preview/accounts/<account_id>", methods=["PATCH"])
+@_admin_required
+def cashflow_admin_preview_account_toggle(account_id):
+    from build_cashflow_prompt import FIXTURE_ACCOUNTS
+    if account_id not in {a["id"] for a in FIXTURE_ACCOUNTS}:
+        return jsonify({"error": "not_found"}), 404
+    body = request.get_json(silent=True) or {}
+    excluded = _admin_preview_excluded_accounts()
+    if body.get("included", True):
+        excluded.discard(account_id)
+    else:
+        excluded.add(account_id)
+    session[_ADMIN_PREVIEW_EXCLUDED_ACCOUNTS_KEY] = list(excluded)
     return jsonify({"ok": True})
 
 
@@ -462,9 +510,13 @@ def cashflow_admin_preview_chat():
         return jsonify({"error": "query_too_long"}), 400
     history = data.get("history") or []
 
+    fixture_data = _admin_preview_fixture_data()
+    won_ids = _admin_preview_won_ids()
+    fixture_data["invoices"] = [inv for i, inv in enumerate(fixture_data["invoices"]) if i in won_ids]
+
     from chatbot import get_chatbot_response_fixture
     try:
-        result = get_chatbot_response_fixture(query, history)
+        result = get_chatbot_response_fixture(query, history, data_override=fixture_data)
     except RuntimeError as exc:
         return jsonify({"error": str(exc)}), 503
     return jsonify(result)

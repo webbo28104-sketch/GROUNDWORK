@@ -61,24 +61,54 @@ class CashFlowEngine:
 
     def calculate_forecast(self) -> dict:
         """Returns the shape run_forecast_raw()/cashflow_routes.py expects:
-        projected_balance_gbp, projection_date, runway_days, daily_series
-        ([{date,in,out,balance}]), money_in_60d_gbp, money_out_60d_gbp,
-        traffic_light."""
+        projected_balance_gbp, projection_date, runway_days, runway_date,
+        daily_series ([{date,in,out,balance,events}], with a synthetic day-0
+        "today" entry prepended for a date-scrubber UI to anchor against),
+        money_in_60d_gbp, money_out_60d_gbp, traffic_light, transactions (a
+        flat, chronological list of every event with a real UI hook: click
+        "coming in"/"going out" to see exactly what and when).
+
+        Events dated on/before today are applied immediately, into the
+        day-0 point, rather than silently dropped — the day loop below only
+        ever runs forward, so without this an overdue invoice a user marks
+        "won"/received would have no visible effect on the forecast at all,
+        which reads as broken, not as "correctly conservative"."""
         events_by_date = {}
+        overdue_backlog = []
         for e in self.events:
-            events_by_date.setdefault(e.date.date(), []).append(e)
+            if e.date.date() <= self.today:
+                overdue_backlog.append(e)
+            else:
+                events_by_date.setdefault(e.date.date(), []).append(e)
 
         balance = self.current_balance
-        daily_series = []
-        runway_days = None  # stays None if balance never goes negative in the horizon
         incoming_total = 0.0
         outgoing_total = 0.0
+        transactions = []
+
+        day0_in = day0_out = 0.0
+        for e in overdue_backlog:
+            balance += e.amount
+            transactions.append(self._tx(e))
+            if e.amount > 0:
+                day0_in += e.amount
+            else:
+                day0_out += abs(e.amount)
+        daily_series = [{
+            "date": self.today.isoformat(), "balance": round(balance, 2),
+            "in": round(day0_in, 2), "out": round(day0_out, 2), "events": [self._tx(e) for e in overdue_backlog],
+        }]
+
+        runway_days = None  # stays None if balance never goes negative in the horizon
+        runway_date = None
 
         for day in range(1, self.forecast_days + 1):
             current_date = self.today + timedelta(days=day)
+            day_events = events_by_date.get(current_date, [])
             day_in = day_out = 0.0
-            for e in events_by_date.get(current_date, []):
+            for e in day_events:
                 balance += e.amount
+                transactions.append(self._tx(e))
                 if e.amount > 0:
                     day_in += e.amount
                     incoming_total += e.amount
@@ -89,22 +119,33 @@ class CashFlowEngine:
             daily_series.append({
                 "date": current_date.isoformat(), "balance": round(balance, 2),
                 "in": round(day_in, 2), "out": round(day_out, 2),
+                "events": [self._tx(e) for e in day_events],
             })
             if balance < 0 and runway_days is None:
                 runway_days = day
+                runway_date = current_date.isoformat()
 
-        projected_balance = daily_series[-1]["balance"] if daily_series else round(self.current_balance, 2)
-        projection_date = daily_series[-1]["date"] if daily_series else self.today.isoformat()
+        projected_balance = daily_series[-1]["balance"]
+        projection_date = daily_series[-1]["date"]
 
         return {
             "current_balance_gbp": round(self.current_balance, 2),
             "projected_balance_gbp": projected_balance,
             "projection_date": projection_date,
             "runway_days": runway_days,
+            "runway_date": runway_date,
             "daily_series": daily_series,
+            "transactions": transactions,
             "money_in_60d_gbp": round(incoming_total, 2),
             "money_out_60d_gbp": round(outgoing_total, 2),
             "traffic_light": _traffic_light(runway_days),
+        }
+
+    @staticmethod
+    def _tx(e: CashEvent) -> dict:
+        return {
+            "date": e.date.date().isoformat(), "amount_gbp": round(abs(e.amount), 2),
+            "type": e.event_type, "reference": e.reference, "contact": e.contact,
         }
 
     def detect_overdue_invoices(self, invoices: list) -> list:

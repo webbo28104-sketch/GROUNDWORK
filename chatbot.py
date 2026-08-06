@@ -178,18 +178,27 @@ def _run_tool(tool_name, tool_args, db, account):
     return {"error": f"unknown tool {tool_name!r}"}
 
 
-def _run_tool_fixture(tool_name, tool_args):
-    """Admin-preview equivalent of _run_tool — no DB, no Account, always
-    FIXTURE_INPUT. talk_to_accountant is simulated (no real lead/email),
-    since this path exists purely so the founder can click around a mock
-    report before deciding this is worth committing at all."""
-    engine = _engine_from_data(FIXTURE_INPUT)
+def _run_tool_fixture(tool_name, tool_args, data):
+    """Admin-preview equivalent of _run_tool — no DB, no Account. `data` is
+    whatever cashflow_routes.py's /admin-preview/chat computed for THIS
+    session (fresh build_fixture_data(), with the invoices list already
+    narrowed to whichever pipeline items the admin has toggled won and the
+    balance already reflecting any excluded accounts) — passed straight
+    through as data_override rather than reaching for the frozen module-
+    level FIXTURE_INPUT, so the chatbot's answers always match what the
+    dashboard is showing right now, including any recurring-expense
+    modeling (see build_cashflow_prompt.py) that's why this used to
+    (incorrectly) say cash would "never" run out. talk_to_accountant is
+    simulated (no real lead/email), since this path exists purely so the
+    founder can click around a mock report before deciding this is worth
+    committing at all."""
+    engine = _engine_from_data(data)
     if tool_name == "get_forecast":
         return engine.calculate_forecast()
     if tool_name == "get_overdue_invoices":
-        return {"overdue": engine.detect_overdue_invoices(FIXTURE_INPUT["invoices"])}
+        return {"overdue": engine.detect_overdue_invoices(data["invoices"] + data["won_pipeline"])}
     if tool_name == "get_payment_risks":
-        return {"risks": engine.detect_payment_risks(FIXTURE_INPUT["invoices"])}
+        return {"risks": engine.detect_payment_risks(data["invoices"])}
     if tool_name == "run_scenario":
         return engine.run_scenario(tool_args)
     if tool_name == "talk_to_accountant":
@@ -254,9 +263,16 @@ def get_chatbot_response(user_query: str, account_email: str, conversation_histo
         db.close()
 
 
-def get_chatbot_response_fixture(user_query: str, conversation_history: list = None) -> dict:
+def get_chatbot_response_fixture(user_query: str, conversation_history: list = None,
+                                  data_override: dict = None) -> dict:
     """Admin-preview path — no Account, no DB, always mock data (see
     _run_tool_fixture). Used by cashflow_routes.py's /api/cashflow/admin-
-    preview/chat, which is admin-session-gated, not account-session-gated."""
+    preview/chat, which is admin-session-gated, not account-session-gated.
+    data_override lets the caller pass session-specific fixture state
+    (toggled pipeline items, excluded accounts) rather than the frozen
+    default — falls back to a fresh build_fixture_data() if omitted."""
     conversation_history = conversation_history or []
-    return _converse(user_query, conversation_history, _run_tool_fixture)
+    if data_override is None:
+        from build_cashflow_prompt import build_fixture_data
+        data_override = build_fixture_data()
+    return _converse(user_query, conversation_history, lambda name, args: _run_tool_fixture(name, args, data_override))

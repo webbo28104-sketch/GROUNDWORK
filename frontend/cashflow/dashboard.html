@@ -7,89 +7,163 @@
 <link rel="icon" type="image/x-icon" href="/favicon.ico">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@700;800&family=JetBrains+Mono:wght@600&display=swap" rel="stylesheet">
 <script src="../config.js"></script>
 <style>
 :root{
-  --green:#22C55E; --amber:#F59E0B; --red:#EF4444;
-  --bg:#F8FAFC; --text:#1E293B; --navy:#1E3A5F;
+  --green:#16A34A; --green-bright:#22C55E; --green-glow:rgba(34,197,94,.25);
+  --amber:#D97706; --amber-bright:#F59E0B; --amber-glow:rgba(245,158,11,.25);
+  --red:#DC2626; --red-bright:#EF4444; --red-glow:rgba(239,68,68,.28);
+  --bg:#F1F5F9; --text:#0F172A; --sub:#64748B; --navy:#1E3A5F; --navy-bright:#2E4E7E;
+  --line:#E2E8F0;
 }
 *{box-sizing:border-box;}
-html,body{margin:0;font-family:Inter,sans-serif;color:var(--text);background:var(--bg);}
+html,body{margin:0;font-family:Inter,sans-serif;color:var(--text);background:
+  radial-gradient(1200px 600px at 15% -10%, #E8EFFB 0%, transparent 60%),
+  radial-gradient(1000px 500px at 110% 10%, #EAF7EF 0%, transparent 55%),
+  var(--bg);
+  min-height:100vh;
+}
 h1,h2,h3{font-family:'Plus Jakarta Sans','Inter',sans-serif;margin:0;}
 a{color:inherit;}
+.mono{font-family:'JetBrains Mono',monospace;}
 
-.app-header{background:var(--navy);color:#fff;padding:0 20px;height:56px;display:flex;align-items:center;justify-content:space-between;}
-.app-header .logo{font-weight:800;font-size:16px;letter-spacing:-.02em;text-decoration:none;color:#fff;}
-.app-header nav a{color:rgba(255,255,255,.75);text-decoration:none;font-size:13.5px;font-weight:600;margin-left:18px;}
-.app-header nav a.active{color:#fff;}
+.app-header{background:linear-gradient(135deg,var(--navy),#152B45);color:#fff;padding:0 20px;height:58px;display:flex;align-items:center;justify-content:space-between;box-shadow:0 2px 12px rgba(15,23,42,.15);}
+.app-header .logo{font-weight:800;font-size:16px;letter-spacing:-.02em;text-decoration:none;color:#fff;display:flex;align-items:center;gap:8px;}
+.app-header nav a{color:rgba(255,255,255,.65);text-decoration:none;font-size:13.5px;font-weight:600;margin-left:20px;transition:color .15s;}
+.app-header nav a:hover,.app-header nav a.active{color:#fff;}
 
-.wrap{max-width:1000px;margin:0 auto;padding:28px 20px 60px;}
+.wrap{max-width:1080px;margin:0 auto;padding:26px 20px 80px;}
 
-.top-banner{background:#fff;border:1px solid #E2E8F0;border-radius:14px;padding:16px 20px;margin-bottom:22px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;}
-.top-banner.connected{border-left:4px solid var(--green);}
-.top-banner.disconnected{border-left:4px solid var(--amber);}
-.btn{display:inline-flex;align-items:center;gap:7px;background:var(--navy);color:#fff;font-weight:700;font-size:14px;padding:10px 16px;border-radius:8px;text-decoration:none;border:none;cursor:pointer;}
+.top-banner{background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px 18px;margin-bottom:20px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:13.5px;}
+.top-banner.connected{border-left:4px solid var(--green-bright);}
+.top-banner.disconnected{border-left:4px solid var(--amber-bright);}
+.btn{display:inline-flex;align-items:center;gap:7px;background:var(--navy);color:#fff;font-weight:700;font-size:13.5px;padding:9px 15px;border-radius:8px;text-decoration:none;border:none;cursor:pointer;transition:transform .1s,box-shadow .15s;}
+.btn:hover{background:var(--navy-bright);box-shadow:0 4px 14px rgba(30,58,95,.3);transform:translateY(-1px);}
 .btn.outline{background:#fff;border:1.5px solid #CBD5E1;color:var(--text);}
+.btn.outline:hover{border-color:var(--navy);box-shadow:none;}
+.btn.sm{padding:6px 11px;font-size:12px;}
 
-.balance-card{background:#fff;border-radius:16px;padding:28px 26px;margin-bottom:22px;border-top:5px solid var(--green);}
-.balance-card.amber{border-top-color:var(--amber);}
-.balance-card.red{border-top-color:var(--red);}
-.balance-label{font-size:13px;color:#64748B;font-weight:600;text-transform:uppercase;letter-spacing:.04em;}
-.balance-amount{font-size:clamp(34px,6vw,48px);font-weight:800;letter-spacing:-.03em;margin:6px 0 4px;}
-.balance-sub{font-size:14.5px;color:#64748B;}
+/* Hero balance card */
+.balance-card{position:relative;background:#fff;border-radius:20px;padding:30px 28px;margin-bottom:20px;overflow:hidden;
+  box-shadow:0 1px 3px rgba(15,23,42,.06), 0 12px 32px -12px rgba(15,23,42,.12);
+  border-top:5px solid var(--green-bright);transition:border-color .4s;}
+.balance-card.amber{border-top-color:var(--amber-bright);}
+.balance-card.red{border-top-color:var(--red-bright);}
+.balance-card::before{content:"";position:absolute;top:-60px;right:-60px;width:200px;height:200px;border-radius:50%;
+  background:radial-gradient(circle,var(--green-glow),transparent 70%);filter:blur(4px);transition:background .4s;}
+.balance-card.amber::before{background:radial-gradient(circle,var(--amber-glow),transparent 70%);}
+.balance-card.red::before{background:radial-gradient(circle,var(--red-glow),transparent 70%);}
+.balance-top{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;position:relative;}
+.balance-label{font-size:12.5px;color:var(--sub);font-weight:700;text-transform:uppercase;letter-spacing:.06em;display:flex;align-items:center;gap:8px;}
+.status-pill{display:inline-flex;align-items:center;gap:6px;padding:4px 10px 4px 8px;border-radius:20px;font-size:11.5px;font-weight:800;letter-spacing:.02em;text-transform:uppercase;}
+.status-pill.green{background:#DCFCE7;color:#15803D;}
+.status-pill.amber{background:#FEF3C7;color:#B45309;}
+.status-pill.red{background:#FEE2E2;color:#B91C1C;}
+.status-dot{width:7px;height:7px;border-radius:50%;background:currentColor;box-shadow:0 0 0 0 currentColor;animation:pulse 1.8s infinite;}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(0,0,0,.35);}70%{box-shadow:0 0 0 7px rgba(0,0,0,0);}100%{box-shadow:0 0 0 0 rgba(0,0,0,0);}}
+.balance-amount{font-family:'Plus Jakarta Sans',sans-serif;font-size:clamp(40px,7vw,58px);font-weight:800;letter-spacing:-.03em;margin:10px 0 2px;position:relative;line-height:1;}
+.balance-sub{font-size:14.5px;color:var(--sub);position:relative;}
+.balance-sub b{color:var(--text);font-weight:700;}
+.runway-line{margin-top:14px;padding-top:14px;border-top:1px solid var(--line);font-size:13.5px;color:var(--sub);position:relative;display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.runway-line b{color:var(--text);}
 
-.kpi-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:22px;}
-.kpi-card{background:#fff;border-radius:12px;padding:18px 20px;}
-.kpi-label{font-size:12.5px;color:#64748B;font-weight:600;}
-.kpi-value{font-size:24px;font-weight:800;margin-top:4px;}
+/* KPI row */
+.kpi-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-bottom:20px;}
+.kpi-card{background:#fff;border-radius:14px;padding:18px 20px;box-shadow:0 1px 2px rgba(15,23,42,.05);cursor:pointer;transition:box-shadow .15s,transform .1s;border:1px solid transparent;}
+.kpi-card:hover{box-shadow:0 8px 24px -8px rgba(15,23,42,.18);transform:translateY(-2px);border-color:var(--line);}
+.kpi-card.open{border-color:var(--navy);box-shadow:0 8px 24px -8px rgba(30,58,95,.25);}
+.kpi-label{font-size:12px;color:var(--sub);font-weight:700;display:flex;align-items:center;justify-content:space-between;}
+.kpi-label .chev{transition:transform .2s;color:#CBD5E1;}
+.kpi-card.open .chev{transform:rotate(180deg);color:var(--navy);}
+.kpi-value{font-family:'Plus Jakarta Sans',sans-serif;font-size:25px;font-weight:800;margin-top:5px;letter-spacing:-.01em;}
+.kpi-value.in{color:var(--green);} .kpi-value.out{color:var(--red);}
+.kpi-breakdown{max-height:0;overflow:hidden;transition:max-height .25s ease;}
+.kpi-card.open .kpi-breakdown{max-height:340px;overflow-y:auto;margin-top:12px;}
+.tx-row{display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-top:1px dashed var(--line);font-size:12.5px;}
+.tx-row:first-child{border-top:none;}
+.tx-contact{font-weight:600;color:var(--text);}
+.tx-date{color:var(--sub);font-size:11px;}
+.tx-amount{font-weight:700;white-space:nowrap;}
+.tx-amount.in{color:var(--green);} .tx-amount.out{color:var(--red);}
+.tx-badge{display:inline-block;background:#EEF2F7;color:var(--sub);font-size:9.5px;font-weight:700;padding:1px 5px;border-radius:4px;margin-left:5px;vertical-align:middle;text-transform:uppercase;}
 
-.card{background:#fff;border-radius:14px;padding:22px;margin-bottom:22px;}
-.card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;}
+.card{background:#fff;border-radius:16px;padding:22px;margin-bottom:20px;box-shadow:0 1px 2px rgba(15,23,42,.05);}
+.card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;gap:10px;flex-wrap:wrap;}
 .card-header h2{font-size:16.5px;}
+.card-sub{font-size:12.5px;color:var(--sub);}
 
-#chart-canvas{width:100%;height:220px;display:block;}
+/* Chart */
+.chart-wrap{position:relative;}
+#chart-canvas{width:100%;height:240px;display:block;cursor:crosshair;}
+.chart-tooltip{position:absolute;pointer-events:none;background:#0F172A;color:#fff;border-radius:10px;padding:10px 13px;font-size:12px;line-height:1.5;box-shadow:0 8px 24px rgba(0,0,0,.25);opacity:0;transition:opacity .1s;z-index:5;min-width:150px;}
+.chart-tooltip b{font-size:14px;}
+.chart-tooltip .tt-date{color:#94A3B8;font-size:11px;margin-bottom:3px;}
+.chart-tooltip .tt-row{display:flex;justify-content:space-between;gap:14px;}
+.scrubber-row{display:flex;align-items:center;gap:14px;margin-top:16px;}
+.scrubber-row input[type=range]{flex:1;accent-color:var(--navy);}
+.scrubber-readout{background:var(--bg);border-radius:10px;padding:10px 14px;font-size:13px;min-width:200px;text-align:right;}
+.scrubber-readout b{font-size:16px;font-family:'Plus Jakarta Sans',sans-serif;}
 
-.pipeline-item{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;border-bottom:1px solid #E2E8F0;}
+/* Accounts */
+.account-row{display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid var(--line);}
+.account-row:last-child{border-bottom:none;}
+.account-row input[type=checkbox]{width:18px;height:18px;accent-color:var(--navy);cursor:pointer;flex-shrink:0;}
+.account-icon{width:34px;height:34px;border-radius:9px;background:var(--bg);display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0;}
+.account-name{font-weight:700;font-size:14px;}
+.account-inst{font-size:12px;color:var(--sub);}
+.account-balance{margin-left:auto;font-weight:800;font-family:'Plus Jakarta Sans',sans-serif;font-size:15px;}
+.account-balance.neg{color:var(--red);}
+.accounts-total{display:flex;justify-content:space-between;padding-top:12px;margin-top:6px;border-top:2px solid var(--text);font-weight:800;font-size:14.5px;}
+
+.pipeline-item{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 0;border-bottom:1px solid var(--line);}
 .pipeline-item:last-child{border-bottom:none;}
 .pipeline-name{font-weight:700;font-size:14.5px;}
-.pipeline-meta{font-size:13px;color:#64748B;margin-top:2px;}
-.toggle-btns{display:flex;gap:6px;}
-.toggle-btn{border:1.5px solid #CBD5E1;background:#fff;border-radius:7px;padding:6px 12px;font-size:13px;font-weight:700;cursor:pointer;}
-.toggle-btn.yes.active{background:var(--green);border-color:var(--green);color:#fff;}
-.toggle-btn.no.active{background:#E2E8F0;border-color:#CBD5E1;}
+.pipeline-meta{font-size:12.5px;color:var(--sub);margin-top:2px;}
+.pipeline-meta.overdue{color:var(--red);font-weight:700;}
+.toggle-btns{display:flex;gap:6px;flex-shrink:0;}
+.toggle-btn{border:1.5px solid #CBD5E1;background:#fff;color:var(--sub);border-radius:8px;padding:7px 13px;font-size:12.5px;font-weight:700;cursor:pointer;transition:all .12s;display:flex;align-items:center;gap:5px;}
+.toggle-btn:hover{border-color:#94A3B8;}
+.toggle-btn.yes.active{background:var(--green-bright);border-color:var(--green-bright);color:#fff;box-shadow:0 3px 10px -2px var(--green-glow);}
+.toggle-btn.no.active{background:var(--text);border-color:var(--text);color:#fff;}
+.toggle-check{opacity:0;font-weight:900;}
+.toggle-btn.active .toggle-check{opacity:1;}
 
-.alert-item{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #E2E8F0;font-size:14px;}
+.alert-item{display:flex;align-items:center;gap:11px;padding:11px 0;border-bottom:1px solid var(--line);font-size:13.5px;}
 .alert-item:last-child{border-bottom:none;}
 .dot{width:9px;height:9px;border-radius:50%;flex-shrink:0;}
-.dot.red{background:var(--red);} .dot.amber{background:var(--amber);} .dot.green{background:var(--green);}
+.dot.red{background:var(--red-bright);} .dot.amber{background:var(--amber-bright);} .dot.green{background:var(--green-bright);}
+.alert-text{flex:1;}
+.alert-amount{font-weight:800;font-family:'Plus Jakarta Sans',sans-serif;}
 
-.empty{color:#64748B;font-size:14px;text-align:center;padding:20px 0;}
+.empty{color:var(--sub);font-size:13.5px;text-align:center;padding:22px 0;}
 
 /* Chatbot widget */
-.chat-widget{position:fixed;bottom:20px;right:20px;width:360px;max-width:calc(100vw - 24px);background:#fff;border-radius:12px;box-shadow:0 10px 40px rgba(0,0,0,.15);overflow:hidden;display:flex;flex-direction:column;z-index:100;}
-.chat-header{background:var(--navy);padding:13px 16px;color:#fff;display:flex;align-items:center;gap:9px;cursor:pointer;font-weight:700;font-size:14px;}
-.chat-header .dot{width:7px;height:7px;border-radius:50%;background:var(--green);}
+.chat-widget{position:fixed;bottom:20px;right:20px;width:370px;max-width:calc(100vw - 24px);background:#fff;border-radius:16px;box-shadow:0 20px 50px rgba(15,23,42,.25);overflow:hidden;display:flex;flex-direction:column;z-index:100;border:1px solid var(--line);}
+.chat-header{background:linear-gradient(135deg,var(--navy),#152B45);padding:14px 16px;color:#fff;display:flex;align-items:center;gap:9px;cursor:pointer;font-weight:700;font-size:14px;}
+.chat-header .dot{width:7px;height:7px;border-radius:50%;background:var(--green-bright);animation:pulse 1.8s infinite;}
 .chat-header span.label{flex:1;}
-.chat-body{display:flex;flex-direction:column;max-height:400px;}
+.chat-body{display:flex;flex-direction:column;max-height:420px;}
 .chat-widget.collapsed .chat-body{display:none;}
-.chat-messages{flex:1;overflow-y:auto;padding:14px;background:#F8FAFC;max-height:300px;}
+.chat-messages{flex:1;overflow-y:auto;padding:14px;background:var(--bg);max-height:320px;}
 .chat-msg{margin-bottom:10px;font-size:13.5px;line-height:1.5;}
 .chat-msg.user{text-align:right;}
-.chat-msg .bubble{display:inline-block;padding:8px 12px;border-radius:10px;max-width:85%;text-align:left;}
+.chat-msg .bubble{display:inline-block;padding:9px 13px;border-radius:12px;max-width:87%;text-align:left;}
 .chat-msg.bot .bubble{background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.06);}
 .chat-msg.user .bubble{background:var(--navy);color:#fff;}
 .chat-examples{display:flex;flex-direction:column;gap:5px;margin-top:8px;}
-.chat-example-btn{background:#EEF2F7;border:none;padding:6px 10px;border-radius:6px;font-size:12px;text-align:left;cursor:pointer;color:var(--navy);}
-.chat-input-row{display:flex;gap:7px;padding:11px;border-top:1px solid #E2E8F0;}
-.chat-input-row input{flex:1;border:1px solid #CBD5E1;border-radius:7px;padding:8px 10px;font-size:13.5px;font-family:inherit;}
-.chat-input-row button{background:var(--navy);color:#fff;border:none;border-radius:7px;padding:8px 14px;font-weight:700;font-size:13px;cursor:pointer;}
+.chat-example-btn{background:#EEF2F7;border:none;padding:7px 10px;border-radius:7px;font-size:12px;text-align:left;cursor:pointer;color:var(--navy);font-weight:600;transition:background .12s;}
+.chat-example-btn:hover{background:#DEE7F5;}
+.chat-input-row{display:flex;gap:7px;padding:11px;border-top:1px solid var(--line);}
+.chat-input-row input{flex:1;border:1px solid #CBD5E1;border-radius:8px;padding:9px 11px;font-size:13.5px;font-family:inherit;}
+.chat-input-row input:focus{outline:2px solid var(--navy);outline-offset:-1px;}
+.chat-input-row button{background:var(--navy);color:#fff;border:none;border-radius:8px;padding:9px 15px;font-weight:700;font-size:13px;cursor:pointer;}
 </style>
 </head>
 <body>
 
 <header class="app-header">
-  <a href="/index.html" class="logo">Groundwork Cashflow</a>
+  <a href="/index.html" class="logo">💷 Groundwork Cashflow</a>
   <nav>
     <a href="dashboard.html" class="active">Dashboard</a>
     <a href="upgrade.html">Upgrade</a>
@@ -105,24 +179,55 @@ a{color:inherit;}
   </div>
 
   <div class="balance-card" id="balance-card">
-    <div class="balance-label">Projected cash position</div>
+    <div class="balance-top">
+      <div class="balance-label">Projected cash position</div>
+      <div class="status-pill" id="status-pill"><span class="status-dot"></span><span id="status-pill-text">--</span></div>
+    </div>
     <div class="balance-amount" id="balance-amount">£--</div>
     <div class="balance-sub" id="balance-sub">Loading…</div>
+    <div class="runway-line" id="runway-line"></div>
   </div>
 
   <div class="kpi-row">
-    <div class="kpi-card"><div class="kpi-label">Coming in — next 60 days</div><div class="kpi-value" id="kpi-in">£--</div></div>
-    <div class="kpi-card"><div class="kpi-label">Going out — next 60 days</div><div class="kpi-value" id="kpi-out">£--</div></div>
-    <div class="kpi-card"><div class="kpi-label">Cash runway</div><div class="kpi-value" id="kpi-runway">--</div></div>
+    <div class="kpi-card" id="kpi-card-in" onclick="toggleBreakdown('in')">
+      <div class="kpi-label">Coming in — next 60 days <span class="chev">▾</span></div>
+      <div class="kpi-value in" id="kpi-in">£--</div>
+      <div class="kpi-breakdown" id="kpi-in-breakdown"></div>
+    </div>
+    <div class="kpi-card" id="kpi-card-out" onclick="toggleBreakdown('out')">
+      <div class="kpi-label">Going out — next 60 days <span class="chev">▾</span></div>
+      <div class="kpi-value out" id="kpi-out">£--</div>
+      <div class="kpi-breakdown" id="kpi-out-breakdown"></div>
+    </div>
+    <div class="kpi-card" style="cursor:default;" onclick="event.stopPropagation();">
+      <div class="kpi-label">Cash runway</div>
+      <div class="kpi-value" id="kpi-runway">--</div>
+      <div class="card-sub" id="kpi-runway-date" style="margin-top:4px;"></div>
+    </div>
   </div>
 
   <div class="card">
-    <div class="card-header"><h2>Cash flow — next 60 days</h2></div>
-    <canvas id="chart-canvas"></canvas>
+    <div class="card-header">
+      <h2>Cash flow — next 60 days</h2>
+      <span class="card-sub">Hover the chart, or drag the slider to check any date</span>
+    </div>
+    <div class="chart-wrap">
+      <canvas id="chart-canvas"></canvas>
+      <div class="chart-tooltip" id="chart-tooltip"></div>
+    </div>
+    <div class="scrubber-row">
+      <input type="range" id="date-slider" min="0" max="60" value="0" oninput="onScrub(this.value)">
+      <div class="scrubber-readout" id="scrubber-readout">Today: £--</div>
+    </div>
   </div>
 
   <div class="card">
-    <div class="card-header"><h2>Contract pipeline</h2><span style="font-size:13px;color:#64748B;">Toggle to include in forecast</span></div>
+    <div class="card-header"><h2>Connected accounts</h2><span class="card-sub">Unselect to exclude from your balance</span></div>
+    <div id="accounts-list"><div class="empty">Loading…</div></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><h2>Contract pipeline</h2><span class="card-sub">Toggle to include in forecast</span></div>
     <div id="pipeline-list"><div class="empty">Loading…</div></div>
   </div>
 
@@ -145,7 +250,7 @@ a{color:inherit;}
         <div class="bubble">
           Hi! Ask me anything about your cash flow.
           <div class="chat-examples">
-            <button class="chat-example-btn" onclick="askExample(this)">Will I have enough cash next month?</button>
+            <button class="chat-example-btn" onclick="askExample(this)">When will cash run low?</button>
             <button class="chat-example-btn" onclick="askExample(this)">Which invoices are overdue?</button>
             <button class="chat-example-btn" onclick="askExample(this)">What if I win a £10,000 contract?</button>
           </div>
@@ -168,7 +273,7 @@ a{color:inherit;}
 //
 // ?admin=1 is a separate, admin-session-gated sandbox (cashflow_routes.py's
 // /api/cashflow/admin-preview/*) — no Account/Stripe/Xero involved at all,
-// pipeline toggles are held in the Flask session only. Used from
+// pipeline/account toggles are held in the Flask session only. Used from
 // /admin/cashflow-preview so the founder can click around mock reports
 // before deciding to commit this feature.
 const params = new URLSearchParams(location.search);
@@ -179,6 +284,8 @@ const API_BASE = isAdminPreview ? '/api/cashflow/admin-preview' : '/api/cashflow
 const dashboardUrl = isAdminPreview ? `${API_BASE}/dashboard` : `${API_BASE}/dashboard${qs}`;
 const pipelineUrl = isAdminPreview ? `${API_BASE}/pipeline` : `${API_BASE}/pipeline${qs}`;
 const pipelineToggleUrl = (id) => `${API_BASE}/pipeline/${id}`;
+const accountsUrl = `${API_BASE}/accounts`;
+const accountToggleUrl = (id) => `${API_BASE}/accounts/${id}`;
 const chatUrl = `${API_BASE}/chat`;
 
 if (isAdminPreview) {
@@ -187,13 +294,37 @@ if (isAdminPreview) {
   document.getElementById('xero-connect-btn').style.display = 'none';
 }
 
+let lastData = null;
+
 function fmtMoney(n) {
   if (n === undefined || n === null) return '£--';
-  return '£' + Math.round(n).toLocaleString('en-GB');
+  const neg = n < 0;
+  return (neg ? '-£' : '£') + Math.round(Math.abs(n)).toLocaleString('en-GB');
 }
 
 function trafficClass(light) {
   return light === 'red' ? 'red' : light === 'amber' ? 'amber' : '';
+}
+
+function trafficLabel(light) {
+  return light === 'red' ? 'At risk' : light === 'amber' ? 'Tight' : 'Healthy';
+}
+
+// Count-up animation on the hero number — small, satisfying, cheap to run.
+function animateNumber(el, to, prefix) {
+  const from = parseFloat(el.dataset.raw || '0');
+  const start = performance.now();
+  const dur = 550;
+  function tick(now) {
+    const t = Math.min(1, (now - start) / dur);
+    const eased = 1 - Math.pow(1 - t, 3);
+    const val = from + (to - from) * eased;
+    el.textContent = fmtMoney(val);
+    if (t < 1) requestAnimationFrame(tick);
+    else el.dataset.raw = to;
+  }
+  el.dataset.raw = el.dataset.raw || '0';
+  requestAnimationFrame(tick);
 }
 
 async function loadDashboard() {
@@ -207,21 +338,87 @@ async function loadDashboard() {
       return;
     }
     const d = await r.json();
+    lastData = d;
     renderDashboard(d);
+    renderAlerts(d);
   } catch (e) {
     document.getElementById('balance-sub').textContent = 'Could not load your forecast — try refreshing.';
   }
 }
 
 function renderDashboard(d) {
-  document.getElementById('balance-amount').textContent = fmtMoney(d.projected_balance_gbp);
+  animateNumber(document.getElementById('balance-amount'), d.projected_balance_gbp);
   document.getElementById('balance-sub').textContent =
-    'On ' + fmtDate(d.projection_date) + (d.runway_days != null ? ' · ' + d.runway_days + ' days of runway' : '');
-  document.getElementById('balance-card').className = 'balance-card ' + trafficClass(d.traffic_light);
+    'Projected for ' + fmtDate(d.projection_date) + ' — starting from ' + fmtMoney(d.current_balance_gbp) + ' today';
+  const cls = trafficClass(d.traffic_light);
+  document.getElementById('balance-card').className = 'balance-card ' + cls;
+  const pill = document.getElementById('status-pill');
+  pill.className = 'status-pill ' + (cls || 'green');
+  document.getElementById('status-pill-text').textContent = trafficLabel(d.traffic_light);
+
+  const runwayLine = document.getElementById('runway-line');
+  if (d.runway_days != null) {
+    runwayLine.innerHTML = `⚠️ At current pace, cash goes negative in <b>${d.runway_days} days</b> — around <b>${fmtDate(d.runway_date)}</b>.`;
+  } else {
+    runwayLine.innerHTML = `✅ Cash stays positive for the full 60-day forecast.`;
+  }
+
   document.getElementById('kpi-in').textContent = fmtMoney(d.money_in_60d_gbp);
   document.getElementById('kpi-out').textContent = fmtMoney(d.money_out_60d_gbp);
   document.getElementById('kpi-runway').textContent = d.runway_days != null ? d.runway_days + ' days' : '60+ days';
+  document.getElementById('kpi-runway-date').textContent = d.runway_days != null ? 'around ' + fmtDate(d.runway_date) : 'no shortfall projected';
+
+  renderBreakdown('in', d.transactions || []);
+  renderBreakdown('out', d.transactions || []);
+
   drawChart(d.daily_series || []);
+  const slider = document.getElementById('date-slider');
+  slider.max = Math.max(0, (d.daily_series || []).length - 1);
+  slider.value = 0;
+  onScrub(0);
+}
+
+function renderBreakdown(kind, transactions) {
+  const el = document.getElementById(`kpi-${kind}-breakdown`);
+  const filtered = transactions.filter(t => t.type === (kind === 'in' ? 'incoming' : 'outgoing'))
+    .sort((a, b) => a.date.localeCompare(b.date));
+  if (!filtered.length) {
+    el.innerHTML = '<div class="empty" style="padding:10px 0;">Nothing scheduled.</div>';
+    return;
+  }
+  el.innerHTML = filtered.map(t => `
+    <div class="tx-row">
+      <div>
+        <div class="tx-contact">${escapeHtml(t.contact || t.reference || 'Untitled')}${t.reference && t.reference.includes('REC-') ? '<span class="tx-badge">Recurring</span>' : ''}</div>
+        <div class="tx-date">${fmtDate(t.date)}</div>
+      </div>
+      <div class="tx-amount ${kind}">${kind === 'in' ? '+' : '−'}${fmtMoney(t.amount_gbp)}</div>
+    </div>
+  `).join('');
+}
+
+function toggleBreakdown(kind) {
+  const card = document.getElementById(`kpi-card-${kind}`);
+  const other = document.getElementById(`kpi-card-${kind === 'in' ? 'out' : 'in'}`);
+  const willOpen = !card.classList.contains('open');
+  other.classList.remove('open');
+  card.classList.toggle('open', willOpen);
+}
+
+function renderAlerts(d) {
+  const list = document.getElementById('alerts-list');
+  const overdue = d.overdue || [];
+  if (!overdue.length) {
+    list.innerHTML = '<div class="empty">✅ No overdue invoices — everything on track.</div>';
+    return;
+  }
+  list.innerHTML = overdue.map(o => `
+    <div class="alert-item">
+      <span class="dot ${o.priority === 'HIGH' ? 'red' : o.priority === 'MEDIUM' ? 'amber' : 'green'}"></span>
+      <span class="alert-text"><b>${escapeHtml(o.contact)}</b> — ${o.days_overdue} days overdue</span>
+      <span class="alert-amount">${fmtMoney(o.amount)}</span>
+    </div>
+  `).join('');
 }
 
 function fmtDate(s) {
@@ -230,41 +427,114 @@ function fmtDate(s) {
   return d.toLocaleDateString('en-GB', {day: '2-digit', month: 'short', year: 'numeric'});
 }
 
+// --- Chart: hover tooltip + click-drag date scrubber ---------------------
+let chartSeries = [];
+let hoveredIndex = null;
+
+function chartGeometry(canvas) {
+  const w = canvas.clientWidth, h = 240, pad = 26;
+  const balances = chartSeries.map(p => p.balance);
+  const min = Math.min(0, ...balances), max = Math.max(1, ...balances);
+  const x = i => pad + (i / Math.max(1, chartSeries.length - 1)) * (w - pad * 2);
+  const y = v => h - pad - ((v - min) / ((max - min) || 1)) * (h - pad * 2);
+  return {w, h, pad, x, y};
+}
+
 function drawChart(series) {
+  chartSeries = series;
   const canvas = document.getElementById('chart-canvas');
   const dpr = window.devicePixelRatio || 1;
-  const w = canvas.clientWidth, h = 220;
+  const {w, h} = chartGeometry(canvas);
   canvas.width = w * dpr; canvas.height = h * dpr;
+  canvas.style.height = h + 'px';
   const ctx = canvas.getContext('2d');
-  ctx.scale(dpr, dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, w, h);
   if (!series.length) return;
 
-  const balances = series.map(p => p.balance);
-  const min = Math.min(0, ...balances), max = Math.max(...balances);
-  const pad = 24;
-  const x = i => pad + (i / (series.length - 1)) * (w - pad * 2);
-  const y = v => h - pad - ((v - min) / (max - min || 1)) * (h - pad * 2);
+  const {pad, x, y} = chartGeometry(canvas);
 
   // zero line
-  ctx.strokeStyle = '#CBD5E1'; ctx.lineWidth = 1;
+  ctx.strokeStyle = '#CBD5E1'; ctx.lineWidth = 1; ctx.setLineDash([4, 4]);
   ctx.beginPath(); ctx.moveTo(pad, y(0)); ctx.lineTo(w - pad, y(0)); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // gradient fill under the line
+  const grad = ctx.createLinearGradient(0, 0, 0, h);
+  grad.addColorStop(0, 'rgba(30,58,95,0.16)');
+  grad.addColorStop(1, 'rgba(30,58,95,0.01)');
+  ctx.beginPath();
+  series.forEach((p, i) => i === 0 ? ctx.moveTo(x(i), y(p.balance)) : ctx.lineTo(x(i), y(p.balance)));
+  ctx.lineTo(x(series.length - 1), y(0)); ctx.lineTo(x(0), y(0)); ctx.closePath();
+  ctx.fillStyle = grad; ctx.fill();
 
   // balance line
-  ctx.strokeStyle = '#1E3A5F'; ctx.lineWidth = 2.5;
+  ctx.strokeStyle = '#1E3A5F'; ctx.lineWidth = 2.75; ctx.lineJoin = 'round';
   ctx.beginPath();
   series.forEach((p, i) => i === 0 ? ctx.moveTo(x(i), y(p.balance)) : ctx.lineTo(x(i), y(p.balance)));
   ctx.stroke();
 
-  // fill
-  ctx.lineTo(x(series.length - 1), y(0)); ctx.lineTo(x(0), y(0)); ctx.closePath();
-  ctx.fillStyle = 'rgba(30,58,95,0.08)'; ctx.fill();
-
-  // points, coloured by sign
+  // points, coloured by sign — only every few points to avoid clutter
+  const step = Math.max(1, Math.round(series.length / 30));
   series.forEach((p, i) => {
+    if (i % step !== 0 && i !== series.length - 1) return;
     ctx.fillStyle = p.balance < 0 ? '#EF4444' : '#22C55E';
-    ctx.beginPath(); ctx.arc(x(i), y(p.balance), 2.2, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(x(i), y(p.balance), 2.4, 0, Math.PI * 2); ctx.fill();
   });
+
+  // hovered/selected marker
+  const idx = hoveredIndex != null ? hoveredIndex : parseInt(document.getElementById('date-slider').value || 0, 10);
+  if (series[idx]) {
+    ctx.strokeStyle = 'rgba(15,23,42,0.35)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x(idx), pad); ctx.lineTo(x(idx), h - pad); ctx.stroke();
+    ctx.fillStyle = series[idx].balance < 0 ? '#EF4444' : '#1E3A5F';
+    ctx.beginPath(); ctx.arc(x(idx), y(series[idx].balance), 5, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+  }
+}
+
+function setupChartHover() {
+  const canvas = document.getElementById('chart-canvas');
+  const tooltip = document.getElementById('chart-tooltip');
+  canvas.addEventListener('mousemove', (e) => {
+    if (!chartSeries.length) return;
+    const rect = canvas.getBoundingClientRect();
+    const {pad, x} = chartGeometry(canvas);
+    const relX = e.clientX - rect.left;
+    let idx = Math.round(((relX - pad) / (rect.width - pad * 2)) * (chartSeries.length - 1));
+    idx = Math.max(0, Math.min(chartSeries.length - 1, idx));
+    hoveredIndex = idx;
+    drawChart(chartSeries);
+
+    const p = chartSeries[idx];
+    const eventsHtml = (p.events || []).map(ev =>
+      `<div class="tt-row"><span>${escapeHtml(ev.contact)}</span><span>${ev.type === 'incoming' ? '+' : '−'}${fmtMoney(ev.amount_gbp)}</span></div>`
+    ).join('');
+    tooltip.innerHTML = `
+      <div class="tt-date">${fmtDate(p.date)}</div>
+      <b>${fmtMoney(p.balance)}</b>
+      ${eventsHtml ? '<div style="margin-top:6px;border-top:1px solid rgba(255,255,255,.15);padding-top:6px;">' + eventsHtml + '</div>' : ''}
+    `;
+    tooltip.style.opacity = '1';
+    let left = relX + 14;
+    if (left + 170 > rect.width) left = relX - 184;
+    tooltip.style.left = left + 'px';
+    tooltip.style.top = '6px';
+  });
+  canvas.addEventListener('mouseleave', () => {
+    hoveredIndex = null;
+    tooltip.style.opacity = '0';
+    drawChart(chartSeries);
+  });
+}
+
+function onScrub(value) {
+  const idx = parseInt(value, 10);
+  const p = chartSeries[idx];
+  const readout = document.getElementById('scrubber-readout');
+  if (!p) { readout.textContent = 'Today: £--'; return; }
+  readout.innerHTML = `${idx === 0 ? 'Today' : fmtDate(p.date)}: <b>${fmtMoney(p.balance)}</b>`;
+  drawChart(chartSeries);
 }
 
 async function loadPipeline() {
@@ -277,18 +547,23 @@ async function loadPipeline() {
       list.innerHTML = '<div class="empty">No outstanding quotes or invoices in your pipeline.</div>';
       return;
     }
-    list.innerHTML = d.items.map(it => `
+    const today = new Date(); today.setHours(0,0,0,0);
+    list.innerHTML = d.items.map(it => {
+      const due = new Date(it.due_date);
+      const overdue = due < today;
+      return `
       <div class="pipeline-item">
         <div>
           <div class="pipeline-name">${escapeHtml(it.name || 'Untitled')}</div>
-          <div class="pipeline-meta">${fmtMoney(it.value_gbp)} · Due ${fmtDate(it.due_date)}</div>
+          <div class="pipeline-meta ${overdue ? 'overdue' : ''}">${fmtMoney(it.value_gbp)} · ${overdue ? 'Overdue since' : 'Due'} ${fmtDate(it.due_date)}</div>
         </div>
         <div class="toggle-btns">
-          <button class="toggle-btn yes ${it.won ? 'active' : ''}" onclick="togglePipeline(${it.id}, true, this)">Won</button>
-          <button class="toggle-btn no ${!it.won ? 'active' : ''}" onclick="togglePipeline(${it.id}, false, this)">Not yet</button>
+          <button class="toggle-btn yes ${it.won ? 'active' : ''}" onclick="togglePipeline(${it.id}, true, this)"><span class="toggle-check">✓</span> Won</button>
+          <button class="toggle-btn no ${!it.won ? 'active' : ''}" onclick="togglePipeline(${it.id}, false, this)"><span class="toggle-check">✓</span> Not yet</button>
         </div>
       </div>
-    `).join('');
+    `;
+    }).join('');
   } catch (e) {
     list.innerHTML = '<div class="empty">Could not load pipeline.</div>';
   }
@@ -309,8 +584,55 @@ async function togglePipeline(id, won, btn) {
   }
 }
 
+// --- Accounts panel --------------------------------------------------
+const ACCOUNT_ICONS = {bank: '🏦', credit_card: '💳'};
+
+async function loadAccounts() {
+  const list = document.getElementById('accounts-list');
+  if (!isAdminPreview) {
+    list.innerHTML = '<div class="empty">Connect Xero to choose which accounts feed your forecast.</div>';
+    return;
+  }
+  try {
+    const r = await fetch(accountsUrl, {credentials: 'same-origin'});
+    if (!r.ok) { list.innerHTML = '<div class="empty">Could not load accounts.</div>'; return; }
+    const d = await r.json();
+    let total = 0;
+    list.innerHTML = d.accounts.map(a => {
+      if (a.included) total += a.balance_gbp;
+      return `
+      <div class="account-row">
+        <input type="checkbox" ${a.included ? 'checked' : ''} onchange="toggleAccount('${a.id}', this.checked)">
+        <div class="account-icon">${ACCOUNT_ICONS[a.type] || '💰'}</div>
+        <div>
+          <div class="account-name">${escapeHtml(a.name)}</div>
+          <div class="account-inst">${escapeHtml(a.institution || '')}</div>
+        </div>
+        <div class="account-balance ${a.balance_gbp < 0 ? 'neg' : ''}">${fmtMoney(a.balance_gbp)}</div>
+      </div>
+    `;
+    }).join('') + `<div class="accounts-total"><span>Included in forecast</span><span>${fmtMoney(total)}</span></div>`;
+  } catch (e) {
+    list.innerHTML = '<div class="empty">Could not load accounts.</div>';
+  }
+}
+
+async function toggleAccount(id, included) {
+  try {
+    await fetch(accountToggleUrl(id), {
+      method: 'PATCH', credentials: 'same-origin',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({included}),
+    });
+    loadAccounts();
+    loadDashboard();
+  } catch (e) {
+    alert('Could not update — try again.');
+  }
+}
+
 function escapeHtml(s) {
-  const d = document.createElement('div'); d.textContent = s; return d.innerHTML;
+  const d = document.createElement('div'); d.textContent = s == null ? '' : s; return d.innerHTML;
 }
 
 // --- Chatbot ---------------------------------------------------------
@@ -366,9 +688,11 @@ async function sendChatMessage() {
   }
 }
 
+setupChartHover();
 loadDashboard();
 loadPipeline();
-window.addEventListener('resize', loadDashboard);
+loadAccounts();
+window.addEventListener('resize', () => drawChart(chartSeries));
 </script>
 </body>
 </html>
