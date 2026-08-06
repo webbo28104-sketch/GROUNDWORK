@@ -56,6 +56,8 @@ a{color:inherit;}
 .balance-card.red::before{background:radial-gradient(circle,var(--red-glow),transparent 70%);}
 .balance-top{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;position:relative;}
 .balance-label{font-size:12.5px;color:var(--sub);font-weight:700;text-transform:uppercase;letter-spacing:.06em;display:flex;align-items:center;gap:8px;}
+.balance-date-input{border:1.5px solid #CBD5E1;border-radius:7px;padding:3px 7px;font-size:12px;font-weight:600;font-family:'JetBrains Mono',monospace;text-transform:none;letter-spacing:normal;color:var(--text);background:#fff;cursor:pointer;}
+.balance-date-input:focus{outline:2px solid var(--navy);outline-offset:-1px;}
 .status-pill{display:inline-flex;align-items:center;gap:6px;padding:4px 10px 4px 8px;border-radius:20px;font-size:11.5px;font-weight:800;letter-spacing:.02em;text-transform:uppercase;}
 .status-pill.green{background:#DCFCE7;color:#15803D;}
 .status-pill.amber{background:#FEF3C7;color:#B45309;}
@@ -222,7 +224,9 @@ document.querySelectorAll('#top-nav a[href$=".html"]').forEach(a => {
 
   <div class="balance-card" id="balance-card">
     <div class="balance-top">
-      <div class="balance-label">Projected cash position</div>
+      <div class="balance-label">Projected cash position
+        <input type="date" id="balance-date-input" class="balance-date-input" onchange="selectBalanceDate(this.value)">
+      </div>
       <div class="status-pill" id="status-pill"><span class="status-dot"></span><span id="status-pill-text">--</span></div>
     </div>
     <div class="balance-amount" id="balance-amount">£--</div>
@@ -373,6 +377,51 @@ function fmtMoney(n) {
   return (neg ? '-£' : '£') + Math.round(Math.abs(n)).toLocaleString('en-GB');
 }
 
+function selectBalanceDate(dateStr, animate) {
+  const bands = window.__cfBands;
+  if (!bands || !dateStr) return;
+  const likelySeries = bands.likely.daily_series || bands.likely;
+  const bestSeries = bands.best.daily_series || bands.best;
+  const worstSeries = bands.worst.daily_series || bands.worst;
+  let idx = likelySeries.findIndex(p => p.date === dateStr);
+  if (idx === -1) {
+    // date picker allows any date in range; snap to the closest series point
+    idx = 0;
+    let bestDiff = Infinity;
+    likelySeries.forEach((p, i) => {
+      const diff = Math.abs(new Date(p.date) - new Date(dateStr));
+      if (diff < bestDiff) { bestDiff = diff; idx = i; }
+    });
+  }
+  const pL = likelySeries[idx];
+  const threshold = window.__cfSafeBalance || 0;
+  const amountEl = document.getElementById('balance-amount');
+  if (animate) {
+    animateNumber(amountEl, pL.balance);
+  } else {
+    amountEl.textContent = fmtMoney(pL.balance);
+    amountEl.dataset.raw = pL.balance;
+  }
+  const isToday = idx === 0;
+  document.getElementById('balance-sub').innerHTML = (isToday ? 'Likely today' : 'Likely for ' + fmtDate(pL.date)) +
+    ' — starting from ' + fmtMoney(window.__cfCurrentBalanceGbp) + ' today';
+
+  const cls = pL.balance < threshold ? 'red' : (idx > 0 && worstSeries[idx] && worstSeries[idx].balance < threshold ? 'amber' : 'green');
+  document.getElementById('balance-card').className = 'balance-card ' + (cls === 'green' ? '' : cls);
+  const pill = document.getElementById('status-pill');
+  pill.className = 'status-pill ' + cls;
+  document.getElementById('status-pill-text').textContent = cls === 'red' ? 'At risk' : cls === 'amber' ? 'Tight' : 'Healthy';
+
+  hoveredIndex = idx;
+  drawChart();
+}
+
+function fmtMoneyPrecise(n) {
+  if (n === undefined || n === null) return '£--';
+  const neg = n < 0;
+  return (neg ? '-£' : '£') + Math.abs(n).toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+}
+
 function fmtAsOf(iso) {
   const d = new Date(iso);
   const diffH = Math.round((Date.now() - d.getTime()) / 3600000);
@@ -430,15 +479,21 @@ function renderDashboard(d) {
   const bands = d.bands;
   const likely = bands.likely, best = bands.best, worst = bands.worst;
   window.__cfSafeBalance = d.safe_balance_gbp || 0;
+  window.__cfBands = bands;
+  window.__cfCurrentBalanceGbp = d.current_balance_gbp;
 
-  animateNumber(document.getElementById('balance-amount'), likely.projected_balance_gbp);
-  document.getElementById('balance-sub').innerHTML =
-    'Most likely for ' + fmtDate(likely.projection_date) + ' — starting from ' + fmtMoney(d.current_balance_gbp) + ' today';
-  const cls = trafficClass(likely.traffic_light);
-  document.getElementById('balance-card').className = 'balance-card ' + cls;
-  const pill = document.getElementById('status-pill');
-  pill.className = 'status-pill ' + (cls || 'green');
-  document.getElementById('status-pill-text').textContent = trafficLabel(likely.traffic_light);
+  // The hero number is dictated by whatever date is selected in the input
+  // above it, defaulting to the end of the forecast horizon — not hardcoded
+  // to today or to a fixed 60-day point.
+  const series = likely.daily_series || likely;
+  const dateInput = document.getElementById('balance-date-input');
+  const firstDate = series[0] && series[0].date;
+  const lastDate = series[series.length - 1] && series[series.length - 1].date;
+  if (firstDate) dateInput.min = firstDate;
+  if (lastDate) dateInput.max = lastDate;
+  const keepSelection = dateInput.value && dateInput.value >= firstDate && dateInput.value <= lastDate;
+  if (!keepSelection) dateInput.value = lastDate || firstDate || '';
+  selectBalanceDate(dateInput.value, /*animate=*/true);
 
   const bestSeriesForCheck = best.daily_series || best;
   const worstSeriesForCheck = worst.daily_series || worst;
@@ -918,10 +973,10 @@ async function loadAccounts() {
           <div class="account-name">${escapeHtml(a.name)}</div>
           <div class="account-inst">${escapeHtml(a.institution || '')}${a.as_of ? ` · synced ${fmtAsOf(a.as_of)}` : ''}</div>
         </div>
-        <div class="account-balance ${a.balance_gbp < 0 ? 'neg' : ''}">${fmtMoney(a.balance_gbp)}</div>
+        <div class="account-balance ${a.balance_gbp < 0 ? 'neg' : ''}">${fmtMoneyPrecise(a.balance_gbp)}</div>
       </div>
     `;
-    }).join('') + `<div class="accounts-total"><span>Included in forecast</span><span>${fmtMoney(total)}</span></div>`;
+    }).join('') + `<div class="accounts-total"><span>Included in forecast</span><span>${fmtMoneyPrecise(total)}</span></div>`;
   } catch (e) {
     list.innerHTML = '<div class="empty">Could not load accounts.</div>';
   }

@@ -98,9 +98,9 @@ FIXTURE_ACCOUNTS = [
     # current account. Turned into a real "as of" timestamp per account by
     # build_fixture_data() below, not shown as a static label, so it stays
     # honest about when each balance was actually last confirmed.
-    {"id": "acc-current", "name": "Business Current Account", "institution": "Barclays", "type": "bank", "balance_gbp": 6800.00, "sync_lag_hours": 2},
-    {"id": "acc-savings", "name": "Instant Access Savings", "institution": "Barclays", "type": "bank", "balance_gbp": 6200.00, "sync_lag_hours": 26},
-    {"id": "acc-amex", "name": "Business Credit Card", "institution": "Amex", "type": "credit_card", "balance_gbp": -2000.00, "sync_lag_hours": 8},
+    {"id": "acc-current", "name": "Business Current Account", "institution": "Barclays", "type": "bank", "balance_gbp": 6814.37, "sync_lag_hours": 2},
+    {"id": "acc-savings", "name": "Instant Access Savings", "institution": "Barclays", "type": "bank", "balance_gbp": 6193.52, "sync_lag_hours": 26},
+    {"id": "acc-amex", "name": "Business Credit Card", "institution": "Amex", "type": "credit_card", "balance_gbp": -2007.89, "sync_lag_hours": 8},
 ]
 
 # Recurring cost/liability templates — expanded into concrete dated bill
