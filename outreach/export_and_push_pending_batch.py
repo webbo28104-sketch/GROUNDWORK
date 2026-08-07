@@ -22,6 +22,7 @@ Runnable standalone:
 """
 import os
 import sys
+import time
 import base64
 import logging
 from datetime import datetime
@@ -52,6 +53,8 @@ GITHUB_REPO = "webbo28104-sketch/GROUNDWORK"
 GITHUB_FILE_PATH = "outreach/discovery_batches/pending_batch.json"
 GITHUB_API_BASE = "https://api.github.com"
 REQUEST_TIMEOUT = 30
+PUT_MAX_ATTEMPTS = 3
+PUT_RETRY_BACKOFF_SECONDS = 5
 
 
 def _push_via_github_api(token):
@@ -76,7 +79,18 @@ def _push_via_github_api(token):
     if sha:
         body["sha"] = sha
 
-    put_resp = requests.put(url, headers=headers, json=body, timeout=REQUEST_TIMEOUT)
+    for attempt in range(1, PUT_MAX_ATTEMPTS + 1):
+        put_resp = requests.put(url, headers=headers, json=body, timeout=REQUEST_TIMEOUT)
+        if put_resp.status_code < 500:
+            break
+        logger.warning(
+            "GitHub PUT returned %d (attempt %d/%d)%s",
+            put_resp.status_code, attempt, PUT_MAX_ATTEMPTS,
+            "" if attempt == PUT_MAX_ATTEMPTS else ", retrying...",
+        )
+        if attempt < PUT_MAX_ATTEMPTS:
+            time.sleep(PUT_RETRY_BACKOFF_SECONDS * attempt)
+
     put_resp.raise_for_status()
     logger.info("Pushed %s to GitHub (commit %s)", GITHUB_FILE_PATH, put_resp.json().get("commit", {}).get("sha", "?")[:8])
 
