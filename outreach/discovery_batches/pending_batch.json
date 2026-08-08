@@ -9670,16 +9670,6 @@
     "queued_at": "2026-07-29T01:03:55.046543"
   },
   {
-    "prospect_id": 7308,
-    "business_name": "Central Scotland Driveways",
-    "trade": "Driveway/Paving",
-    "location": "Ste 1B, 38 Queen St, Glasgow G1 3DX",
-    "website": "http://www.centralscotlanddriveways.com/",
-    "website_status": "has_website",
-    "phone": "0141 530 5790",
-    "queued_at": "2026-07-29T01:04:01.766815"
-  },
-  {
     "prospect_id": 7310,
     "business_name": "Indie Paving Ltd",
     "trade": "Driveway/Paving",
@@ -10168,16 +10158,6 @@
     "website_status": "has_website",
     "phone": "07428 551293",
     "queued_at": "2026-07-29T01:05:20.226734"
-  },
-  {
-    "prospect_id": 7416,
-    "business_name": "McVeigh Offsite Ltd - SIP Construction",
-    "trade": "Insulation Installer",
-    "location": "Unit 3, Waterside Ind Estate, Off Clarence St, Ashton-under-Lyne, Stalybridge SK15 1QP",
-    "website": "http://www.mcveighoffsite.com/",
-    "website_status": "has_website",
-    "phone": "0161 368 7700",
-    "queued_at": "2026-07-29T01:05:32.170791"
   },
   {
     "prospect_id": 7418,
@@ -19998,5 +19978,25 @@
     "website_status": "has_website",
     "phone": "01875 611272",
     "queued_at": "2026-07-30T12:36:02.247348"
+  },
+  {
+    "prospect_id": 6295,
+    "business_name": "David Morton Demolition",
+    "trade": "Demolition",
+    "location": "Glen Works, Glen Village, Falkirk FK1 2BQ",
+    "website": "https://davidmortonltd.co.uk/",
+    "website_status": "has_website",
+    "phone": "01324 612876",
+    "queued_at": "2026-07-30T12:36:02.354272"
+  },
+  {
+    "prospect_id": 6296,
+    "business_name": "Lothian Demolition Ltd",
+    "trade": "Demolition",
+    "location": "Units 9, 11waverley Industrial Units, Waverley St, Bathgate EH48 4HY",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "01506 238081",
+    "queued_at": "2026-07-30T12:36:02.365615"
   }
 ]
