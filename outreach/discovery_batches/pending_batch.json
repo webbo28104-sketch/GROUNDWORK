@@ -5250,16 +5250,6 @@
     "queued_at": "2026-07-30T12:14:32.204446"
   },
   {
-    "prospect_id": 7725,
-    "business_name": "Solar Trade Sales",
-    "trade": "Solar Panel Installer",
-    "location": "7 Edison Cl, Ipswich IP3 9GU",
-    "website": "https://www.solartradesales.co.uk/",
-    "website_status": "has_website",
-    "phone": "01473 276685",
-    "queued_at": "2026-07-30T12:14:32.347110"
-  },
-  {
     "prospect_id": 7730,
     "business_name": "Home Solar (Colchester)",
     "trade": "Solar Panel Installer",
@@ -19998,5 +19988,15 @@
     "website_status": "has_website",
     "phone": "01698 373305",
     "queued_at": "2026-08-03T01:04:38.328060"
+  },
+  {
+    "prospect_id": 10051,
+    "business_name": "Al Kareem Group Limited",
+    "trade": "Builder",
+    "location": "59 Kirk Rd, Wishaw ML2 7BL",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07771 403408",
+    "queued_at": "2026-08-03T01:04:38.342121"
   }
 ]
