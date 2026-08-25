@@ -6410,16 +6410,6 @@
     "queued_at": "2026-07-30T12:30:57.894608"
   },
   {
-    "prospect_id": 8678,
-    "business_name": "Pest Solutions",
-    "trade": "Pest Control",
-    "location": "10 Seaward Pl, Kinning Park, Glasgow G41 1HH",
-    "website": "https://www.pestsolutions.co.uk/pest-control-glasgow",
-    "website_status": "has_website",
-    "phone": "0141 280 7323",
-    "queued_at": "2026-07-30T12:30:57.998638"
-  },
-  {
     "prospect_id": 8679,
     "business_name": "Environmental Services Pest Control Ltd",
     "trade": "Pest Control",
@@ -19998,5 +19988,15 @@
     "website_status": "has_website",
     "phone": "07826 926549",
     "queued_at": "2026-08-05T01:04:53.261262"
+  },
+  {
+    "prospect_id": 10960,
+    "business_name": "Clayton Construction Ltd",
+    "trade": "Bricklayer",
+    "location": "48 Church Ln, Hutton, Weston-super-Mare BS24 9SN",
+    "website": "https://www.claytonconstruction.co.uk/",
+    "website_status": "has_website",
+    "phone": "01934 814444",
+    "queued_at": "2026-08-05T01:04:53.388674"
   }
 ]
