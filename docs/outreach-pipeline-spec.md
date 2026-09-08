@@ -235,7 +235,7 @@ The existing `loading.html` (shared with the main form-submission flow, not new)
 - References actual built features: services breakdown, accreditations section, project gallery, quote enquiry form
 - Includes scrolling GIF preview
 - CTA: single link, repeated once
-- Mentions: can edit wording; £99 setup + £24.99/month if they want to go live
+- Mentions: can edit wording; £99 setup + £4.99/month if they want to go live
 
 ### Initial — Has Website (Dated)
 
@@ -258,7 +258,7 @@ Placeholders: `{business_name}`, `{preview_link}`, `{short_code}`, `{unsubscribe
 >
 > {preview_link}
 >
-> If you like what you see, going live is £99 setup + £24.99/month, first month free — most other website services charge around £89 a month alone.
+> If you like what you see, going live is £99 setup + £4.99/month, first month free — most other website services charge around £89 a month alone.
 >
 > Have a look and see what you think — any questions, just reply to this email.
 >
@@ -270,7 +270,7 @@ Placeholders: `{business_name}`, `{preview_link}`, `{short_code}`, `{unsubscribe
 **Initial SMS** (phone-only, no email found — this is their only first touch):
 
 > Hi {business_name}, this is Groundwork — we build affordable websites for UK trades. See a free preview built for you: groundworkbuild.com/s/{short_code}
-> £99 setup + £24.99/mo after, 1st month free.
+> £99 setup + £4.99/mo after, 1st month free.
 > Reply STOP to opt out.
 
 See Section 11 for the follow-up Stage A/B/C/D copy (email + SMS).
@@ -284,7 +284,7 @@ Runs as a parallel channel to email, same qualified prospect pool (no separate g
 - **Source:** phone number already comes from the Places API Enterprise tier pull (Section 1) — no separate discovery step needed, unlike email
 - **Provider:** Esendex (UK-based, ICO-registered) — the actual decision, corrected from an earlier build that was mistakenly implemented against Twilio (see "Provider correction" below). Plivo is a fallback only if Esendex's API proves difficult in practice — not built preemptively.
 - **Compliance setup** (one-off, before first send): whatever sender-ID/registration Esendex itself requires for promotional SMS — not the Twilio A2P process this section originally named, which no longer applies
-- **Content:** shorter version of the email templates — same core message (preview link, key features, £99+£24.99/month), single CTA link
+- **Content:** shorter version of the email templates — same core message (preview link, key features, £99+£4.99/month), single CTA link
 - **Unsubscribe:** handled via STOP keyword reply, and Esendex's own "stop" webhook event — both feed the same Prospect.sms_unsubscribed flag (see `outreach/reply_handling.py:handle_forced_sms_stop` for the latter)
 - Unsubscribe is channel-specific: an SMS opt-out does not imply an email opt-out, and vice versa — track separately (see schema, Section 13)
 - **Follow-up sequence** (Section 11): same trigger logic and timing, but can route through SMS instead of/alongside email
@@ -429,7 +429,7 @@ Stage A and Stage B (pre-click — `sent`/`opened` substages) must never claim t
 >
 > {preview_link}
 >
-> First month's free if you'd like to go live — £99 setup + £24.99/month after.
+> First month's free if you'd like to go live — £99 setup + £4.99/month after.
 >
 > Any questions, just reply to this email.
 >
@@ -452,7 +452,7 @@ Stage A and Stage B (pre-click — `sent`/`opened` substages) must never claim t
 >
 > {preview_link}
 >
-> First month's free, £99 setup + £24.99/month after.
+> First month's free, £99 setup + £4.99/month after.
 >
 > Any questions, just reply to this email.
 >

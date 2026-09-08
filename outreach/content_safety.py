@@ -25,8 +25,9 @@ from outreach.templates import PRE_CLICK_STAGES
 # The canonical price actually charged (checkout.html / Stripe) — any
 # other £ figure appearing in generated copy is either a typo or a made-up
 # number, both of which are pricing-accuracy failures. No setup fee as of
-# 2026-07-23 (removed until break-even) — "99" dropped accordingly.
-CANONICAL_PRICES_GBP = {"24.99"}
+# 2026-07-23 (removed until break-even) — "99" dropped accordingly. Price
+# dropped from £24.99 to £4.99 2026-09-08.
+CANONICAL_PRICES_GBP = {"4.99"}
 
 # Phrases claiming the site already exists/is built — only legal on
 # post-click stages (C/D), never on initial/A/B. Matched case-insensitively

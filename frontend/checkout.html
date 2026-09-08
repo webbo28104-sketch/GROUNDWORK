@@ -57,15 +57,15 @@ body{margin:0;background:#F5F3EE;font-family:Inter,sans-serif;color:#1C1C1C;}
       </div>
       <div id="hosting-row-monthly" style="display:flex;justify-content:space-between;align-items:baseline;">
         <span style="font-size:15px;color:#5C5A56;">Monthly hosting</span>
-        <span id="hosting-row-monthly-price" style="text-align:right;"><span style="font-weight:700;font-size:16px;color:#1A6B3A;">Free this month</span><span style="display:block;font-size:12.5px;color:#9A9893;font-weight:500;">then £24.99/mo</span></span>
+        <span id="hosting-row-monthly-price" style="text-align:right;"><span style="font-weight:700;font-size:16px;color:#1A6B3A;">Free this month</span><span style="display:block;font-size:12.5px;color:#9A9893;font-weight:500;">then £4.99/mo</span></span>
       </div>
       <div id="hosting-row-annual" style="display:none;justify-content:space-between;align-items:baseline;">
         <span style="font-size:15px;color:#5C5A56;">Annual hosting</span>
-        <span style="font-weight:700;font-size:16px;">£249.99/yr</span>
+        <span style="font-weight:700;font-size:16px;">£49.99/yr</span>
       </div>
     </div>
 
-    <p id="billing-disclosure" style="margin:0 0 20px;font-size:13px;color:#5C5A56;line-height:1.5;">Your card is billed £24.99/mo automatically from month two, unless you cancel first.</p>
+    <p id="billing-disclosure" style="margin:0 0 20px;font-size:13px;color:#5C5A56;line-height:1.5;">Your card is billed £4.99/mo automatically from month two, unless you cancel first.</p>
 
     <div style="background:#F5F3EE;border-radius:10px;padding:16px 18px;margin-bottom:28px;">
       <div class="check-row" id="check-row-trial">
@@ -132,7 +132,7 @@ try {
 // drift out of sync with each other.
 function payBtnText() {
   if (isReactivation) {
-    return currentPlan === 'annual' ? 'Pay £249.99 and reactivate →' : 'Pay £24.99/mo and reactivate →';
+    return currentPlan === 'annual' ? 'Pay £49.99 and reactivate →' : 'Pay £4.99/mo and reactivate →';
   }
   return 'Get it live, free →';
 }
@@ -142,12 +142,12 @@ function billingDisclosureText() {
   if (isReactivation) {
     // No setup fee, no trial on a reactivation — see applyReactivationUI().
     return isMonthly
-      ? 'Your card is billed £24.99/mo starting today, unless you cancel first.'
-      : 'Your card is billed £249.99 for the year today, then £249.99/yr on renewal.';
+      ? 'Your card is billed £4.99/mo starting today, unless you cancel first.'
+      : 'Your card is billed £49.99 for the year today, then £49.99/yr on renewal.';
   }
   return isMonthly
-    ? 'No setup fee, no charge today — your card is billed £24.99/mo automatically from month two, unless you cancel first.'
-    : 'No setup fee — your card is billed £249.99 for the first year today, then £249.99/yr on renewal.';
+    ? 'No setup fee, no charge today — your card is billed £4.99/mo automatically from month two, unless you cancel first.'
+    : 'No setup fee — your card is billed £49.99 for the first year today, then £49.99/yr on renewal.';
 }
 
 function refreshPayCta() {
@@ -180,7 +180,7 @@ function applyReactivationUI() {
   document.getElementById('check-row-trial').style.display = 'none';
   document.getElementById('check-row-live-text').textContent = 'Site reactivated within minutes';
   document.getElementById('hosting-row-monthly-price').innerHTML =
-    '<span style="font-weight:700;font-size:16px;">£24.99/mo</span>';
+    '<span style="font-weight:700;font-size:16px;">£4.99/mo</span>';
   document.getElementById('discount-code-section').style.display = 'none';
   refreshPayCta();
 }

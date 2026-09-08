@@ -11,7 +11,7 @@ already have their online presence "sorted" — low urgency, low conversion.
 The ~5% magic-link click rate we DO see is the real signal: people are
 willing to look. The job now is reaching people who feel the actual
 *necessity* of a website — no_website/no-presence trades businesses, and
-established businesses who'd genuinely feel "£24.99/mo is a steal" once
+established businesses who'd genuinely feel "£4.99/mo is a steal" once
 they see the quality of what we build them. Sales come from necessity, not
 from a good pitch to someone who doesn't feel the gap. Two levers:
 
@@ -145,7 +145,7 @@ generation quality up broadly (mobile-responsive requirements, banned
 fabricated placeholder/testimonial text, first-person brand voice for the
 no-quotes-reviews case) — but this is a standing concern, not a one-time
 fix: the thinner the source data, the more the generation quality has to
-carry the "this is worth £24.99/mo" impression on its own. Worth
+carry the "this is worth £4.99/mo" impression on its own. Worth
 revisiting specifically through the lens of "what does our best possible
 output look like when all we have is a business name, trade, and
 location" — no dedicated pass has been done from that specific angle yet.

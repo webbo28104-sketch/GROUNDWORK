@@ -143,7 +143,7 @@ A relative fetch from a page on `groundworkbuild.com` goes through `_worker.js`'
 
 - Accent: `#3B82F6` (blue). Hover: `#2563EB`. No amber (except the preview watermark CTA, which intentionally uses `#B8976A` to stand out as non-brand chrome).
 - Contact email: `groundwork-build@outlook.com`
-- Plans: **Starter** — no setup fee (removed 2026-07-23, until break-even), £24.99/mo (first month of hosting free via a 30-day Stripe trial on the subscription). `STRIPE_MONTHLY_PRICE_ID` in Railway must point at a £24.99 Stripe Price object — that swap has to happen in the Stripe dashboard, this repo has no Stripe credentials to do it from code. One-Man-Band and Director are coming soon stubs.
+- Plans: **Starter** — no setup fee (removed 2026-07-23, until break-even), £4.99/mo (first month of hosting free via a 30-day Stripe trial on the subscription). `STRIPE_MONTHLY_PRICE_ID` in Railway must point at a £4.99 Stripe Price object — that swap has to happen in the Stripe dashboard, this repo has no Stripe credentials to do it from code. One-Man-Band and Director are coming soon stubs.
 
 ## Marketing pages
 

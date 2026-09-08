@@ -80,7 +80,7 @@ INITIAL_EMAIL = {
       </td></tr>
 
       <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:15.5px;line-height:1.65;color:#2A2A28;padding:0 0 8px;">
-        If you like what you see, you can get {business_name}'s site live today for £24.99/month, no setup fee. Most other website services charge around £89 a month alone. Any questions, just reply to this email.
+        If you like what you see, you can get {business_name}'s site live today for £4.99/month, no setup fee. Most other website services charge around £89 a month alone. Any questions, just reply to this email.
       </td></tr>
       <tr><td style="padding:6px 0 26px;">
         <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;font-family:Arial,Helvetica,sans-serif;">
@@ -126,7 +126,7 @@ INITIAL_EMAIL = {
 INITIAL_SMS = (
     "Hi {business_name}, this is Groundwork — we build affordable websites for UK trades. "
     "See a free preview built for you: groundworkbuild.com/s/{short_code}\n"
-    "Live today for £24.99/mo, no setup fee.\n"
+    "Live today for £4.99/mo, no setup fee.\n"
     "Reply STOP to opt out."
 )
 
@@ -139,7 +139,7 @@ INITIAL_SMS = (
 INITIAL_FACEBOOK_DM = (
     "Hi {business_name}, this is Charlie from Groundwork — we build affordable websites for UK trades. "
     "I've actually already put together a free preview website for you, no cost: groundworkbuild.com/s/{short_code}\n"
-    "Free to go live today too — £24.99/mo, no setup fee. Let me know if you've got any questions!"
+    "Free to go live today too — £4.99/mo, no setup fee. Let me know if you've got any questions!"
 )
 
 # ── Follow-up stages ──────────────────────────────────────────────────────────
@@ -396,7 +396,7 @@ FOLLOWUP_EMAIL = {
         Just checking in — your website's built and waiting.
       </td></tr>
       <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:15.5px;line-height:1.65;color:#2A2A28;padding:0 0 30px;">
-        Go live today for £24.99/month, no setup fee.
+        Go live today for £4.99/month, no setup fee.
       </td></tr>
 
       <!-- CTA: single button, reused as-is across all 8 templates. Table-based
@@ -498,7 +498,7 @@ FOLLOWUP_EMAIL = {
         Your account's set up and your site's ready to go — just needs switching on.
       </td></tr>
       <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:15.5px;line-height:1.65;color:#2A2A28;padding:0 0 30px;">
-        Free to go live today — £24.99/month, no setup fee.
+        Free to go live today — £4.99/month, no setup fee.
       </td></tr>
 
       <!-- CTA: single button, reused as-is across all 8 templates. Table-based
@@ -612,7 +612,7 @@ HAIL_MARY_EMAIL = {
         We built you a free website preview a while back and haven't heard from you since — so this is genuinely the last email you'll get about it.
       </td></tr>
       <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:15.5px;line-height:1.65;color:#2A2A28;padding:0 0 30px;">
-        There's no setup fee and no cost to go live — first 3 months free, £24.99/month after that. If two minutes to tell us why now isn't the right time is easier than deciding, that works too — we read every response ourselves.
+        There's no setup fee and no cost to go live — first 3 months free, £4.99/month after that. If two minutes to tell us why now isn't the right time is easier than deciding, that works too — we read every response ourselves.
       </td></tr>
 
       <!-- CTA -->
@@ -817,7 +817,7 @@ PRICE_DROP_ANNOUNCEMENT_EMAIL = {
         The setup fee is gone — {business_name}'s site is still waiting
       </td></tr>
       <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:15.5px;line-height:1.65;color:#2A2A28;padding:0 0 18px;">
-        Last time you looked, going live meant a setup fee on top of monthly hosting. That's changed — <b>we've dropped it completely.</b> Nothing to pay upfront, £24.99/month, that's it.
+        Last time you looked, going live meant a setup fee on top of monthly hosting. That's changed — <b>we've dropped it completely.</b> Nothing to pay upfront, £4.99/month, that's it.
       </td></tr>
       <tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:15.5px;line-height:1.65;color:#2A2A28;padding:0 0 30px;">
         Your website's exactly where you left it — same design, same content. If the price was what held you back, that reason's gone now.

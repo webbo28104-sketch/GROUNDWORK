@@ -85,10 +85,10 @@ RESET_TOKEN_MAX_AGE = 3600  # 1h — shorter-lived since it grants a password ch
 IP_RATE_LIMIT_PER_HOUR = int(os.environ.get("IP_RATE_LIMIT_PER_HOUR", "5"))
 
 # Stripe — all values come from environment variables set in Railway.
-# STRIPE_MONTHLY_PRICE_ID → the £24.99/month recurring price (price_...) — no
+# STRIPE_MONTHLY_PRICE_ID → the £4.99/month recurring price (price_...) — no
 #                           setup fee (removed 2026-07-23, until break-even;
 #                           see docs/outreach-pipeline-spec.md). STRIPE_MONTHLY_PRICE_ID
-#                           must point at a £24.99 Stripe Price object — that
+#                           must point at a £4.99 Stripe Price object — that
 #                           object still needs creating/swapping in the Stripe
 #                           dashboard, this repo has no Stripe credentials to do
 #                           it from code.
@@ -3064,7 +3064,7 @@ def _finish_claim(db, prospect):
 #     or as the stated reason for not updating at all) doesn't say HOW
 #     much lower — someone paying £50/mo and someone paying nothing could
 #     both pick it, and need completely different responses. Anchored
-#     around the real £24.99 price point rather than free text, so it
+#     around the real £4.99 price point rather than free text, so it
 #     directly answers "is our price competitive for THIS objection."
 #   - decision_maker: if someone else (an agency, a family member)
 #     actually manages the site, the respondent may not be who'd decide
@@ -3803,7 +3803,7 @@ def _survey_confirmation_page(response, prospect=None):
     trial_days = (prospect.trial_days_earned if prospect else 0) or 0
     if trial_days >= 30:
         months = trial_days // 30
-        offer_line = f"Since price was the thing — your site's free to go live on today, and now the first {months} month{'s' if months != 1 else ''} are free too, £24.99/month after that."
+        offer_line = f"Since price was the thing — your site's free to go live on today, and now the first {months} month{'s' if months != 1 else ''} are free too, £4.99/month after that."
     else:
         offer_line = "Remember — your site's still free to go live on whenever you're ready, no setup fee, no obligation."
     inner = f"""<div class="acct-card" style="text-align:center;">
@@ -3949,7 +3949,7 @@ def _quick_survey_confirmation_page(answer, response, prospect):
     if answer == "too_expensive":
         months = (prospect.trial_days_earned or 0) // 30
         body = (f"No problem — your first {months} month{'s' if months != 1 else ''} are free instead of the usual 1, "
-                f"£24.99/month after that, still no setup fee. <a href=\"/claim/{escape(prospect.token)}\">Take another look</a> whenever you're ready.")
+                f"£4.99/month after that, still no setup fee. <a href=\"/claim/{escape(prospect.token)}\">Take another look</a> whenever you're ready.")
     elif answer == "not_legit":
         body = ("Fair to be cautious — happy to talk it through directly, just reply to any of our emails or "
                 "call/message us, a real person answers. Your preview isn't going anywhere either way.")
