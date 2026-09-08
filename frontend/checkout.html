@@ -47,7 +47,7 @@ body{margin:0;background:#F5F3EE;font-family:Inter,sans-serif;color:#1C1C1C;}
     <!-- Billing toggle -->
     <div style="display:inline-flex;background:#F5F3EE;border:1px solid #E2E0DA;border-radius:10px;padding:4px;gap:4px;margin-bottom:20px;">
       <button type="button" id="btn-monthly" class="billing-toggle-btn active" onclick="setPlan('monthly')">Monthly</button>
-      <button type="button" id="btn-annual" class="billing-toggle-btn" onclick="setPlan('annual')">Annual — save ~17%</button>
+      <button type="button" id="btn-annual" class="billing-toggle-btn" onclick="setPlan('annual')">Annual — save ~67%</button>
     </div>
 
     <div style="border-top:1px solid #E2E0DA;padding-top:20px;margin-bottom:20px;">
@@ -61,7 +61,7 @@ body{margin:0;background:#F5F3EE;font-family:Inter,sans-serif;color:#1C1C1C;}
       </div>
       <div id="hosting-row-annual" style="display:none;justify-content:space-between;align-items:baseline;">
         <span style="font-size:15px;color:#5C5A56;">Annual hosting</span>
-        <span style="font-weight:700;font-size:16px;">£49.99/yr</span>
+        <span style="font-weight:700;font-size:16px;">£19.99/yr</span>
       </div>
     </div>
 
@@ -132,7 +132,7 @@ try {
 // drift out of sync with each other.
 function payBtnText() {
   if (isReactivation) {
-    return currentPlan === 'annual' ? 'Pay £49.99 and reactivate →' : 'Pay £4.99/mo and reactivate →';
+    return currentPlan === 'annual' ? 'Pay £19.99 and reactivate →' : 'Pay £4.99/mo and reactivate →';
   }
   return 'Get it live, free →';
 }
@@ -143,11 +143,11 @@ function billingDisclosureText() {
     // No setup fee, no trial on a reactivation — see applyReactivationUI().
     return isMonthly
       ? 'Your card is billed £4.99/mo starting today, unless you cancel first.'
-      : 'Your card is billed £49.99 for the year today, then £49.99/yr on renewal.';
+      : 'Your card is billed £19.99 for the year today, then £19.99/yr on renewal.';
   }
   return isMonthly
     ? 'No setup fee, no charge today — your card is billed £4.99/mo automatically from month two, unless you cancel first.'
-    : 'No setup fee — your card is billed £49.99 for the first year today, then £49.99/yr on renewal.';
+    : 'No setup fee — your card is billed £19.99 for the first year today, then £19.99/yr on renewal.';
 }
 
 function refreshPayCta() {
