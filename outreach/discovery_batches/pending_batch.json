@@ -5950,16 +5950,6 @@
     "queued_at": "2026-08-23T01:04:14.723233"
   },
   {
-    "prospect_id": 15326,
-    "business_name": "Anchor Plastering",
-    "trade": "Plasterer",
-    "location": "23 Sutherland Gardens, Gillingham ME8 9LZ",
-    "website": "http://www.anchorplastering.com/",
-    "website_status": "has_website",
-    "phone": "07450 231144",
-    "queued_at": "2026-08-23T01:04:15.160342"
-  },
-  {
     "prospect_id": 15327,
     "business_name": "MJM Plastering services",
     "trade": "Plasterer",
@@ -12688,16 +12678,6 @@
     "website_status": "has_website",
     "phone": "01793 680299",
     "queued_at": "2026-08-27T01:07:32.609898"
-  },
-  {
-    "prospect_id": 16526,
-    "business_name": "Cameo Glass Ltd",
-    "trade": "Glazier",
-    "location": "100 Faraday Park, Swindon SN3 5JF",
-    "website": "https://cameoglassuk.co.uk/",
-    "website_status": "has_website",
-    "phone": "01793 513864",
-    "queued_at": "2026-08-27T01:07:40.670088"
   },
   {
     "prospect_id": 16540,
@@ -19998,5 +19978,25 @@
     "website_status": "has_website",
     "phone": "020 8938 3749",
     "queued_at": "2026-09-02T01:05:21.573039"
+  },
+  {
+    "prospect_id": 17947,
+    "business_name": "Wilkinson Decorators",
+    "trade": "Painter/Decorator",
+    "location": "135 Blundell Ave, Cleethorpes DN35 7RH",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07780 724429",
+    "queued_at": "2026-09-02T01:05:22.660611"
+  },
+  {
+    "prospect_id": 17948,
+    "business_name": "M G Drew Quality Decorating Services",
+    "trade": "Painter/Decorator",
+    "location": "10 Rymer Pl, Cleethorpes DN35 0EW",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "01472 600707",
+    "queued_at": "2026-09-02T01:05:22.671889"
   }
 ]
