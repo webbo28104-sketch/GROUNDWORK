@@ -12760,16 +12760,6 @@
     "queued_at": "2026-08-30T01:04:06.576178"
   },
   {
-    "prospect_id": 17399,
-    "business_name": "A and M Groundworks | Driveways Exeter",
-    "trade": "Groundworks",
-    "location": "173 Briar Cres, Exeter EX2 6DS",
-    "website": "https://aandmgroundworks.co.uk/",
-    "website_status": "has_website",
-    "phone": "07446 211986",
-    "queued_at": "2026-08-30T01:04:16.308274"
-  },
-  {
     "prospect_id": 17401,
     "business_name": "Harrison Joinery",
     "trade": "Groundworks",
@@ -19440,16 +19430,6 @@
     "queued_at": "2026-09-04T01:03:28.115722"
   },
   {
-    "prospect_id": 18446,
-    "business_name": "247 Emergency Plumbing Edinburgh Ltd",
-    "trade": "Plumber",
-    "location": "69 Elm Row, Edinburgh EH7 4AQ",
-    "website": "https://247emergencyplumbingedinburgh.co.uk/",
-    "website_status": "has_website",
-    "phone": "0131 285 3019",
-    "queued_at": "2026-09-04T01:03:36.476432"
-  },
-  {
     "prospect_id": 18448,
     "business_name": "Stockbridge Plumbing Solutions",
     "trade": "Plumber",
@@ -19998,5 +19978,25 @@
     "website_status": "has_website",
     "phone": "01925 564281",
     "queued_at": "2026-09-04T01:05:04.840119"
+  },
+  {
+    "prospect_id": 18570,
+    "business_name": "D Gray Roofing",
+    "trade": "Guttering",
+    "location": "31 Fleming Way, Invergordon IV18 0LU",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07780 844067",
+    "queued_at": "2026-09-04T01:05:08.197653"
+  },
+  {
+    "prospect_id": 18571,
+    "business_name": "Nick Symonds Ltd",
+    "trade": "Guttering",
+    "location": "3 Urquhart Ct, Cromarty IV11 8YD",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "01381 600496",
+    "queued_at": "2026-09-04T01:05:08.210491"
   }
 ]
