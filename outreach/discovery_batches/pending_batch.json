@@ -12660,16 +12660,6 @@
     "queued_at": "2026-09-19T01:05:07.940116"
   },
   {
-    "prospect_id": 22620,
-    "business_name": "Landlord Carpet",
-    "trade": "Flooring Fitter",
-    "location": "46-48 Mere Green Rd, The Royal Town of Sutton Coldfield, Birmingham, Sutton Coldfield B75 5BT",
-    "website": "http://landlordcarpet.co.uk/",
-    "website_status": "has_website",
-    "phone": "0800 048 2747",
-    "queued_at": "2026-09-19T01:05:15.235167"
-  },
-  {
     "prospect_id": 22621,
     "business_name": "Tide bathrooms & Kitchens",
     "trade": "Bathroom Fitter",
@@ -19998,5 +19988,15 @@
     "website_status": "has_website",
     "phone": "07851 932662",
     "queued_at": "2026-09-24T01:03:51.584217"
+  },
+  {
+    "prospect_id": 23946,
+    "business_name": "JSH Joinery",
+    "trade": "Groundworks",
+    "location": "5 Maitland Ter, Newbiggin-by-the-Sea NE64 6UR",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07940 921208",
+    "queued_at": "2026-09-24T01:03:51.590212"
   }
 ]
