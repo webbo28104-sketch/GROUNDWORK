@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Groundwork Cashflow — pricing</title>
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@700;800&display=swap" rel="stylesheet">
+<script src="../config.js"></script>
+<style>
+:root{--green:#22C55E;--amber:#F59E0B;--red:#EF4444;--bg:#F8FAFC;--text:#1E293B;--navy:#1E3A5F;}
+*{box-sizing:border-box;}
+html,body{margin:0;font-family:Inter,sans-serif;color:var(--text);background:var(--bg);}
+h1,h2,h3{font-family:'Plus Jakarta Sans','Inter',sans-serif;margin:0;}
+.app-header{background:var(--navy);color:#fff;padding:0 20px;height:56px;display:flex;align-items:center;justify-content:space-between;}
+.app-header .logo{font-weight:800;font-size:16px;letter-spacing:-.02em;text-decoration:none;color:#fff;}
+.wrap{max-width:640px;margin:0 auto;padding:56px 20px;text-align:center;}
+.wrap p.lead{font-size:17px;line-height:1.6;color:#475569;margin:14px 0 36px;}
+.card{background:#fff;border:2px solid var(--navy);border-radius:18px;padding:34px 30px;text-align:left;}
+.price{font-weight:800;font-size:46px;letter-spacing:-.03em;}
+.price span{font-size:17px;color:#64748B;font-weight:600;}
+.trial{display:inline-block;margin:10px 0 20px;background:rgba(34,197,94,.12);color:#15803D;font-weight:700;font-size:13.5px;padding:7px 12px;border-radius:8px;}
+ul{list-style:none;margin:0 0 26px;padding:0;display:flex;flex-direction:column;gap:11px;}
+li{display:flex;gap:10px;align-items:flex-start;font-size:15px;}
+.btn{display:block;text-align:center;background:var(--navy);color:#fff;font-weight:700;font-size:15.5px;padding:14px;border-radius:9px;text-decoration:none;border:none;width:100%;cursor:pointer;}
+.note{font-size:13px;color:#64748B;text-align:center;margin-top:14px;}
+</style>
+</head>
+<body>
+<header class="app-header"><a href="/index.html" class="logo">Groundwork Cashflow</a></header>
+<div class="wrap">
+  <h1>See your cash flow, connected to Xero</h1>
+  <p class="lead">Know if you can take on new work before you say yes. Already have a Groundwork website? Cashflow is included free — <a href="/account">check your account</a> instead of buying it again.</p>
+  <div class="card">
+    <div class="price">£9.99<span>/mo</span></div>
+    <div class="trial">1 month free trial</div>
+    <ul>
+      <li>✅ Connect to Xero in one click</li>
+      <li>✅ 60-day cash flow forecast</li>
+      <li>✅ Toggle contracts to see their impact before you win them</li>
+      <li>✅ Alerts before you run short</li>
+      <li>✅ Cancel any time — no minimum term</li>
+    </ul>
+    <button class="btn" onclick="startCheckout()">Start free trial →</button>
+  </div>
+  <p class="note">Card required to start the trial. No charge until day 31, unless you cancel first.</p>
+</div>
+
+<script>
+async function startCheckout() {
+  const r = await fetch('/api/cashflow/checkout/session', {method: 'POST', credentials: 'same-origin'});
+  if (r.status === 401) { location.href = '/account/login?next=/cashflow/upgrade.html'; return; }
+  const d = await r.json();
+  if (d.error === 'already_entitled') { location.href = 'dashboard.html'; return; }
+  if (d.url) { location.href = d.url; return; }
+  alert(d.error || 'Something went wrong — please try again.');
+}
+</script>
+</body>
+</html>
