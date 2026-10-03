@@ -1,1 +1,3462 @@
-[]
+[
+  {
+    "prospect_id": 14,
+    "business_name": "Abacus Windows",
+    "trade": "Glazier",
+    "location": "Mead Cottage, St Andrew's Rd, Littlestone, New Romney TN28 8PZ",
+    "website": "https://abacuswindows.com/",
+    "website_status": "has_website",
+    "phone": "07900 958130",
+    "queued_at": "2026-10-03T01:04:44.415496"
+  },
+  {
+    "prospect_id": 15,
+    "business_name": "Double Glazing Doctor (East Kent)",
+    "trade": "Glazier",
+    "location": "3 Cobsden Rd, Romney Marsh TN29 0RF",
+    "website": "http://www.doubleglazingdoctorkent.co.uk/",
+    "website_status": "has_website",
+    "phone": "01303 760888",
+    "queued_at": "2026-10-03T01:04:44.556718"
+  },
+  {
+    "prospect_id": 16,
+    "business_name": "Windowtec",
+    "trade": "Glazier",
+    "location": "60 Laurel Ave, St Mary's Bay, Romney Marsh TN29 0SN",
+    "website": "http://www.windowtec.org.uk/",
+    "website_status": "has_website",
+    "phone": "07919 411968",
+    "queued_at": "2026-10-03T01:04:44.953808"
+  },
+  {
+    "prospect_id": 17,
+    "business_name": "Glaziers Lydd - Double Glazing Window Repairs",
+    "trade": "Glazier",
+    "location": "High St, Lydd, Romney Marsh TN29 9AJ",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "0800 310 1257",
+    "queued_at": "2026-10-03T01:04:44.967164"
+  },
+  {
+    "prospect_id": 18,
+    "business_name": "New Romney Double Glazing ltd",
+    "trade": "Glazier",
+    "location": "77A High St, New Romney TN28 8AZ",
+    "website": "https://newromneydoubleglazing.co.uk/",
+    "website_status": "has_website",
+    "phone": "01797 695361",
+    "queued_at": "2026-10-03T01:04:46.483527"
+  },
+  {
+    "prospect_id": 27,
+    "business_name": "Solent Solar",
+    "trade": "Solar Panel Installer",
+    "location": "Lavender Ct, Whiteley, Fareham PO15 7FD",
+    "website": "https://solent-solar.com/",
+    "website_status": "has_website",
+    "phone": "07833 448687",
+    "queued_at": "2026-10-03T01:04:46.985634"
+  },
+  {
+    "prospect_id": 19,
+    "business_name": "Bartlett Electrical Ltd",
+    "trade": "Solar Panel Installer",
+    "location": "Little Court, Ringwood Rd, North Gorley, Fordingbridge SP6 2HB",
+    "website": "http://www.bartlett-electrical.com/",
+    "website_status": "has_website",
+    "phone": "07716 642155",
+    "queued_at": "2026-10-03T01:04:47.451702"
+  },
+  {
+    "prospect_id": 20,
+    "business_name": "Starks Solar",
+    "trade": "Solar Panel Installer",
+    "location": "Unit 5, Old Manor Farm, 187 Leigh Rd, Wimborne Minster, Wimborne BH21 2BT",
+    "website": "https://starks.solar/",
+    "website_status": "has_website",
+    "phone": "01425 460419",
+    "queued_at": "2026-10-03T01:04:47.595838"
+  },
+  {
+    "prospect_id": 21,
+    "business_name": "Southern Solar Systems",
+    "trade": "Solar Panel Installer",
+    "location": "Kiel Dr, Andover SP10 4ND",
+    "website": "https://www.southernsolarsystems.co.uk/",
+    "website_status": "has_website",
+    "phone": "07729 804839",
+    "queued_at": "2026-10-03T01:04:50.021656"
+  },
+  {
+    "prospect_id": 22,
+    "business_name": "Infinity Energy Services Ltd",
+    "trade": "Solar Panel Installer",
+    "location": "Unit 6, Swanwick Business Centre, Bridge Rd, Southampton SO31 7GB",
+    "website": "https://www.infinity-energy.co.uk",
+    "website_status": "has_website",
+    "phone": "0800 909 8882",
+    "queued_at": "2026-10-03T01:04:50.083899"
+  },
+  {
+    "prospect_id": 23,
+    "business_name": "TheGreenHomeCo.",
+    "trade": "Solar Panel Installer",
+    "location": "2 Mansfield Cl, West Parley, Bournemouth BH22 8QP",
+    "website": "https://www.thegreenhomeco.com/",
+    "website_status": "has_website",
+    "phone": "01202 985260",
+    "queued_at": "2026-10-03T01:04:50.360062"
+  },
+  {
+    "prospect_id": 24,
+    "business_name": "C2 Renewable Solutions",
+    "trade": "Solar Panel Installer",
+    "location": "Unit 1B, Deer Park Farm Industrial Estate, Knowle Ln, Horton Heath, Fair Oak, Eastleigh SO50 7PZ",
+    "website": "http://www.c2renewablesolutions.co.uk/",
+    "website_status": "has_website",
+    "phone": "023 8111 2296",
+    "queued_at": "2026-10-03T01:04:51.185713"
+  },
+  {
+    "prospect_id": 25,
+    "business_name": "Avonbridge",
+    "trade": "Solar Panel Installer",
+    "location": "unit 5, Sandleheath Industrial Estate, 5 Old Brickyard Rd, Sandleheath, Fordingbridge SP6 1PA",
+    "website": "http://avonbridgecaravanrepairs.co.uk/",
+    "website_status": "has_website",
+    "phone": "01425 654353",
+    "queued_at": "2026-10-03T01:04:51.366131"
+  },
+  {
+    "prospect_id": 26,
+    "business_name": "Solent Renewables",
+    "trade": "Solar Panel Installer",
+    "location": "63 Shanklin Rd, Southampton SO15 7RG",
+    "website": "https://solentrenewables.co.uk/",
+    "website_status": "has_website",
+    "phone": "023 8001 9744",
+    "queued_at": "2026-10-03T01:04:51.579421"
+  },
+  {
+    "prospect_id": 28,
+    "business_name": "South England Solar and Electrical Ltd",
+    "trade": "Solar Panel Installer",
+    "location": "King John Rd, Kingsclere, Newbury RG20 5NJ",
+    "website": "http://www.southenglandsolar.co.uk/",
+    "website_status": "has_website",
+    "phone": "07739 084135",
+    "queued_at": "2026-10-03T01:04:51.817728"
+  },
+  {
+    "prospect_id": 29,
+    "business_name": "Cardinal Energy Ltd",
+    "trade": "Solar Panel Installer",
+    "location": "The Briars, the briars, 8 Waterberry Dr, Waterlooville PO7 7YH",
+    "website": "http://www.cardinalenergyltd.co.uk/",
+    "website_status": "has_website",
+    "phone": "023 9355 2693",
+    "queued_at": "2026-10-03T01:04:51.877684"
+  },
+  {
+    "prospect_id": 30,
+    "business_name": "SolarPowerful Ltd",
+    "trade": "Solar Panel Installer",
+    "location": "Unit 7, Waterlooville PO8 0BB",
+    "website": "http://solarpowerful.co.uk/?utm_source=google&utm_medium=organic&utm_campaign=gmb",
+    "website_status": "has_website",
+    "phone": "07725 803305",
+    "queued_at": "2026-10-03T01:04:52.597183"
+  },
+  {
+    "prospect_id": 31,
+    "business_name": "Jem Energy Ltd",
+    "trade": "Solar Panel Installer",
+    "location": "8, Arrow Industrial Estate, Eelmoor Rd, Farnborough GU14 7QH",
+    "website": "http://www.jem-energy.co.uk/",
+    "website_status": "has_website",
+    "phone": "01252 900052",
+    "queued_at": "2026-10-03T01:04:52.818330"
+  },
+  {
+    "prospect_id": 32,
+    "business_name": "Abel Environmental Services Ltd",
+    "trade": "Solar Panel Installer",
+    "location": "Unit D1. The, Premier Centre, Romsey SO51 9DG",
+    "website": "https://www.aeslimited.co.uk",
+    "website_status": "has_website",
+    "phone": "01794 830404",
+    "queued_at": "2026-10-03T01:04:52.959380"
+  },
+  {
+    "prospect_id": 33,
+    "business_name": "Elliot A & J",
+    "trade": "Appliance Repair",
+    "location": "E End, Earlston TD4 6HL",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "01896 849223",
+    "queued_at": "2026-10-03T01:04:52.972938"
+  },
+  {
+    "prospect_id": 34,
+    "business_name": "Border Domestics",
+    "trade": "Appliance Repair",
+    "location": "17 Balmoral Ave, Galashiels TD1 1JG",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07766 378879",
+    "queued_at": "2026-10-03T01:04:52.987685"
+  },
+  {
+    "prospect_id": 35,
+    "business_name": "James Stewart & Son Ltd",
+    "trade": "Appliance Repair",
+    "location": "2-8 WoodMarket, Oxnam, Kelso TD5 7AX",
+    "website": "https://www.stewarts-kelso.co.uk/",
+    "website_status": "has_website",
+    "phone": "01573 224411",
+    "queued_at": "2026-10-03T01:04:53.124285"
+  },
+  {
+    "prospect_id": 50,
+    "business_name": "MM Cleaning Services Ltd \u2013 Professional Domestic & Commercial Cleaners in Crewe",
+    "trade": "Window Cleaner",
+    "location": "42 Bramhall Rd, Crewe CW2 8PT",
+    "website": "https://cleaningservicesmm.co.uk/",
+    "website_status": "has_website",
+    "phone": "01270 749380",
+    "queued_at": "2026-10-03T01:04:53.713116"
+  },
+  {
+    "prospect_id": 36,
+    "business_name": "Borders Appliance Repair Service",
+    "trade": "Appliance Repair",
+    "location": "6 Cavalry Park, Peebles EH45 9BU",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "01896 833893",
+    "queued_at": "2026-10-03T01:04:53.725665"
+  },
+  {
+    "prospect_id": 37,
+    "business_name": "Borders Appliance, Cooker & Fridge Repair, Specialist",
+    "trade": "Appliance Repair",
+    "location": "6 Edderston Ridge View, Peebles EH45 9NB",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07460 896752",
+    "queued_at": "2026-10-03T01:04:53.738775"
+  },
+  {
+    "prospect_id": 38,
+    "business_name": "Home Appliance Repair",
+    "trade": "Appliance Repair",
+    "location": "22 Queens Cres, Livingston EH54 8EF",
+    "website": "http://www.home-appliancerepair.co.uk/",
+    "website_status": "has_website",
+    "phone": "07729 651692",
+    "queued_at": "2026-10-03T01:04:53.807909"
+  },
+  {
+    "prospect_id": 39,
+    "business_name": "Ev's Sewing Room",
+    "trade": "Appliance Repair",
+    "location": "5 Hawklee Park, Newtown St Boswells, Melrose TD6 0PR",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07989 133739",
+    "queued_at": "2026-10-03T01:04:53.823741"
+  },
+  {
+    "prospect_id": 77,
+    "business_name": "Tree Doctors",
+    "trade": "Tree Surgeon",
+    "location": "88 Herne Bay Rd, Whitstable CT5 2LX",
+    "website": "http://www.treedoctorskent.co.uk/",
+    "website_status": "has_website",
+    "phone": "01227 740581",
+    "queued_at": "2026-10-03T01:04:54.188011"
+  },
+  {
+    "prospect_id": 78,
+    "business_name": "The Kent Tree Company Ltd",
+    "trade": "Tree Surgeon",
+    "location": "99 Canterbury Rd, Whitstable CT5 4HG",
+    "website": "http://www.thekenttreecompany.com/",
+    "website_status": "has_website",
+    "phone": "07842 653012",
+    "queued_at": "2026-10-03T01:04:54.408488"
+  },
+  {
+    "prospect_id": 40,
+    "business_name": "Diverse Cleaning LTD",
+    "trade": "Window Cleaner",
+    "location": "12 Brooklyn St, Crewe CW2 6DP",
+    "website": "https://www.diversecleaning.org/contact-us/",
+    "website_status": "has_website",
+    "phone": "01270 306780",
+    "queued_at": "2026-10-03T01:04:54.830596"
+  },
+  {
+    "prospect_id": 41,
+    "business_name": "UKWindowClean",
+    "trade": "Window Cleaner",
+    "location": "15 Delamere St, Crewe CW1 2HR",
+    "website": "https://ukwindowclean.com/window-cleaning-crewe.html?utm_source=google&utm_medium=organic&utm_campaign=gmb-window-cleaning",
+    "website_status": "has_website",
+    "phone": "0113 271 7313",
+    "queued_at": "2026-10-03T01:04:54.922031"
+  },
+  {
+    "prospect_id": 42,
+    "business_name": "Bethany's window cleaning services",
+    "trade": "Window Cleaner",
+    "location": "Brooklands, Newcastle Rd, Madeley, Cheshire, Crewe CW3 9JT",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07368 453526",
+    "queued_at": "2026-10-03T01:04:54.934096"
+  },
+  {
+    "prospect_id": 43,
+    "business_name": "Cheshire Window Cleaning Services",
+    "trade": "Window Cleaner",
+    "location": "The, Clifflands, Wrinehill Rd, Wybunbury, Nantwich CW5 7NU",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07950 105708",
+    "queued_at": "2026-10-03T01:04:54.945273"
+  },
+  {
+    "prospect_id": 49,
+    "business_name": "Kayz Sparkle Clean",
+    "trade": "Window Cleaner",
+    "location": "56 Meredith St, Crewe CW1 2PN",
+    "website": "https://kayzsparkleclean.co.uk/",
+    "website_status": "has_website",
+    "phone": "07728 607745",
+    "queued_at": "2026-10-03T01:04:55.274443"
+  },
+  {
+    "prospect_id": 44,
+    "business_name": "UKWindowClean",
+    "trade": "Window Cleaner",
+    "location": "60 Market St, Crewe CW1 2HD",
+    "website": "https://ukwindowclean.com/gutter-cleaning-crewe.html?utm_source=google&utm_medium=organic&utm_campaign=gmb-gutter-cleaning",
+    "website_status": "has_website",
+    "phone": "0113 271 7313",
+    "queued_at": "2026-10-03T01:04:55.319888"
+  },
+  {
+    "prospect_id": 45,
+    "business_name": "Andy Aitken Traditional Window Cleaning",
+    "trade": "Window Cleaner",
+    "location": "3 Bolshaw Cl, Crewe CW1 3WX",
+    "website": "https://www.andyaitkenwindowcleaner.co.uk/",
+    "website_status": "has_website",
+    "phone": "07952 786212",
+    "queued_at": "2026-10-03T01:04:55.671694"
+  },
+  {
+    "prospect_id": 46,
+    "business_name": "Cheshire steam clean",
+    "trade": "Window Cleaner",
+    "location": "Northfield Pl, Shavington, Crewe CW2 5BL",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07707 721227",
+    "queued_at": "2026-10-03T01:04:55.683367"
+  },
+  {
+    "prospect_id": 47,
+    "business_name": "All Cleanze",
+    "trade": "Window Cleaner",
+    "location": "31 Stokes Ave, Crewe CW1 5BU",
+    "website": "https://www.allcleanze.co.uk/",
+    "website_status": "has_website",
+    "phone": "07359 049455",
+    "queued_at": "2026-10-03T01:04:56.791627"
+  },
+  {
+    "prospect_id": 48,
+    "business_name": "Proline Exterior Cleaning",
+    "trade": "Window Cleaner",
+    "location": "Proline Exterior Cleaning, 417 Newcastle Rd, Shavington, Crewe CW2 5EB",
+    "website": "https://prolinecheshire.co.uk/",
+    "website_status": "has_website",
+    "phone": "07432 192824",
+    "queued_at": "2026-10-03T01:04:56.895155"
+  },
+  {
+    "prospect_id": 51,
+    "business_name": "A.D.B. Window Cleaning Service / Gutter Cleaning",
+    "trade": "Window Cleaner",
+    "location": "Lawton Rd, Alsager, Stoke-on-Trent ST7 2DD",
+    "website": "https://adbwindowcleaning.wixsite.com/adbwindowcleanings-6",
+    "website_status": "has_website",
+    "phone": "07882 878480",
+    "queued_at": "2026-10-03T01:04:57.111448"
+  },
+  {
+    "prospect_id": 52,
+    "business_name": "Gutter cleaning elite ltd",
+    "trade": "Window Cleaner",
+    "location": "9 Wordsworth Cl, Crewe CW2 8DF",
+    "website": "http://guttercleaningeliteltd.co.uk/",
+    "website_status": "has_website",
+    "phone": "07554 015317",
+    "queued_at": "2026-10-03T01:04:57.850811"
+  },
+  {
+    "prospect_id": 53,
+    "business_name": "Hutch Home Services",
+    "trade": "Window Cleaner",
+    "location": "Sharnbrook Dr, Crewe CW2 8TZ",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07856 444302",
+    "queued_at": "2026-10-03T01:04:57.862353"
+  },
+  {
+    "prospect_id": 54,
+    "business_name": "Stylist Windows Of Crewe",
+    "trade": "Window Cleaner",
+    "location": "67A Henry St, Crewe CW1 4BH",
+    "website": "http://stylistwindowsltd.co.uk/",
+    "website_status": "has_website",
+    "phone": "01270 581924",
+    "queued_at": "2026-10-03T01:04:58.001727"
+  },
+  {
+    "prospect_id": 55,
+    "business_name": "IM.Glass",
+    "trade": "Glazier",
+    "location": "138 Northwood Rd, Harefield, Uxbridge UB9 6PS",
+    "website": "http://www.im.glass/",
+    "website_status": "has_website",
+    "phone": "07734 951124",
+    "queued_at": "2026-10-03T01:04:59.360192"
+  },
+  {
+    "prospect_id": 56,
+    "business_name": "Buckinghamshire Glazing Ltd",
+    "trade": "Glazier",
+    "location": "Acorn Kennels & Cattery, Narcot Ln, Chalfont Saint Giles HP8 4DX",
+    "website": "http://www.bucksglazing.co.uk/",
+    "website_status": "has_website",
+    "phone": "07546 136680",
+    "queued_at": "2026-10-03T01:04:59.594380"
+  },
+  {
+    "prospect_id": 95,
+    "business_name": "Spa Gas Building Services",
+    "trade": "Appliance Repair",
+    "location": "1, 130 Worcester Rd, Droitwich Spa, Droitwich WR9 8AN",
+    "website": "http://www.spagas.co.uk/",
+    "website_status": "has_website",
+    "phone": "01905 772020",
+    "queued_at": "2026-10-03T01:05:00.057294"
+  },
+  {
+    "prospect_id": 57,
+    "business_name": "Smart Glazing & Home Improvements ltd",
+    "trade": "Glazier",
+    "location": "Unit 1 Newyears Green Ln, Harefield, Newyears Green, Uxbridge UB9 6LX",
+    "website": "http://smartglazinglondon.com/",
+    "website_status": "has_website",
+    "phone": "020 8707 6155",
+    "queued_at": "2026-10-03T01:05:01.878995"
+  },
+  {
+    "prospect_id": 58,
+    "business_name": "H.G Tree Surgery",
+    "trade": "Tree Surgeon",
+    "location": "Deal CT14 0JJ",
+    "website": "https://www.facebook.com/share/1BZeZox5Hz/?mibextid=wwXIfr",
+    "website_status": "has_website",
+    "phone": "07854 944246",
+    "queued_at": "2026-10-03T01:05:03.214590"
+  },
+  {
+    "prospect_id": 59,
+    "business_name": "Sika Tree Surgery",
+    "trade": "Tree Surgeon",
+    "location": "32 Elliot Way, Deal CT14 0EU",
+    "website": "https://www.sikatreesurgery.co.uk/",
+    "website_status": "has_website",
+    "phone": "07595 697375",
+    "queued_at": "2026-10-03T01:05:03.357629"
+  },
+  {
+    "prospect_id": 60,
+    "business_name": "Matt McKay Tree Surgery",
+    "trade": "Tree Surgeon",
+    "location": "8 Harold Rd, Deal CT14 6QJ",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07712 458929",
+    "queued_at": "2026-10-03T01:05:03.370480"
+  },
+  {
+    "prospect_id": 61,
+    "business_name": "EarthCraftuk Trees and Gardens",
+    "trade": "Tree Surgeon",
+    "location": "Scawsby Cottage, Betteshanger, Deal CT14 0NJ",
+    "website": "http://www.earthcraftuktreesandgardens.co.uk/",
+    "website_status": "has_website",
+    "phone": "07881 384500",
+    "queued_at": "2026-10-03T01:05:04.597408"
+  },
+  {
+    "prospect_id": 62,
+    "business_name": "Canterbury Tree Surgery",
+    "trade": "Tree Surgeon",
+    "location": "Fleming house, Fleming Rd, Woodnesborough, Sandwich CT13 0PX",
+    "website": "http://treesurgerycanterbury.co.uk/",
+    "website_status": "has_website",
+    "phone": "07941 162975",
+    "queued_at": "2026-10-03T01:05:04.793613"
+  },
+  {
+    "prospect_id": 63,
+    "business_name": "K&N Tree Surgery",
+    "trade": "Tree Surgeon",
+    "location": "Ringwould, Dover CT15 5JS",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07596 191415",
+    "queued_at": "2026-10-03T01:05:04.805661"
+  },
+  {
+    "prospect_id": 64,
+    "business_name": "Mark Jones Tree Surgery",
+    "trade": "Tree Surgeon",
+    "location": "Thornton House, Thornton Ln, Eastry, Sandwich CT13 0EU",
+    "website": "http://markjonestreesurgery.co.uk/",
+    "website_status": "has_website",
+    "phone": "01304 614652",
+    "queued_at": "2026-10-03T01:05:09.129823"
+  },
+  {
+    "prospect_id": 65,
+    "business_name": "Tree Guys Kent",
+    "trade": "Tree Surgeon",
+    "location": "105 Cornwallis Ave, Aylesham, Canterbury CT3 3HG",
+    "website": "http://www.treeguyskent.co.uk/",
+    "website_status": "has_website",
+    "phone": "07903 484253",
+    "queued_at": "2026-10-03T01:05:09.789297"
+  },
+  {
+    "prospect_id": 66,
+    "business_name": "Country Cutters Tree Surgery",
+    "trade": "Tree Surgeon",
+    "location": "The Old Schoolhouse, Barfrestone, Dover CT15 7JJ",
+    "website": "https://www.checkatrade.com/trades/CountryCutterstreesurgery",
+    "website_status": "has_website",
+    "phone": "01304 830023",
+    "queued_at": "2026-10-03T01:05:09.847687"
+  },
+  {
+    "prospect_id": 67,
+    "business_name": "M.P Hammond",
+    "trade": "Tree Surgeon",
+    "location": "The Cottage, Elms Vale Recreation Ground, Elms Vale Rd, Dover CT17 9PS",
+    "website": "http://mphammondtreesurgery.co.uk/",
+    "website_status": "has_website",
+    "phone": "07595 502590",
+    "queued_at": "2026-10-03T01:05:10.111568"
+  },
+  {
+    "prospect_id": 68,
+    "business_name": "N J Apps Tree Surgery and Fencing",
+    "trade": "Tree Surgeon",
+    "location": "10 Palmbeach Ave, Hythe CT21 6NH",
+    "website": "https://njapps.co.uk/?utm_source=GMB&utm_medium=maps&utm_campaign=organic-hythe",
+    "website_status": "has_website",
+    "phone": "01303 264567",
+    "queued_at": "2026-10-03T01:05:10.292354"
+  },
+  {
+    "prospect_id": 69,
+    "business_name": "Woodpecker Tree Services",
+    "trade": "Tree Surgeon",
+    "location": "Alkham Valley Rd, Hawkinge, Folkestone CT18 7EH",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07907 857495",
+    "queued_at": "2026-10-03T01:05:10.304130"
+  },
+  {
+    "prospect_id": 70,
+    "business_name": "ELITE ARBORISTS - Professional Tree Services",
+    "trade": "Tree Surgeon",
+    "location": "Stonehall, Cox Hill, Shepherdswell, Lydden, Dover CT15 7ND",
+    "website": "http://www.elitearborists.co.uk/",
+    "website_status": "has_website",
+    "phone": "0345 017 0732",
+    "queued_at": "2026-10-03T01:05:10.445932"
+  },
+  {
+    "prospect_id": 71,
+    "business_name": "Carrington & Son",
+    "trade": "Tree Surgeon",
+    "location": "2, Foreland Court, Lighthouse Rd, St Margarets Bay, Dover CT15 6JA",
+    "website": "https://carringtonandson.co.uk/",
+    "website_status": "has_website",
+    "phone": "07801 492364",
+    "queued_at": "2026-10-03T01:05:13.689008"
+  },
+  {
+    "prospect_id": 72,
+    "business_name": "Citadel Grounds Maintenance",
+    "trade": "Tree Surgeon",
+    "location": "1, Wanstone Farm Cottages, St Margaret's at Cliffe, Dover CT15 6HT",
+    "website": "https://www.citadelgroundsmaintenance.co.uk/",
+    "website_status": "has_website",
+    "phone": "07926 871235",
+    "queued_at": "2026-10-03T01:05:13.882921"
+  },
+  {
+    "prospect_id": 73,
+    "business_name": "Tait Tree Surgery",
+    "trade": "Tree Surgeon",
+    "location": "1 Wilton Rd, Folkestone CT19 5HR",
+    "website": "http://www.tait-tree-surgery.com/",
+    "website_status": "has_website",
+    "phone": "07827 439058",
+    "queued_at": "2026-10-03T01:05:14.092544"
+  },
+  {
+    "prospect_id": 74,
+    "business_name": "Hewitt Landscapes",
+    "trade": "Tree Surgeon",
+    "location": "17 Addelam Rd, Deal CT14 9BZ",
+    "website": "http://hewittlandscapes.com/",
+    "website_status": "has_website",
+    "phone": "07530 034977",
+    "queued_at": "2026-10-03T01:05:14.886178"
+  },
+  {
+    "prospect_id": 75,
+    "business_name": "Holyer Services",
+    "trade": "Tree Surgeon",
+    "location": "Coral Cottage, Hardy Rd, St Margaret's at Cliffe, Dover CT15 6HJ",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07816 904683",
+    "queued_at": "2026-10-03T01:05:14.899768"
+  },
+  {
+    "prospect_id": 76,
+    "business_name": "Kent Garden Clearance",
+    "trade": "Tree Surgeon",
+    "location": "Ash, Glencote CT3 2BX",
+    "website": "http://www.kentgardenclearance.co.uk/",
+    "website_status": "has_website",
+    "phone": "07926 871235",
+    "queued_at": "2026-10-03T01:05:15.086801"
+  },
+  {
+    "prospect_id": 79,
+    "business_name": "Brown and Fincher Ltd",
+    "trade": "Appliance Repair",
+    "location": "63-65 High St, Droitwich Spa, Droitwich WR9 8EP",
+    "website": "https://www.euronics.co.uk/en/store/brown%20and%20fincher%20ltd%204095?lat=52.26834&long=-2.14648",
+    "website_status": "has_website",
+    "phone": "01905 794900",
+    "queued_at": "2026-10-03T01:05:15.373984"
+  },
+  {
+    "prospect_id": 80,
+    "business_name": "Dean Humphreys Appliance Repairs",
+    "trade": "Appliance Repair",
+    "location": "10 The Furrows, Stoke Heath, Bromsgrove B60 3QX",
+    "website": "http://www.dhrepairs.co.uk/",
+    "website_status": "has_website",
+    "phone": "07980 804329",
+    "queued_at": "2026-10-03T01:05:16.213663"
+  },
+  {
+    "prospect_id": 81,
+    "business_name": "1st Call Appliances",
+    "trade": "Appliance Repair",
+    "location": "The Cottage, Evesham Rd, Sneachill, Worcester WR7 4QS",
+    "website": "http://www.1stcallappliances.co.uk/",
+    "website_status": "has_website",
+    "phone": "01905 345211",
+    "queued_at": "2026-10-03T01:05:24.277231"
+  },
+  {
+    "prospect_id": 82,
+    "business_name": "Domestic Appliance Installation",
+    "trade": "Appliance Repair",
+    "location": "18 Hornsby Ave, Worcester WR4 0PN",
+    "website": "http://www.d-a-i.co.uk/",
+    "website_status": "has_website",
+    "phone": "07365 865653",
+    "queued_at": "2026-10-03T01:05:24.755568"
+  },
+  {
+    "prospect_id": 83,
+    "business_name": "M & P Services",
+    "trade": "Appliance Repair",
+    "location": "3 Stanmore Rd, Worcester WR2 4PW",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "01905 423508",
+    "queued_at": "2026-10-03T01:05:24.768086"
+  },
+  {
+    "prospect_id": 84,
+    "business_name": "A B Domestic Appliance Repairs",
+    "trade": "Appliance Repair",
+    "location": "33 Hudson Cl, Worcester WR2 4DP",
+    "website": "http://www.abdomesticrepairs.co.uk/",
+    "website_status": "has_website",
+    "phone": "07966 416770",
+    "queued_at": "2026-10-03T01:05:25.521914"
+  },
+  {
+    "prospect_id": 96,
+    "business_name": "A B Plumbing LTD",
+    "trade": "Appliance Repair",
+    "location": "22 Nuffield Dr, Droitwich Spa, Droitwich WR9 0DJ",
+    "website": "http://www.plumbingworcester.co.uk/",
+    "website_status": "has_website",
+    "phone": "07762 631530",
+    "queued_at": "2026-10-03T01:05:25.755430"
+  },
+  {
+    "prospect_id": 85,
+    "business_name": "The Dyson Clinic",
+    "trade": "Appliance Repair",
+    "location": "28 Princes Ave, Droitwich Spa, Droitwich WR9 7DE",
+    "website": "https://www.dysonclinicdroitwich.co.uk/",
+    "website_status": "has_website",
+    "phone": null,
+    "queued_at": "2026-10-03T01:05:25.960009"
+  },
+  {
+    "prospect_id": 86,
+    "business_name": "Baldwin A L & Son",
+    "trade": "Appliance Repair",
+    "location": "18 Victoria Ave, Droitwich Spa, Droitwich WR9 7DF",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "01905 778655",
+    "queued_at": "2026-10-03T01:05:25.972766"
+  },
+  {
+    "prospect_id": 87,
+    "business_name": "DRM Group Ltd",
+    "trade": "Appliance Repair",
+    "location": "3 Drovers Pl, Droitwich Spa, Droitwich WR9 9DD",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "0800 228 9687",
+    "queued_at": "2026-10-03T01:05:25.986556"
+  },
+  {
+    "prospect_id": 88,
+    "business_name": "G.H.Heating Heat Pump & Air Conditioning Service & Repair NIBE Electrician",
+    "trade": "Appliance Repair",
+    "location": "Grosvenor Cl, Droitwich Spa, Worcester WR9 7SY",
+    "website": "https://www.ghheatingcooling.co.uk/",
+    "website_status": "has_website",
+    "phone": "07802 816484",
+    "queued_at": "2026-10-03T01:05:26.108476"
+  },
+  {
+    "prospect_id": 89,
+    "business_name": "MCD Heating Ltd",
+    "trade": "Appliance Repair",
+    "location": "1A, Oakleigh Cottage, Pulley Ln, Droitwich Spa, Droitwich WR9 7JL",
+    "website": "http://www.mcdheatingltd.co.uk/",
+    "website_status": "has_website",
+    "phone": "01905 774927",
+    "queued_at": "2026-10-03T01:05:26.183477"
+  },
+  {
+    "prospect_id": 103,
+    "business_name": "Drainage Droitwich Blocked Drains",
+    "trade": "Appliance Repair",
+    "location": "19 Pridzor Rd, Droitwich Spa, Droitwich WR9 8LQ",
+    "website": "http://west-midlands-drainage.co.uk/droitwich/",
+    "website_status": "has_website",
+    "phone": "01905 902256",
+    "queued_at": "2026-10-03T01:05:26.334573"
+  },
+  {
+    "prospect_id": 90,
+    "business_name": "MP Appliances",
+    "trade": "Appliance Repair",
+    "location": "14 Kingshill Cl, Malvern WR14 2BP",
+    "website": "http://www.mpappliances.co.uk/",
+    "website_status": "has_website",
+    "phone": "07747 062108",
+    "queued_at": "2026-10-03T01:05:26.406919"
+  },
+  {
+    "prospect_id": 91,
+    "business_name": "DRM Group Ltd",
+    "trade": "Appliance Repair",
+    "location": "7 Meadow Rd, Droitwich Spa, Droitwich WR9 9DW",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "01905 560441",
+    "queued_at": "2026-10-03T01:05:26.419744"
+  },
+  {
+    "prospect_id": 92,
+    "business_name": "Copper Valley Plumbing & Maintenance",
+    "trade": "Appliance Repair",
+    "location": "17 Abberley Dr, Droitwich Spa, Droitwich WR9 8NY",
+    "website": "http://coppervalleyplumbing.co.uk/",
+    "website_status": "has_website",
+    "phone": "07437 469772",
+    "queued_at": "2026-10-03T01:05:26.637386"
+  },
+  {
+    "prospect_id": 93,
+    "business_name": "Wych Electrical (midlands) Ltd",
+    "trade": "Appliance Repair",
+    "location": "51 Witton Ave, Droitwich Spa, Droitwich WR9 8PA",
+    "website": "http://www.wychelectrical.co.uk/",
+    "website_status": "has_website",
+    "phone": "07581 491129",
+    "queued_at": "2026-10-03T01:05:29.088231"
+  },
+  {
+    "prospect_id": 94,
+    "business_name": "Paskins Air Conditioning Installations Droitwich.",
+    "trade": "Appliance Repair",
+    "location": "9 Coneygreen Mews, Spa, Droitwich WR9 7UB",
+    "website": "http://paskinsairconditioning.com/",
+    "website_status": "has_website",
+    "phone": "07974 462319",
+    "queued_at": "2026-10-03T01:05:29.424285"
+  },
+  {
+    "prospect_id": 97,
+    "business_name": "Leo's Electrical",
+    "trade": "Appliance Repair",
+    "location": "33 Simon Rd, Hollywood, Birmingham B47 5LH",
+    "website": "http://washersrus.co.uk/",
+    "website_status": "has_website",
+    "phone": "07860 251167",
+    "queued_at": "2026-10-03T01:05:29.631497"
+  },
+  {
+    "prospect_id": 98,
+    "business_name": "CRB Heating & Plumbing Services",
+    "trade": "Appliance Repair",
+    "location": "Unit, 17 Wassage Way, Droitwich WR9 0NX",
+    "website": "http://www.crbheatingservices.co.uk/",
+    "website_status": "has_website",
+    "phone": "01905 558512",
+    "queued_at": "2026-10-03T01:05:30.321782"
+  },
+  {
+    "prospect_id": 99,
+    "business_name": "1st Call Appliances",
+    "trade": "Appliance Repair",
+    "location": "Moorend Rd, Charlton Kings, Cheltenham GL53 9AX",
+    "website": "https://1stcallappliances.co.uk/",
+    "website_status": "has_website",
+    "phone": "01242 679746",
+    "queued_at": "2026-10-03T01:05:30.623609"
+  },
+  {
+    "prospect_id": 100,
+    "business_name": "Abbi plumbing and heating",
+    "trade": "Appliance Repair",
+    "location": "3 Marhon Cl, Droitwich Spa, Droitwich WR9 7RB",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07721 376649",
+    "queued_at": "2026-10-03T01:05:30.637320"
+  },
+  {
+    "prospect_id": 101,
+    "business_name": "Appletree Interiors Ltd",
+    "trade": "Appliance Repair",
+    "location": "North Street Industrial Estate, 13 Ombersley Way, Droitwich Spa, Droitwich WR9 8JB",
+    "website": "http://www.appletree-interiors.co.uk/",
+    "website_status": "has_website",
+    "phone": "01905 936260",
+    "queued_at": "2026-10-03T01:05:30.707456"
+  },
+  {
+    "prospect_id": 102,
+    "business_name": "Utsumi UK",
+    "trade": "Appliance Repair",
+    "location": "24 The Furlong, Droitwich Spa, Droitwich WR9 9AH",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "01527 879772",
+    "queued_at": "2026-10-03T01:05:30.740278"
+  },
+  {
+    "prospect_id": 115,
+    "business_name": "Theakston Locksmiths",
+    "trade": "Garage Door Fitter",
+    "location": "10 Allendale Rd, Stockton-on-Tees TS18 4PW",
+    "website": "http://www.theakstonlocksmiths.com/",
+    "website_status": "has_website",
+    "phone": "07983 376912",
+    "queued_at": "2026-10-03T01:05:31.324918"
+  },
+  {
+    "prospect_id": 104,
+    "business_name": "Worcester Electrical (Griffiths Electrical)",
+    "trade": "Appliance Repair",
+    "location": "1 Piper Cl, Droitwich Spa, Droitwich WR9 7GJ",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07878 091792",
+    "queued_at": "2026-10-03T01:05:31.336086"
+  },
+  {
+    "prospect_id": 105,
+    "business_name": "Droitwich Worcester Road Sainsbury's (Argos Collection Point)",
+    "trade": "Appliance Repair",
+    "location": "141, 149 Worcester Rd, Droitwich Spa, Droitwich WR9 8AR",
+    "website": "https://www.argos.co.uk/stores/5720-droitwich-worcester-road-sainsbury's-(argos-collection-point)?y_source=1_MjA2NDczMDItNzE1LWxvY2F0aW9uLndlYnNpdGU%3D",
+    "website_status": "has_website",
+    "phone": "01905 826108",
+    "queued_at": "2026-10-03T01:05:32.567278"
+  },
+  {
+    "prospect_id": 106,
+    "business_name": "K K Domestic Plumbing Services",
+    "trade": "Appliance Repair",
+    "location": "13 Newland Rd, Droitwich Spa, Droitwich WR9 7AF",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "01905 796287",
+    "queued_at": "2026-10-03T01:05:32.579218"
+  },
+  {
+    "prospect_id": 107,
+    "business_name": "Abbey Garage Doors",
+    "trade": "Garage Door Fitter",
+    "location": "Bowesfield Industrial Estate, 2 Clayton Ct, Stockton-on-Tees TS18 3QX",
+    "website": "http://www.abbey-garagedoors.co.uk/",
+    "website_status": "has_website",
+    "phone": "0800 068 6474",
+    "queued_at": "2026-10-03T01:05:33.124133"
+  },
+  {
+    "prospect_id": 108,
+    "business_name": "Open & Shut Garage Doors",
+    "trade": "Garage Door Fitter",
+    "location": "8 Leeholme Rd, Stockton-on-Tees, Billingham TS23 3TA",
+    "website": "https://www.facebook.com/Open-Shut-Garage-Doors-781365998676476/",
+    "website_status": "has_website",
+    "phone": "07842 786216",
+    "queued_at": "2026-10-03T01:05:34.004453"
+  },
+  {
+    "prospect_id": 149,
+    "business_name": "Work Builder Birmingham",
+    "trade": "Builder",
+    "location": "43 Henrietta St, Birmingham B19 3PS",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "0330 912 0702",
+    "queued_at": "2026-10-03T01:05:34.019651"
+  },
+  {
+    "prospect_id": 109,
+    "business_name": "Teesside Industrial Door Services",
+    "trade": "Garage Door Fitter",
+    "location": "Royce Court, Stockton-on-Tees, Billingham TS23 1DL",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07955 545883",
+    "queued_at": "2026-10-03T01:05:34.031597"
+  },
+  {
+    "prospect_id": 110,
+    "business_name": "Supreme Garage Doors",
+    "trade": "Garage Door Fitter",
+    "location": "28 Lydbrook Rd, Middlesbrough TS5 4NR",
+    "website": "http://www.supremegaragedoors.co.uk/",
+    "website_status": "has_website",
+    "phone": "01642 826164",
+    "queued_at": "2026-10-03T01:05:34.127704"
+  },
+  {
+    "prospect_id": 111,
+    "business_name": "Azul Door Services",
+    "trade": "Garage Door Fitter",
+    "location": "Unit 1C, Stillington Industrial Estate, Stillington, Stockton-on-Tees TS21 1AF",
+    "website": "http://www.azuldoorservices.co.uk/",
+    "website_status": "has_website",
+    "phone": "01740 239974",
+    "queued_at": "2026-10-03T01:05:42.177716"
+  },
+  {
+    "prospect_id": 112,
+    "business_name": "Rollershield Ltd",
+    "trade": "Garage Door Fitter",
+    "location": "Ind Est, 10 Guiseley Way, Durham Ln., Eaglescliffe, Stockton-on-Tees TS6 0RF",
+    "website": "http://www.rollershield.co.uk/",
+    "website_status": "has_website",
+    "phone": "01642 221838",
+    "queued_at": "2026-10-03T01:05:44.561680"
+  },
+  {
+    "prospect_id": 113,
+    "business_name": "Roller Shutter Fit and Fix",
+    "trade": "Garage Door Fitter",
+    "location": "Stockton-on-Tees, Billingham TS23 1PS",
+    "website": "https://www.facebook.com/profile.php?id=61590261849554",
+    "website_status": "has_website",
+    "phone": "07594 475941",
+    "queued_at": "2026-10-03T01:05:45.140546"
+  },
+  {
+    "prospect_id": 114,
+    "business_name": "Domestic Garage Doors",
+    "trade": "Garage Door Fitter",
+    "location": "25 Chingford Grove, Stockton-on-Tees TS19 0UD",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "01642 603459",
+    "queued_at": "2026-10-03T01:05:45.153844"
+  },
+  {
+    "prospect_id": 116,
+    "business_name": "Teesside Locksmith LTD\u2122\ufe0f\u00a9\ufe0f",
+    "trade": "Garage Door Fitter",
+    "location": "concorde house, Concorde Way, Stockton-on-Tees TS18 3RB",
+    "website": "http://www.teessidelocksmith.co.uk/",
+    "website_status": "has_website",
+    "phone": "07732 649230",
+    "queued_at": "2026-10-03T01:05:45.352686"
+  },
+  {
+    "prospect_id": 117,
+    "business_name": "Signature Windows & Doors",
+    "trade": "Garage Door Fitter",
+    "location": "Unit 2, Hugo Court, Teesway, North Tees, Ind Est, Stockton-on-Tees TS18 2RN",
+    "website": "http://www.signaturewindows-doors.co.uk/",
+    "website_status": "has_website",
+    "phone": "01642 687233",
+    "queued_at": "2026-10-03T01:05:46.551195"
+  },
+  {
+    "prospect_id": 118,
+    "business_name": "Anderson\u2019s locksmith Ltd",
+    "trade": "Garage Door Fitter",
+    "location": "44 Burnmoor Dr, Eaglescliffe, Stockton-on-Tees TS16 0HZ",
+    "website": "http://www.andersonslocksmith.co.uk/",
+    "website_status": "has_website",
+    "phone": "07812 195110",
+    "queued_at": "2026-10-03T01:05:47.153299"
+  },
+  {
+    "prospect_id": 119,
+    "business_name": "AMIE Doors",
+    "trade": "Garage Door Fitter",
+    "location": "321 Laburnum Ave, Thornaby, Stockton-on-Tees TS17 8ND",
+    "website": "http://www.linkedin.com/company/amie-doors",
+    "website_status": "has_website",
+    "phone": "07561 631233",
+    "queued_at": "2026-10-03T01:05:47.639107"
+  },
+  {
+    "prospect_id": 176,
+    "business_name": "Kiwi Design and Build",
+    "trade": "Builder",
+    "location": "Needlers Wy, Hunnington, Halesowen B62 0BN",
+    "website": "https://www.kiwihomes.uk/",
+    "website_status": "has_website",
+    "phone": "01562 710678",
+    "queued_at": "2026-10-03T01:05:52.253853"
+  },
+  {
+    "prospect_id": 120,
+    "business_name": "All Access Locksmiths Billingham Door & Window Repair",
+    "trade": "Garage Door Fitter",
+    "location": "13 Brendon Cres, Stockton-on-Tees, Billingham TS23 2QR",
+    "website": "https://allaccesslocksmithsdoorandwindowrepair.co.uk/billingham-locksmith",
+    "website_status": "has_website",
+    "phone": "01642 058448",
+    "queued_at": "2026-10-03T01:05:52.341132"
+  },
+  {
+    "prospect_id": 121,
+    "business_name": "Burgess Roller Shutters",
+    "trade": "Garage Door Fitter",
+    "location": "110 Nightingale Rd, Middlesbrough TS6 9QB",
+    "website": "http://burgessrollershutters.co.uk/",
+    "website_status": "has_website",
+    "phone": "07873 485166",
+    "queued_at": "2026-10-03T01:05:52.503565"
+  },
+  {
+    "prospect_id": 122,
+    "business_name": "Cleveland Up & Over Door Co Ltd",
+    "trade": "Garage Door Fitter",
+    "location": "Skippers Lane Industrial Estate, 7 Metcalfe Rd, Middlesbrough TS6 6PT",
+    "website": "http://www.clevelandupover.co.uk/",
+    "website_status": "has_website",
+    "phone": "01642 440920",
+    "queued_at": "2026-10-03T01:05:52.955117"
+  },
+  {
+    "prospect_id": 123,
+    "business_name": "Garage Services (Stockton) Ltd",
+    "trade": "Garage Door Fitter",
+    "location": "Unit 1, Stockton-on-Tees TS18 2BY",
+    "website": "https://www.garageservicestockton.co.uk/",
+    "website_status": "has_website",
+    "phone": "01642 611657",
+    "queued_at": "2026-10-03T01:05:53.050864"
+  },
+  {
+    "prospect_id": 124,
+    "business_name": "MACHAN GARAGE DOOR SPECIALIST",
+    "trade": "Garage Door Fitter",
+    "location": "Spennymoor DL16 7UU",
+    "website": "https://m.facebook.com/machangaragedoorspecialist/",
+    "website_status": "has_website",
+    "phone": "07759 855909",
+    "queued_at": "2026-10-03T01:05:53.262056"
+  },
+  {
+    "prospect_id": 125,
+    "business_name": "Residential Garage Doors & Roller Doors",
+    "trade": "Garage Door Fitter",
+    "location": "6 Metcalfe Rd, Middlesbrough TS6 6PT",
+    "website": "https://www.garagedoorscleveland.co.uk/installation",
+    "website_status": "has_website",
+    "phone": "01642 487699",
+    "queued_at": "2026-10-03T01:05:53.739298"
+  },
+  {
+    "prospect_id": 202,
+    "business_name": "Handyman I Painting Decorating and Handyman Services",
+    "trade": "Painter/Decorator",
+    "location": "42 Phoenix Way, London SW18 2PW",
+    "website": "https://westlondonhandyman.co.uk/",
+    "website_status": "has_website",
+    "phone": "07521 758628",
+    "queued_at": "2026-10-03T01:05:54.175158"
+  },
+  {
+    "prospect_id": 126,
+    "business_name": "Almark Ltd",
+    "trade": "Garage Door Fitter",
+    "location": "6-7 Navigator Ct, Stockton-on-Tees TS18 3TQ",
+    "website": "https://almark-limited.co.uk/",
+    "website_status": "has_website",
+    "phone": "01642 355613",
+    "queued_at": "2026-10-03T01:05:55.764927"
+  },
+  {
+    "prospect_id": 127,
+    "business_name": "JD Window and Door Repairs",
+    "trade": "Garage Door Fitter",
+    "location": "6 Hampstead Grove, Middlesbrough TS6 0SD",
+    "website": "http://www.jdwindowanddoorrepairs.co.uk/",
+    "website_status": "has_website",
+    "phone": "07742 670112",
+    "queued_at": "2026-10-03T01:06:03.161989"
+  },
+  {
+    "prospect_id": 128,
+    "business_name": "Allendor Garage Doors",
+    "trade": "Garage Door Fitter",
+    "location": "11 Adey Ct, Newbottle, Houghton le Spring DH4 4FE",
+    "website": "http://www.allendor.co.uk/",
+    "website_status": "has_website",
+    "phone": "0191 524 0152",
+    "queued_at": "2026-10-03T01:06:03.273533"
+  },
+  {
+    "prospect_id": 129,
+    "business_name": "Global Door",
+    "trade": "Garage Door Fitter",
+    "location": "Teesview, Sabatier Cl, Thornaby, Stockton-on-Tees TS17 6EW",
+    "website": "http://www.globaldoor.co.uk/",
+    "website_status": "has_website",
+    "phone": "01642 309570",
+    "queued_at": "2026-10-03T01:06:03.508837"
+  },
+  {
+    "prospect_id": 130,
+    "business_name": "Ecoseal Windows and Doors NE LTD",
+    "trade": "Garage Door Fitter",
+    "location": "10 Dawdon Cl, Stockton-on-Tees TS19 8ND",
+    "website": "http://ecosealwindowsanddoorsneltd.co.uk/",
+    "website_status": "has_website",
+    "phone": "07802 584404",
+    "queued_at": "2026-10-03T01:06:03.609644"
+  },
+  {
+    "prospect_id": 131,
+    "business_name": "Cumbria Bright",
+    "trade": "Domestic Cleaner",
+    "location": "16 Corporation Rd, Workington CA14 2PG",
+    "website": "https://cumbriabright.com/cumbria-bright-workington",
+    "website_status": "has_website",
+    "phone": "07845 465478",
+    "queued_at": "2026-10-03T01:06:03.736791"
+  },
+  {
+    "prospect_id": 132,
+    "business_name": "Clean Queen Cumbria",
+    "trade": "Domestic Cleaner",
+    "location": "7 Moorclose Rd, Salterbeck, Workington CA14 5LB",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07818 187095",
+    "queued_at": "2026-10-03T01:06:03.754505"
+  },
+  {
+    "prospect_id": 133,
+    "business_name": "Alpine Cleaning Services Limited",
+    "trade": "Domestic Cleaner",
+    "location": "60 Peter St, Workington CA14 3DJ",
+    "website": "https://www.alpinecleaning-workington.co.uk/",
+    "website_status": "has_website",
+    "phone": "07766 117078",
+    "queued_at": "2026-10-03T01:06:03.907309"
+  },
+  {
+    "prospect_id": 134,
+    "business_name": "Crystal Clear West Cumbria",
+    "trade": "Domestic Cleaner",
+    "location": "34 Church Rd, Workington CA14 5PT",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07494 585190",
+    "queued_at": "2026-10-03T01:06:03.947365"
+  },
+  {
+    "prospect_id": 135,
+    "business_name": "Conserv Clean",
+    "trade": "Domestic Cleaner",
+    "location": "Workington CA14 4GN",
+    "website": "https://conservclean.co.uk/",
+    "website_status": "has_website",
+    "phone": "01900 871808",
+    "queued_at": "2026-10-03T01:06:05.426937"
+  },
+  {
+    "prospect_id": 136,
+    "business_name": "Custom Clean Cumbria Ltd",
+    "trade": "Domestic Cleaner",
+    "location": "12B Selby Terrace, Maryport CA15 6NF",
+    "website": "https://customcleancumbria.co.uk/",
+    "website_status": "has_website",
+    "phone": "01900 292122",
+    "queued_at": "2026-10-03T01:06:07.543486"
+  },
+  {
+    "prospect_id": 137,
+    "business_name": "A2K Cleaning & Laundry Studio",
+    "trade": "Domestic Cleaner",
+    "location": "1D Buddle Rd, Workington CA14 3YD",
+    "website": "http://a2kcleaningandlaundryservices.co.uk/",
+    "website_status": "has_website",
+    "phone": "01900 870087",
+    "queued_at": "2026-10-03T01:06:08.907759"
+  },
+  {
+    "prospect_id": 138,
+    "business_name": "WF Cascade",
+    "trade": "Domestic Cleaner",
+    "location": "Unit C Reedlands Rd, Workington CA14 3YF",
+    "website": "http://wfcascade.com/",
+    "website_status": "has_website",
+    "phone": "01900 268448",
+    "queued_at": "2026-10-03T01:06:10.633211"
+  },
+  {
+    "prospect_id": 139,
+    "business_name": "The Wash House",
+    "trade": "Domestic Cleaner",
+    "location": "28 Nook St, Workington CA14 4EQ",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07809 561460",
+    "queued_at": "2026-10-03T01:06:10.645648"
+  },
+  {
+    "prospect_id": 140,
+    "business_name": "Britton-Hillary Ltd",
+    "trade": "Domestic Cleaner",
+    "location": "Energus, Blackwood Rd, Lillyhall, Workington CA14 4JW",
+    "website": "https://www.brittonhillaryltd.co.uk/",
+    "website_status": "has_website",
+    "phone": "07505 000470",
+    "queued_at": "2026-10-03T01:06:10.857216"
+  },
+  {
+    "prospect_id": 141,
+    "business_name": "Solway Blast Cleaning Ltd",
+    "trade": "Domestic Cleaner",
+    "location": "Unit 3/Solway Rd, Workington CA14 3YA",
+    "website": "https://www.solwayblastcleaning.co.uk/",
+    "website_status": "has_website",
+    "phone": "01900 605550",
+    "queued_at": "2026-10-03T01:06:10.998016"
+  },
+  {
+    "prospect_id": 142,
+    "business_name": "Green Knight Gardening Services",
+    "trade": "Domestic Cleaner",
+    "location": "1A Salterbeck Rd, Salterbeck, Workington CA14 5HW",
+    "website": "http://greenknightgardeningservices.com/",
+    "website_status": "has_website",
+    "phone": "07490 812319",
+    "queued_at": "2026-10-03T01:06:16.061389"
+  },
+  {
+    "prospect_id": 143,
+    "business_name": "Lakeland Oven Clean",
+    "trade": "Domestic Cleaner",
+    "location": "92 Gray St, Workington CA14 2NH",
+    "website": "https://www.lakelandovenclean.co.uk/",
+    "website_status": "has_website",
+    "phone": "07876 567144",
+    "queued_at": "2026-10-03T01:06:16.499715"
+  },
+  {
+    "prospect_id": 144,
+    "business_name": "PSS Constructions",
+    "trade": "Builder",
+    "location": "24 Broughton Rd, Handsworth, Birmingham B20 2PS",
+    "website": "http://pssconstructions.co.uk/",
+    "website_status": "has_website",
+    "phone": "07843 135338",
+    "queued_at": "2026-10-03T01:06:20.577600"
+  },
+  {
+    "prospect_id": 145,
+    "business_name": "Dial a Builder Ltd",
+    "trade": "Builder",
+    "location": "UNIT 9 Weston Ln, Tyseley, Birmingham B11 3RP",
+    "website": "https://www.dialabuilder.com/",
+    "website_status": "has_website",
+    "phone": "07888 555333",
+    "queued_at": "2026-10-03T01:06:20.731142"
+  },
+  {
+    "prospect_id": 146,
+    "business_name": "Jsr Builders Uk Ltd",
+    "trade": "Builder",
+    "location": "121 Boulton Rd, Birmingham B21 0RD",
+    "website": "https://jsrbuildersukltd.uk/",
+    "website_status": "has_website",
+    "phone": "07900 404914",
+    "queued_at": "2026-10-03T01:06:21.112417"
+  },
+  {
+    "prospect_id": 147,
+    "business_name": "Edward Construction",
+    "trade": "Builder",
+    "location": "91-92 Charles Henry St, Birmingham B12 0SJ",
+    "website": "https://www.edwardconstruction.co.uk/",
+    "website_status": "has_website",
+    "phone": "0121 389 3429",
+    "queued_at": "2026-10-03T01:06:25.542116"
+  },
+  {
+    "prospect_id": 148,
+    "business_name": "Acorn Building Contractors",
+    "trade": "Builder",
+    "location": "11a Etwall Rd, Hall Green, Birmingham B28",
+    "website": "https://www.acornbuildingextensions.co.uk/",
+    "website_status": "has_website",
+    "phone": "0121 244 9577",
+    "queued_at": "2026-10-03T01:06:25.624748"
+  },
+  {
+    "prospect_id": 150,
+    "business_name": "J R L BUILDERS LIMITED",
+    "trade": "Builder",
+    "location": "Hockley Brook Trading Estate, 365 Park Rd, Hockley, Birmingham B18 5SR",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07973 500567",
+    "queued_at": "2026-10-03T01:06:25.639971"
+  },
+  {
+    "prospect_id": 151,
+    "business_name": "Southpaw Building & Property Services Ltd",
+    "trade": "Builder",
+    "location": "Unit 64 - 65 Lodgefield Road, Coseley B62 8AR \u00b7, Halesowen B62 8AR",
+    "website": "https://www.southpawbuildingservices.com/",
+    "website_status": "has_website",
+    "phone": "07966 475749",
+    "queued_at": "2026-10-03T01:06:25.748008"
+  },
+  {
+    "prospect_id": 152,
+    "business_name": "Perfect Builders",
+    "trade": "Builder",
+    "location": "Vyse St, Hockley, Birmingham B18 6NF",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07400 030072",
+    "queued_at": "2026-10-03T01:06:25.759604"
+  },
+  {
+    "prospect_id": 153,
+    "business_name": "B1 Property Group - Trusted Builders in Birmingham",
+    "trade": "Builder",
+    "location": "11 St Paul's Square, Birmingham B3 1RB",
+    "website": "http://www.b1propertygroup.com/",
+    "website_status": "has_website",
+    "phone": "07545 483942",
+    "queued_at": "2026-10-03T01:06:25.994162"
+  },
+  {
+    "prospect_id": 154,
+    "business_name": "Luxe Homes",
+    "trade": "Builder",
+    "location": "48 Hylton St, Birmingham B18 6HN",
+    "website": "http://www.luxehomes.uk.com/",
+    "website_status": "has_website",
+    "phone": "0121 554 8258",
+    "queued_at": "2026-10-03T01:06:26.285370"
+  },
+  {
+    "prospect_id": 155,
+    "business_name": "Arden Build Mids Ltd",
+    "trade": "Builder",
+    "location": "1 Loxley Ave, Birmingham B14 4LG",
+    "website": "http://ardenbuildmids.com/",
+    "website_status": "has_website",
+    "phone": "07852 992312",
+    "queued_at": "2026-10-03T01:06:26.356299"
+  },
+  {
+    "prospect_id": 156,
+    "business_name": "MK Builders Merchant LTD",
+    "trade": "Builder",
+    "location": "160 Rookery Rd, Handsworth, Birmingham B21 9NN",
+    "website": "http://mkbuildersmerchants.co.uk/",
+    "website_status": "has_website",
+    "phone": "0121 554 3224",
+    "queued_at": "2026-10-03T01:06:27.555982"
+  },
+  {
+    "prospect_id": 157,
+    "business_name": "Clarky Construction & Carpentry",
+    "trade": "Builder",
+    "location": "71 Western Rd, Birmingham B18 7QD",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07985 195713",
+    "queued_at": "2026-10-03T01:06:27.567638"
+  },
+  {
+    "prospect_id": 210,
+    "business_name": "Katie Corkill Decorating",
+    "trade": "Painter/Decorator",
+    "location": "20, Stambourne House, Lansdowne Way, London SW8 2DH",
+    "website": "https://www.katiecorkilldecorating.co.uk/",
+    "website_status": "has_website",
+    "phone": "07437 156751",
+    "queued_at": "2026-10-03T01:06:28.012955"
+  },
+  {
+    "prospect_id": 158,
+    "business_name": "HB Birmingham (Construction) Ltd",
+    "trade": "Builder",
+    "location": "120 Vyse St, Birmingham B18 6NF",
+    "website": "http://hbbirmingham.co.uk/",
+    "website_status": "has_website",
+    "phone": "0121 725 4715",
+    "queued_at": "2026-10-03T01:06:28.343761"
+  },
+  {
+    "prospect_id": 159,
+    "business_name": "A Surman & Co.Limited",
+    "trade": "Builder",
+    "location": "Newton Pl, Birmingham B18 5JY",
+    "website": "https://www.asurman.com/",
+    "website_status": "has_website",
+    "phone": "0121 554 0390",
+    "queued_at": "2026-10-03T01:06:28.490278"
+  },
+  {
+    "prospect_id": 160,
+    "business_name": "Young & Harris Limited",
+    "trade": "Builder",
+    "location": "5 Wellington St, Birmingham B18 4NN",
+    "website": "http://www.youngandharris.co.uk/",
+    "website_status": "has_website",
+    "phone": "0121 523 0476",
+    "queued_at": "2026-10-03T01:06:28.561632"
+  },
+  {
+    "prospect_id": 161,
+    "business_name": "Colmore Tang Construction",
+    "trade": "Builder",
+    "location": "Colmore Tang House, Broadway, Broad Street, Broad St, Birmingham B15 1BJ",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "0121 369 8000",
+    "queued_at": "2026-10-03T01:06:28.575134"
+  },
+  {
+    "prospect_id": 162,
+    "business_name": "New Model Builder's Merchants",
+    "trade": "Builder",
+    "location": "1 New St, Smethwick, Birmingham B66 2AJ",
+    "website": null,
+    "website_status": "no_website",
+    "phone": null,
+    "queued_at": "2026-10-03T01:06:28.586861"
+  },
+  {
+    "prospect_id": 163,
+    "business_name": "B & F Contracts",
+    "trade": "Builder",
+    "location": "406 Dudley Rd, Birmingham B18 4HH",
+    "website": "https://bfcontracts.co.uk/",
+    "website_status": "has_website",
+    "phone": "0800 058 8225",
+    "queued_at": "2026-10-03T01:06:29.751571"
+  },
+  {
+    "prospect_id": 243,
+    "business_name": "Link-Coin",
+    "trade": "Bricklayer",
+    "location": "18 Northumberland Ave, London WC2N 5BY",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "6771244422",
+    "queued_at": "2026-10-03T01:06:29.763771"
+  },
+  {
+    "prospect_id": 164,
+    "business_name": "Dawson Builders Merchants",
+    "trade": "Builder",
+    "location": "10 Dawson Rd, Handsworth, Birmingham B21 9HS",
+    "website": "https://www.dawsonbuildersmerchants.co.uk/",
+    "website_status": "has_website",
+    "phone": "0121 523 0927",
+    "queued_at": "2026-10-03T01:06:29.959324"
+  },
+  {
+    "prospect_id": 165,
+    "business_name": "Discount Builders Merchants (Midlands) Ltd - Birmingham",
+    "trade": "Builder",
+    "location": "Anne Rd, Smethwick B66 2NZ",
+    "website": "http://www.discountbuilders.co.uk/",
+    "website_status": "has_website",
+    "phone": "0121 554 4500",
+    "queued_at": "2026-10-03T01:06:30.334117"
+  },
+  {
+    "prospect_id": 166,
+    "business_name": "Warmer`s Loft conversions",
+    "trade": "Builder",
+    "location": "69 Steward St, Birmingham B18 7AF",
+    "website": "http://www.loft-conversions-specialist.co.uk/",
+    "website_status": "has_website",
+    "phone": "0800 270 7616",
+    "queued_at": "2026-10-03T01:06:30.398235"
+  },
+  {
+    "prospect_id": 167,
+    "business_name": "Najran Building Fencing & Gas Supplies",
+    "trade": "Builder",
+    "location": "194-196 Spring Hl, Birmingham B18 7BS",
+    "website": "http://www.najranbuildingandfencing.co.uk/",
+    "website_status": "has_website",
+    "phone": "0121 456 3555",
+    "queued_at": "2026-10-03T01:06:30.565710"
+  },
+  {
+    "prospect_id": 168,
+    "business_name": "M. Lambe Construction Limited",
+    "trade": "Builder",
+    "location": "No.1, The Mint, 94 Icknield St, Birmingham B18 6RU",
+    "website": "http://www.mlambe.co.uk/",
+    "website_status": "has_website",
+    "phone": "0121 554 2108",
+    "queued_at": "2026-10-03T01:06:30.770815"
+  },
+  {
+    "prospect_id": 169,
+    "business_name": "Dill the Builder",
+    "trade": "Builder",
+    "location": "16B Holyhead Rd, Birmingham B21 0LT",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07402 444226",
+    "queued_at": "2026-10-03T01:06:30.782616"
+  },
+  {
+    "prospect_id": 170,
+    "business_name": "Noel David Building & Quality Brickwork Contractors",
+    "trade": "Builder",
+    "location": "74 Manor House Ln, Birmingham B26 1PR",
+    "website": "http://www.qualitybrickwork.co.uk/",
+    "website_status": "has_website",
+    "phone": "07940 230349",
+    "queued_at": "2026-10-03T01:06:32.244652"
+  },
+  {
+    "prospect_id": 171,
+    "business_name": "Cullinan Construction",
+    "trade": "Builder",
+    "location": "84d Vyse St, Hockley, Birmingham B18 6HA",
+    "website": "http://www.cullinanconstructionltd.co.uk/",
+    "website_status": "has_website",
+    "phone": "0121 523 9861",
+    "queued_at": "2026-10-03T01:06:32.300457"
+  },
+  {
+    "prospect_id": 172,
+    "business_name": "Power Construction Ltd",
+    "trade": "Builder",
+    "location": "Grosvenor House, 11 St Paul's Square, Birmingham B3 1RB",
+    "website": "http://www.powerconstruction.com/",
+    "website_status": "has_website",
+    "phone": "0121 369 3005",
+    "queued_at": "2026-10-03T01:06:33.049849"
+  },
+  {
+    "prospect_id": 173,
+    "business_name": "Sixways Builders Merchants Ltd",
+    "trade": "Builder",
+    "location": "11 Birchfield Rd, Handsworth, Birmingham B19 1SU",
+    "website": "http://www.sixwayshardware.co.uk/",
+    "website_status": "has_website",
+    "phone": "0121 523 4648",
+    "queued_at": "2026-10-03T01:06:33.718380"
+  },
+  {
+    "prospect_id": 174,
+    "business_name": "DANI DECO Ltd",
+    "trade": "Builder",
+    "location": "Nursery Dr, Cotteridge, Birmingham B30 1DR",
+    "website": "http://www.danideco.co.uk/",
+    "website_status": "has_website",
+    "phone": "07449 320614",
+    "queued_at": "2026-10-03T01:06:34.072195"
+  },
+  {
+    "prospect_id": 175,
+    "business_name": "Swift Building Services (midlands) Ltd",
+    "trade": "Builder",
+    "location": "7, 129 Western Rd, Birmingham B18 7QD",
+    "website": "https://swiftbuildingservices.co.uk/",
+    "website_status": "has_website",
+    "phone": "0121 551 2244",
+    "queued_at": "2026-10-03T01:06:35.298963"
+  },
+  {
+    "prospect_id": 177,
+    "business_name": "Builders Construction",
+    "trade": "Builder",
+    "location": "6 Waterworks Rd, Birmingham B16 9DE",
+    "website": null,
+    "website_status": "no_website",
+    "phone": null,
+    "queued_at": "2026-10-03T01:06:35.346054"
+  },
+  {
+    "prospect_id": 178,
+    "business_name": "Parfait Homes",
+    "trade": "Builder",
+    "location": "Studio 752 The Big Peg, 120 Vyse St, Birmingham B18 6NF",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "0333 320 9966",
+    "queued_at": "2026-10-03T01:06:35.402819"
+  },
+  {
+    "prospect_id": 179,
+    "business_name": "SS Group Of Companies Ltd",
+    "trade": "Builder",
+    "location": "Branston Court, Branston St, Birmingham B18 6BA",
+    "website": "http://www.ssgroupuk.com/",
+    "website_status": "has_website",
+    "phone": "0121 222 1320",
+    "queued_at": "2026-10-03T01:06:37.719708"
+  },
+  {
+    "prospect_id": 180,
+    "business_name": "Triaim",
+    "trade": "Builder",
+    "location": "Suite 12, 49 Vyse St, Birmingham B18 6HF",
+    "website": "https://www.triaim.com/",
+    "website_status": "has_website",
+    "phone": "0121 523 6006",
+    "queued_at": "2026-10-03T01:06:38.009881"
+  },
+  {
+    "prospect_id": 181,
+    "business_name": "Travis Perkins",
+    "trade": "Builder",
+    "location": "1 South Rd, Hockley, Birmingham B18 5LT",
+    "website": "https://www.travisperkins.co.uk/branch-locator/3706?y_source=1_ODgwMTM3MzgtNzE1LWxvY2F0aW9uLndlYnNpdGU%3D",
+    "website_status": "has_website",
+    "phone": "0121 554 3396",
+    "queued_at": "2026-10-03T01:06:41.224903"
+  },
+  {
+    "prospect_id": 182,
+    "business_name": "Oricon Ltd",
+    "trade": "Builder",
+    "location": "95 Spencer St, Birmingham B18 6DA",
+    "website": "http://oriconhomes.co.uk/",
+    "website_status": "has_website",
+    "phone": "0121 403 3001",
+    "queued_at": "2026-10-03T01:06:42.398850"
+  },
+  {
+    "prospect_id": 183,
+    "business_name": "Bart Decorating",
+    "trade": "Painter/Decorator",
+    "location": "Selwood Terrace, South Kensington, London SW7 3QG",
+    "website": "https://www.bartdecorating.co.uk/",
+    "website_status": "has_website",
+    "phone": "07727 615118",
+    "queued_at": "2026-10-03T01:06:43.480175"
+  },
+  {
+    "prospect_id": 222,
+    "business_name": "Bright Vision Decorators LTD",
+    "trade": "Painter/Decorator",
+    "location": "Ste 134, 4 Montpelier St, London SW7 1EE",
+    "website": "http://www.brightvision4u.com/",
+    "website_status": "has_website",
+    "phone": "07821 104601",
+    "queued_at": "2026-10-03T01:06:43.903697"
+  },
+  {
+    "prospect_id": 244,
+    "business_name": "SP Plumbing & Bathroom Installations",
+    "trade": "Bathroom Fitter",
+    "location": "Heol Harri Lewis, Nelson, Treharris CF46 6JH",
+    "website": "http://www.spplumbing.org/",
+    "website_status": "has_website",
+    "phone": "07944 168566",
+    "queued_at": "2026-10-03T01:06:52.070654"
+  },
+  {
+    "prospect_id": 184,
+    "business_name": "CHELLS Painters Decorators",
+    "trade": "Painter/Decorator",
+    "location": "9 Pond Pl, London SW3 6QR",
+    "website": "http://chellspainters.co.uk/",
+    "website_status": "has_website",
+    "phone": "07418 379090",
+    "queued_at": "2026-10-03T01:06:52.128539"
+  },
+  {
+    "prospect_id": 185,
+    "business_name": "Chelsea Painters",
+    "trade": "Painter/Decorator",
+    "location": "17 Old Church St, London SW3 5DL",
+    "website": "http://www.chelsea-painters.com/",
+    "website_status": "has_website",
+    "phone": "07793 079513",
+    "queued_at": "2026-10-03T01:06:54.426016"
+  },
+  {
+    "prospect_id": 186,
+    "business_name": "Platinum Paints | Painters and Decorators Kensington",
+    "trade": "Painter/Decorator",
+    "location": "142 Cromwell Rd, London SW7 4EF",
+    "website": "https://platinumpaints.co.uk/painters-decorators-kensington/?utm_source=google&utm_medium=organic&utm_campaign=gmb_kensington",
+    "website_status": "has_website",
+    "phone": "07307 367727",
+    "queued_at": "2026-10-03T01:06:55.311050"
+  },
+  {
+    "prospect_id": 187,
+    "business_name": "Kensington Painters and Decorators",
+    "trade": "Painter/Decorator",
+    "location": "Floor 1, 18 Vicarage Gate, London W8 4BX",
+    "website": "https://www.kensingtonpaintersanddecorators.co.uk/",
+    "website_status": "has_website",
+    "phone": "020 8051 4916",
+    "queued_at": "2026-10-03T01:06:55.404713"
+  },
+  {
+    "prospect_id": 188,
+    "business_name": "Kola Colours Limited",
+    "trade": "Painter/Decorator",
+    "location": "1 East Lawrence St, London SW3 5NQ",
+    "website": "http://kolacolours.co.uk/",
+    "website_status": "has_website",
+    "phone": "07923 212722",
+    "queued_at": "2026-10-03T01:06:55.634187"
+  },
+  {
+    "prospect_id": 189,
+    "business_name": "Barry's Luxe Decorating Ltd",
+    "trade": "Painter/Decorator",
+    "location": "142 Cromwell Rd, London SW7 4EF",
+    "website": "https://barrysluxedecorating.co.uk/",
+    "website_status": "has_website",
+    "phone": "07480 149720",
+    "queued_at": "2026-10-03T01:06:56.665511"
+  },
+  {
+    "prospect_id": 223,
+    "business_name": "Prima Decor Painters & Decorators",
+    "trade": "Painter/Decorator",
+    "location": "11A, ash house business centre, 8 Second Cross Rd, Twickenham TW2 5RF",
+    "website": "https://primadecor.co.uk/",
+    "website_status": "has_website",
+    "phone": "020 8226 5125",
+    "queued_at": "2026-10-03T01:06:56.737799"
+  },
+  {
+    "prospect_id": 224,
+    "business_name": "Homeconcepts Renovations",
+    "trade": "Painter/Decorator",
+    "location": "4 Montpelier St, London SW7 1EE",
+    "website": "http://www.homeconcepts.co.uk/",
+    "website_status": "has_website",
+    "phone": "020 7096 1084",
+    "queued_at": "2026-10-03T01:06:56.826123"
+  },
+  {
+    "prospect_id": 190,
+    "business_name": "Painting Decorating & Handyman Services",
+    "trade": "Painter/Decorator",
+    "location": "527A Battersea Park Rd, London SW11 3BN",
+    "website": "https://westlondonhandyman.co.uk/",
+    "website_status": "has_website",
+    "phone": "07521 758628",
+    "queued_at": "2026-10-03T01:06:57.326825"
+  },
+  {
+    "prospect_id": 191,
+    "business_name": "Diamond Painters London ltd",
+    "trade": "Painter/Decorator",
+    "location": "120 Cromwell Rd, London SW7 4ET",
+    "website": "http://www.diamondpainters.co.uk/",
+    "website_status": "has_website",
+    "phone": "07921 519453",
+    "queued_at": "2026-10-03T01:06:57.561278"
+  },
+  {
+    "prospect_id": 192,
+    "business_name": "Painting Decorating Handyman Services",
+    "trade": "Painter/Decorator",
+    "location": "10 Ivatt Pl, London W14 9NQ",
+    "website": "http://westlondonhandyman.co.uk/",
+    "website_status": "has_website",
+    "phone": "07521 758628",
+    "queued_at": "2026-10-03T01:06:57.922416"
+  },
+  {
+    "prospect_id": 193,
+    "business_name": "DK Painting & Decorating, Home Improvements",
+    "trade": "Painter/Decorator",
+    "location": "236, Wellington Buildings, Ebury Bridge Rd, London SW1W 8RZ",
+    "website": "http://www.dkpainter.co.uk/",
+    "website_status": "has_website",
+    "phone": "07513 660824",
+    "queued_at": "2026-10-03T01:06:59.842867"
+  },
+  {
+    "prospect_id": 194,
+    "business_name": "Alea Constructions Limited",
+    "trade": "Painter/Decorator",
+    "location": "7 Chelsea Square, London SW3 6LF",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07379 542288",
+    "queued_at": "2026-10-03T01:06:59.854726"
+  },
+  {
+    "prospect_id": 225,
+    "business_name": "Quality Painting & Decorating Services ltd",
+    "trade": "Painter/Decorator",
+    "location": "16 Elm Walk, London SW20 9ED",
+    "website": "https://qualitypaintinganddecorating.co.uk/",
+    "website_status": "has_website",
+    "phone": "07883 854457",
+    "queued_at": "2026-10-03T01:07:03.738707"
+  },
+  {
+    "prospect_id": 195,
+    "business_name": "The London Colour",
+    "trade": "Painter/Decorator",
+    "location": "Albert Court, Prince Consort Rd, South Kensington, London SW7 2BE",
+    "website": "http://thelondoncoulour.co.uk/",
+    "website_status": "has_website",
+    "phone": "07482 668710",
+    "queued_at": "2026-10-03T01:07:03.805417"
+  },
+  {
+    "prospect_id": 196,
+    "business_name": "Yousef Painting & Decorating Ltd",
+    "trade": "Painter/Decorator",
+    "location": "Riverbank house, 1 Putney Bridge Approach, London SW6 3JD",
+    "website": "http://www.yousefpaintinganddecoratingltd.com/",
+    "website_status": "has_website",
+    "phone": "07448 934634",
+    "queued_at": "2026-10-03T01:07:05.290552"
+  },
+  {
+    "prospect_id": 197,
+    "business_name": "Christie\u2019s Painters",
+    "trade": "Painter/Decorator",
+    "location": "9 Gatliff Rd, London SW1W 8DQ",
+    "website": "https://www.christiespainters.com/",
+    "website_status": "has_website",
+    "phone": "07443 996478",
+    "queued_at": "2026-10-03T01:07:05.336089"
+  },
+  {
+    "prospect_id": 198,
+    "business_name": "Chelsea Property Renovation & Maintenance Ltd",
+    "trade": "Painter/Decorator",
+    "location": "289 Brompton Rd, London SW3 2DY",
+    "website": "https://chelseapropertyrenovation.co.uk/",
+    "website_status": "has_website",
+    "phone": "020 7129 7418",
+    "queued_at": "2026-10-03T01:07:06.213982"
+  },
+  {
+    "prospect_id": 199,
+    "business_name": "The Good Painter",
+    "trade": "Painter/Decorator",
+    "location": "23 Sussex St, Pimlico, London SW1V 4RR",
+    "website": "https://thegoodpainter.co.uk/",
+    "website_status": "has_website",
+    "phone": "020 7760 7672",
+    "queued_at": "2026-10-03T01:07:06.356788"
+  },
+  {
+    "prospect_id": 200,
+    "business_name": "Good Guys Decorating",
+    "trade": "Painter/Decorator",
+    "location": "30 Petworth St, London SW11 4QW",
+    "website": "http://www.goodguysdecorating.com/",
+    "website_status": "has_website",
+    "phone": "07597 148846",
+    "queued_at": "2026-10-03T01:07:06.487901"
+  },
+  {
+    "prospect_id": 201,
+    "business_name": "K Wyatt Decorators",
+    "trade": "Painter/Decorator",
+    "location": "17 Adeney Cl, London W6 8ES",
+    "website": "https://kwyattdecorators.co.uk/",
+    "website_status": "has_website",
+    "phone": "07447 181519",
+    "queued_at": "2026-10-03T01:07:06.773415"
+  },
+  {
+    "prospect_id": 203,
+    "business_name": "Painter & Decorator Knightsbridge",
+    "trade": "Painter/Decorator",
+    "location": "2 Sloane Gardens, London SW1W 8DL",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "020 3951 4619",
+    "queued_at": "2026-10-03T01:07:06.785732"
+  },
+  {
+    "prospect_id": 204,
+    "business_name": "Magic DecoratingSW6",
+    "trade": "Painter/Decorator",
+    "location": "92a Wandsworth Bridge Rd., London SW6 2TF",
+    "website": "https://www.magicdecorating-sw6.co.uk/?utm_source=google&utm_medium=wix_google_business_profile&utm_campaign=9789838942067137282",
+    "website_status": "has_website",
+    "phone": "07741 379193",
+    "queued_at": "2026-10-03T01:07:06.984551"
+  },
+  {
+    "prospect_id": 205,
+    "business_name": "Edison Painting & Decorating",
+    "trade": "Painter/Decorator",
+    "location": "Winsham Grove, London SW11 6NE",
+    "website": "https://www.edisonpaintinganddecorating.co.uk/",
+    "website_status": "has_website",
+    "phone": "07462 017721",
+    "queued_at": "2026-10-03T01:07:07.258447"
+  },
+  {
+    "prospect_id": 206,
+    "business_name": "Tully Decorators & Maintenance Ltd",
+    "trade": "Painter/Decorator",
+    "location": "International House, 142 Cromwell Rd, London SW7 4EF",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "020 7965 7334",
+    "queued_at": "2026-10-03T01:07:07.271493"
+  },
+  {
+    "prospect_id": 207,
+    "business_name": "Rafal Painting and Decorating",
+    "trade": "Painter/Decorator",
+    "location": "168 Cortis Rd, London SW15 3AQ",
+    "website": "https://rafalpaintinganddecorating.com/",
+    "website_status": "has_website",
+    "phone": "07525 190890",
+    "queued_at": "2026-10-03T01:07:07.611478"
+  },
+  {
+    "prospect_id": 208,
+    "business_name": "London Decor Company",
+    "trade": "Painter/Decorator",
+    "location": "43b Stanley Grove, London SW8 3PD",
+    "website": "http://www.londondecorcompany.com/",
+    "website_status": "has_website",
+    "phone": "07808 199447",
+    "queued_at": "2026-10-03T01:07:07.808985"
+  },
+  {
+    "prospect_id": 209,
+    "business_name": "Capital Painters London",
+    "trade": "Painter/Decorator",
+    "location": "Blantyre Tower, Worlds End Estate, London SW10 0EW",
+    "website": "http://www.capitalpainters.co.uk/",
+    "website_status": "has_website",
+    "phone": "07879 880884",
+    "queued_at": "2026-10-03T01:07:07.947665"
+  },
+  {
+    "prospect_id": 211,
+    "business_name": "Tito's decoration",
+    "trade": "Painter/Decorator",
+    "location": "London SW11 5JA",
+    "website": "https://titosdecoration.com/",
+    "website_status": "has_website",
+    "phone": null,
+    "queued_at": "2026-10-03T01:07:08.476122"
+  },
+  {
+    "prospect_id": 212,
+    "business_name": "SW Decorating",
+    "trade": "Painter/Decorator",
+    "location": "18 The Power Station, Nine Elms, London SW11 8BZ",
+    "website": "https://swlondondecorating.co.uk/",
+    "website_status": "has_website",
+    "phone": "020 8412 0487",
+    "queued_at": "2026-10-03T01:07:11.312597"
+  },
+  {
+    "prospect_id": 213,
+    "business_name": "Vobi Decorating",
+    "trade": "Painter/Decorator",
+    "location": "55B Smallwood Rd, London SW17 0TN",
+    "website": "https://www.vobidecorating.com/",
+    "website_status": "has_website",
+    "phone": "07425 840360",
+    "queued_at": "2026-10-03T01:07:11.452779"
+  },
+  {
+    "prospect_id": 214,
+    "business_name": "Paint the Town Green",
+    "trade": "Painter/Decorator",
+    "location": "39a&b, Allfarthing Ln, London SW18 2AP",
+    "website": "https://paintthetowngreen.co.uk/?utm_source=google&utm_medium=organic&utm_campaign=google_my_business",
+    "website_status": "has_website",
+    "phone": "020 8871 0531",
+    "queued_at": "2026-10-03T01:07:11.589218"
+  },
+  {
+    "prospect_id": 245,
+    "business_name": "Steve Kelland Plumbing & Heating",
+    "trade": "Bathroom Fitter",
+    "location": "51 The Hollies, Quakers Yard, Treharris CF46 5PN",
+    "website": null,
+    "website_status": "no_website",
+    "phone": null,
+    "queued_at": "2026-10-03T01:07:11.600670"
+  },
+  {
+    "prospect_id": 215,
+    "business_name": "Simon and Dylan's Decorators",
+    "trade": "Painter/Decorator",
+    "location": "Unit 103, 9 Jerdan Pl, London SW6 1BH",
+    "website": "https://www.simonanddylandecorators.co.uk/",
+    "website_status": "has_website",
+    "phone": "020 8264 9021",
+    "queued_at": "2026-10-03T01:07:12.141568"
+  },
+  {
+    "prospect_id": 216,
+    "business_name": "Parsons Green Painters",
+    "trade": "Painter/Decorator",
+    "location": "287 Fulham Palace Rd, London SW6 6TL",
+    "website": "https://www.parsonsgreenpainters.com/",
+    "website_status": "has_website",
+    "phone": null,
+    "queued_at": "2026-10-03T01:07:12.732384"
+  },
+  {
+    "prospect_id": 217,
+    "business_name": "Alex & Son Painting and Tiling South West & South East London",
+    "trade": "Painter/Decorator",
+    "location": "7 Kingscourt Rd, London SW16 1JA",
+    "website": "https://alexandson.co.uk/",
+    "website_status": "has_website",
+    "phone": "07883 782747",
+    "queued_at": "2026-10-03T01:07:13.078756"
+  },
+  {
+    "prospect_id": 218,
+    "business_name": "A Touch Of Colour",
+    "trade": "Painter/Decorator",
+    "location": "River Bank House, 1 Putney Bridge Approach, London SW6 3JD",
+    "website": "https://www.atouchofcolour.co.uk/",
+    "website_status": "has_website",
+    "phone": "020 3556 0002",
+    "queued_at": "2026-10-03T01:07:13.479549"
+  },
+  {
+    "prospect_id": 219,
+    "business_name": "David Banks Painters & Decorators",
+    "trade": "Painter/Decorator",
+    "location": "Riverbank house, 1 Putney Bridge Approach, London SW6 3JD",
+    "website": "https://london-decorating.co.uk/",
+    "website_status": "has_website",
+    "phone": "020 7385 9759",
+    "queued_at": "2026-10-03T01:07:13.929914"
+  },
+  {
+    "prospect_id": 220,
+    "business_name": "JGL Finishes Ltd",
+    "trade": "Painter/Decorator",
+    "location": "52 Grosvenor Gardens, London SW1W 0AU",
+    "website": "https://www.jglfinishes.co.uk/",
+    "website_status": "has_website",
+    "phone": "020 8088 2996",
+    "queued_at": "2026-10-03T01:07:14.276954"
+  },
+  {
+    "prospect_id": 221,
+    "business_name": "Platinum Paints | Painters and Decorators Richmond",
+    "trade": "Painter/Decorator",
+    "location": "7b Parkshot, Richmond TW9 2RD",
+    "website": "https://platinumpaints.co.uk/?utm_source=google&utm_medium=organic&utm_campaign=gmb",
+    "website_status": "has_website",
+    "phone": "07481 557135",
+    "queued_at": "2026-10-03T01:07:14.509941"
+  },
+  {
+    "prospect_id": 226,
+    "business_name": "LS Painting & Decorating Services Ltd",
+    "trade": "Painter/Decorator",
+    "location": "19, Forsyte Court, Galsworthy Rd, Kingston upon Thames KT2 7BT",
+    "website": "http://www.lsfinedecor.com/",
+    "website_status": "has_website",
+    "phone": "07984 685796",
+    "queued_at": "2026-10-03T01:07:14.910730"
+  },
+  {
+    "prospect_id": 227,
+    "business_name": "Kensington Homes",
+    "trade": "Painter/Decorator",
+    "location": "Edith Grove, London SW10 0NN",
+    "website": "https://kensingtonhomes.uk/",
+    "website_status": "has_website",
+    "phone": "020 3355 6003",
+    "queued_at": "2026-10-03T01:07:15.243245"
+  },
+  {
+    "prospect_id": 228,
+    "business_name": "London 1st Decoration",
+    "trade": "Painter/Decorator",
+    "location": "Vicarage Court, Vicarage Gate, London W8 4HF",
+    "website": "http://www.london1stdecoration.co.uk/",
+    "website_status": "has_website",
+    "phone": "07916 275292",
+    "queued_at": "2026-10-03T01:07:16.497533"
+  },
+  {
+    "prospect_id": 229,
+    "business_name": "Bulger Wicks Decorating",
+    "trade": "Painter/Decorator",
+    "location": "Unit 150, 295 Chiswick High Rd., Chiswick, London W4 4HH",
+    "website": "https://www.bulgerwicks.com/",
+    "website_status": "has_website",
+    "phone": "020 8994 4455",
+    "queued_at": "2026-10-03T01:07:16.903523"
+  },
+  {
+    "prospect_id": 235,
+    "business_name": "KD Brickwork (uk) ltd",
+    "trade": "Bricklayer",
+    "location": "152 City Rd, London EC1V 2NX",
+    "website": "http://www.kdbrickwork.co.uk/",
+    "website_status": "has_website",
+    "phone": "020 8903 1165",
+    "queued_at": "2026-10-03T01:07:17.056256"
+  },
+  {
+    "prospect_id": 230,
+    "business_name": "Prime Coat London Ltd",
+    "trade": "Painter/Decorator",
+    "location": "Fishguard Way, London E16 2RX",
+    "website": "https://primecoatlondon.co.uk/",
+    "website_status": "has_website",
+    "phone": "07955 406974",
+    "queued_at": "2026-10-03T01:07:17.246564"
+  },
+  {
+    "prospect_id": 231,
+    "business_name": "DRM DECORATING SERVICES LTD",
+    "trade": "Painter/Decorator",
+    "location": "55 Princes Gate, Exhibition Rd, London SW7 2PN",
+    "website": "http://drmdecoratingservices.co.uk/",
+    "website_status": "has_website",
+    "phone": "07588 421904",
+    "queued_at": "2026-10-03T01:07:17.415363"
+  },
+  {
+    "prospect_id": 232,
+    "business_name": "PAINTER DECORATOR LONDON",
+    "trade": "Painter/Decorator",
+    "location": "64 Nile St, London N1 7SR",
+    "website": "https://painter-decorators.co.uk/",
+    "website_status": "has_website",
+    "phone": "020 8088 3213",
+    "queued_at": "2026-10-03T01:07:17.734108"
+  },
+  {
+    "prospect_id": 233,
+    "business_name": "Eclipse Restoration",
+    "trade": "Painter/Decorator",
+    "location": "Cavaye Pl, London SW10 9PT",
+    "website": "https://eclipserestoration.co.uk/",
+    "website_status": "has_website",
+    "phone": "020 3633 7879",
+    "queued_at": "2026-10-03T01:07:19.083723"
+  },
+  {
+    "prospect_id": 234,
+    "business_name": "West London Brickwork",
+    "trade": "Bricklayer",
+    "location": "60 Newton Ave, London W3 8AL",
+    "website": "https://www.westlondonbrickwork.com/",
+    "website_status": "has_website",
+    "phone": "07517 062189",
+    "queued_at": "2026-10-03T01:07:19.270986"
+  },
+  {
+    "prospect_id": 236,
+    "business_name": "Quick Pro Pointing & Brickwork",
+    "trade": "Bricklayer",
+    "location": "7 King St, London WC2E 8HN",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "020 3974 2682",
+    "queued_at": "2026-10-03T01:07:19.282788"
+  },
+  {
+    "prospect_id": 237,
+    "business_name": "Ossie\u2019s Brickwork",
+    "trade": "Bricklayer",
+    "location": "22 Winslow Grove, London E4 6EU",
+    "website": "https://www.ossiesbrickwork.com/",
+    "website_status": "has_website",
+    "phone": "07973 688313",
+    "queued_at": "2026-10-03T01:07:19.405217"
+  },
+  {
+    "prospect_id": 238,
+    "business_name": "K Barnard Brickwork",
+    "trade": "Bricklayer",
+    "location": "14 Freda Corbett Cl, London SE15 6UN",
+    "website": "https://www.kbarnardbrickwork.london/?utm_source=google&utm_medium=wix_google_business_profile&utm_campaign=10531632437799921074",
+    "website_status": "has_website",
+    "phone": "07973 891695",
+    "queued_at": "2026-10-03T01:07:20.175449"
+  },
+  {
+    "prospect_id": 239,
+    "business_name": "M Sheils Brickwork Ltd",
+    "trade": "Bricklayer",
+    "location": "89 Alexandra Park Road Greater, 89 Alexandra Park Rd, Greater, Muswell Hill, London N10 2DP",
+    "website": "http://www.msheilsbrickworkltd.co.uk/",
+    "website_status": "has_website",
+    "phone": "07960 131012",
+    "queued_at": "2026-10-03T01:07:20.449268"
+  },
+  {
+    "prospect_id": 240,
+    "business_name": "Bricklayers yard",
+    "trade": "Bricklayer",
+    "location": "Bricklayers yard, 54 Great Marlborough St, London W1F 7JU",
+    "website": null,
+    "website_status": "no_website",
+    "phone": null,
+    "queued_at": "2026-10-03T01:07:20.461893"
+  },
+  {
+    "prospect_id": 241,
+    "business_name": "Signature Brickwork",
+    "trade": "Bricklayer",
+    "location": "Ste 132, 397-411 Westferry Rd, London E14 3AE",
+    "website": "https://www.signaturebrickwork.com/",
+    "website_status": "has_website",
+    "phone": "020 3150 0063",
+    "queued_at": "2026-10-03T01:07:20.691502"
+  },
+  {
+    "prospect_id": 242,
+    "business_name": "Winchmore Brickwork",
+    "trade": "Bricklayer",
+    "location": "The Town House, 28 Little Park Gardens, Enfield EN2 6PG",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "020 8367 0444",
+    "queued_at": "2026-10-03T01:07:20.719500"
+  },
+  {
+    "prospect_id": 246,
+    "business_name": "GavGas Plumbing and Heating",
+    "trade": "Bathroom Fitter",
+    "location": "4 Priscilla Terrace, Trelewis, Treharris CF46 6AU",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07479 646037",
+    "queued_at": "2026-10-03T01:07:20.747456"
+  },
+  {
+    "prospect_id": 247,
+    "business_name": "PLUMBER PONTYPRIDD",
+    "trade": "Bathroom Fitter",
+    "location": "51 The Hollies, Quakers Yard, Treharris CF46 5PN",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07805 269837",
+    "queued_at": "2026-10-03T01:07:20.780206"
+  },
+  {
+    "prospect_id": 248,
+    "business_name": "James White Construction Ltd",
+    "trade": "Bathroom Fitter",
+    "location": "Unit 2A, Whitebeam Court, Nelson, Treharris CF46 6PQ",
+    "website": "http://www.jameswhiteconstruction.co.uk/",
+    "website_status": "has_website",
+    "phone": "029 2029 1061",
+    "queued_at": "2026-10-03T01:07:20.846042"
+  },
+  {
+    "prospect_id": 249,
+    "business_name": "Steve Kelland Plumbing & Heating",
+    "trade": "Bathroom Fitter",
+    "location": "Ty-draw, Trelewis, Treharris CF46 6AX",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07805 269837",
+    "queued_at": "2026-10-03T01:07:20.857661"
+  },
+  {
+    "prospect_id": 250,
+    "business_name": "Roberts carpentry & joinery",
+    "trade": "Bathroom Fitter",
+    "location": "19 Edward St, Treharris CF46 5LF",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07813 095424",
+    "queued_at": "2026-10-03T01:07:20.870236"
+  },
+  {
+    "prospect_id": 251,
+    "business_name": "Revive Renovations ltd",
+    "trade": "Bathroom Fitter",
+    "location": "John St, Treharris CF46 5PS",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07478 001909",
+    "queued_at": "2026-10-03T01:07:20.883503"
+  },
+  {
+    "prospect_id": 252,
+    "business_name": "Hughes Plumbing & Construction",
+    "trade": "Bathroom Fitter",
+    "location": "17 Danyparc, Merthyr Tydfil CF47 0AX",
+    "website": "https://www.facebook.com/rhplumbingbuilding",
+    "website_status": "has_website",
+    "phone": "07985 333115",
+    "queued_at": "2026-10-03T01:07:21.810607"
+  },
+  {
+    "prospect_id": 253,
+    "business_name": "DGJ Heating",
+    "trade": "Bathroom Fitter",
+    "location": "4 Priscilla Terrace, Trelewis, Treharris CF46 6AU",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07479 646037",
+    "queued_at": "2026-10-03T01:07:21.825198"
+  },
+  {
+    "prospect_id": 254,
+    "business_name": "Mike Payne Heating, Plumbing & Tiling",
+    "trade": "Bathroom Fitter",
+    "location": "58 Yr Hendre, Nantgarw, Cardiff CF15 7TG",
+    "website": "http://www.mikepayneplumbing.co.uk/",
+    "website_status": "has_website",
+    "phone": "01443 841325",
+    "queued_at": "2026-10-03T01:07:21.939189"
+  },
+  {
+    "prospect_id": 255,
+    "business_name": "Will Thomas Plumbing & Heating Ltd",
+    "trade": "Bathroom Fitter",
+    "location": "23 Brecon Rise, Pant, Merthyr Tydfil CF48 2BW",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07958 449008",
+    "queued_at": "2026-10-03T01:07:21.951344"
+  },
+  {
+    "prospect_id": 256,
+    "business_name": "GW Interiors (South Wales) Ltd",
+    "trade": "Bathroom Fitter",
+    "location": "Unit 17, Taff Business Centre, Tonteg Rd, Treforest, Pontypridd CF37 5UA",
+    "website": "http://www.gwinteriors.co.uk/",
+    "website_status": "has_website",
+    "phone": "01443 842446",
+    "queued_at": "2026-10-03T01:07:22.029176"
+  },
+  {
+    "prospect_id": 257,
+    "business_name": "G&S Heating Services Limited",
+    "trade": "Bathroom Fitter",
+    "location": "23 Heol-Y-Glyn, Treharris CF46 5RX",
+    "website": "https://www.southwalesgasengineer.co.uk/gas-engineer-in-treharris/",
+    "website_status": "has_website",
+    "phone": "07875 171849",
+    "queued_at": "2026-10-03T01:07:22.123706"
+  },
+  {
+    "prospect_id": 279,
+    "business_name": "J F Garden Construction",
+    "trade": "Builder",
+    "location": "74 Queens Rd, Carterton OX18 3YD",
+    "website": "https://jfgardenconstruction.com/",
+    "website_status": "has_website",
+    "phone": "07766 434018",
+    "queued_at": "2026-10-03T01:07:22.387910"
+  },
+  {
+    "prospect_id": 258,
+    "business_name": "Hitchings & Thomas Ltd",
+    "trade": "Bathroom Fitter",
+    "location": "Lewis St, Aberdare CF44 6PY",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "01685 871281",
+    "queued_at": "2026-10-03T01:07:22.398917"
+  },
+  {
+    "prospect_id": 259,
+    "business_name": "Unity Heat",
+    "trade": "Bathroom Fitter",
+    "location": "1 Maen Gilfach, Trelewis, Treharris CF46 6BD",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "01685 848113",
+    "queued_at": "2026-10-03T01:07:22.410028"
+  },
+  {
+    "prospect_id": 260,
+    "business_name": "Heatlink Mechanical Engineering",
+    "trade": "Bathroom Fitter",
+    "location": "Unit 1a Whitebeam Court Rhodfa Ty Du Road, Nelson, Treharris, Nelson, Treharris CF46 6PQ",
+    "website": "http://www.heat-link.com/",
+    "website_status": "has_website",
+    "phone": "07880 354043",
+    "queued_at": "2026-10-03T01:07:22.764297"
+  },
+  {
+    "prospect_id": 261,
+    "business_name": "CKM Plumbing And Heating",
+    "trade": "Bathroom Fitter",
+    "location": "Berry Square, Dowlais, Merthyr Tydfil CF48 3AL",
+    "website": "https://www.ckmplumbingandheating.co.uk/",
+    "website_status": "has_website",
+    "phone": "07500 026839",
+    "queued_at": "2026-10-03T01:07:22.839088"
+  },
+  {
+    "prospect_id": 262,
+    "business_name": "The Bathroom Showroom",
+    "trade": "Bathroom Fitter",
+    "location": "Unit 6 & 6b, City Plumbing Supplies, Pant Industrial Estate, Dowlais, Merthyr Tydfil CF48 2SR",
+    "website": "https://bathrooms.com/pages/showroom-locator/4159",
+    "website_status": "has_website",
+    "phone": "01685 382383",
+    "queued_at": "2026-10-03T01:07:23.299191"
+  },
+  {
+    "prospect_id": 263,
+    "business_name": "The Bathroom Studio",
+    "trade": "Bathroom Fitter",
+    "location": "Unit 26a, Pant Industrial Estate, Dowlais, Merthyr Tydfil CF48 2SR",
+    "website": "http://thebathroomstudio.uk/",
+    "website_status": "has_website",
+    "phone": "01685 243311",
+    "queued_at": "2026-10-03T01:07:23.360802"
+  },
+  {
+    "prospect_id": 264,
+    "business_name": "Plumbase Merthyr Tydfil",
+    "trade": "Bathroom Fitter",
+    "location": "Pant Industrial Estate, Heads of the Valleys Rd, Dowlais, Merthyr Tydfil CF48 2SR",
+    "website": "http://www.plumbase.co.uk/",
+    "website_status": "has_website",
+    "phone": "01685 720080",
+    "queued_at": "2026-10-03T01:07:23.665940"
+  },
+  {
+    "prospect_id": 265,
+    "business_name": "SW Building Oxford Limited",
+    "trade": "Builder",
+    "location": "23 Pampas Cl, Carterton OX18 3YE",
+    "website": "http://sw-building.co.uk/",
+    "website_status": "has_website",
+    "phone": "07817 483756",
+    "queued_at": "2026-10-03T01:07:23.864706"
+  },
+  {
+    "prospect_id": 266,
+    "business_name": "Homeplan Construction ltd.",
+    "trade": "Builder",
+    "location": "Unit A Three Michaels Yard, Carterton OX18 3EZ",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "01993 846227",
+    "queued_at": "2026-10-03T01:07:23.876518"
+  },
+  {
+    "prospect_id": 267,
+    "business_name": "Bloor Homes - Brize Meadow",
+    "trade": "Builder",
+    "location": "5 Bellenger Wy., East, Carterton OX18 1NE",
+    "website": "https://bloorhomes.com/new-homes/oxfordshire/east-carterton/brize-meadow",
+    "website_status": "has_website",
+    "phone": "01993 764516",
+    "queued_at": "2026-10-03T01:07:23.930682"
+  },
+  {
+    "prospect_id": 268,
+    "business_name": "Kelliher construction",
+    "trade": "Builder",
+    "location": "29 Ashfield Rd, Carterton OX18 3RD",
+    "website": "http://www.kelliherconstruction.co.uk/",
+    "website_status": "has_website",
+    "phone": "07581 369005",
+    "queued_at": "2026-10-03T01:07:26.080285"
+  },
+  {
+    "prospect_id": 280,
+    "business_name": "Edmunds Construction Ltd",
+    "trade": "Builder",
+    "location": "31 Manor Rd, Witney OX29 7YD",
+    "website": "https://www.edmundsconstruction.co.uk/",
+    "website_status": "has_website",
+    "phone": "07766 052026",
+    "queued_at": "2026-10-03T01:07:26.206310"
+  },
+  {
+    "prospect_id": 269,
+    "business_name": "Liam Barnes Building",
+    "trade": "Builder",
+    "location": "134 Bracken Cl, Carterton OX18 1TG",
+    "website": "https://liambarnesbuilding.co.uk/",
+    "website_status": "has_website",
+    "phone": "07958 391299",
+    "queued_at": "2026-10-03T01:07:30.223354"
+  },
+  {
+    "prospect_id": 270,
+    "business_name": "R.m building",
+    "trade": "Builder",
+    "location": "37 The Crescent, Carterton OX18 3SQ",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07743 224836",
+    "queued_at": "2026-10-03T01:07:30.235666"
+  },
+  {
+    "prospect_id": 271,
+    "business_name": "Baruck Keter Ltd",
+    "trade": "Builder",
+    "location": "11 Crista Pl, Carterton OX18 1DB",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07442 624405",
+    "queued_at": "2026-10-03T01:07:30.246308"
+  },
+  {
+    "prospect_id": 272,
+    "business_name": "Allay Building Solutions",
+    "trade": "Builder",
+    "location": "Rose Cottage, 4 Station Rd, Brize Norton, Carterton OX18 3PU",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "01993 867557",
+    "queued_at": "2026-10-03T01:07:30.256791"
+  },
+  {
+    "prospect_id": 273,
+    "business_name": "Jamie Flaxman Garden Construction",
+    "trade": "Builder",
+    "location": "74 Queens Rd, Carterton OX18 3YD",
+    "website": "http://www.jamieflaxmangardenconstruction.com/",
+    "website_status": "has_website",
+    "phone": "07766 434018",
+    "queued_at": "2026-10-03T01:07:37.465537"
+  },
+  {
+    "prospect_id": 304,
+    "business_name": "Barney's Scaffolding Ltd",
+    "trade": "Builder",
+    "location": "21 Whittington Pl, Carterton OX18 3QL",
+    "website": "https://barneysscaffolding.co.uk/contact-us",
+    "website_status": "has_website",
+    "phone": "07495 296161",
+    "queued_at": "2026-10-03T01:07:37.548804"
+  },
+  {
+    "prospect_id": 274,
+    "business_name": "N Lee & Son Ltd",
+    "trade": "Builder",
+    "location": "3 Shilton Rd, Carterton OX18 1EN",
+    "website": "http://nleeandson.co.uk/",
+    "website_status": "has_website",
+    "phone": "01993 214515",
+    "queued_at": "2026-10-03T01:07:38.577098"
+  },
+  {
+    "prospect_id": 275,
+    "business_name": "Genese Property Group Ltd",
+    "trade": "Builder",
+    "location": "Genese Property Group, Carterton Industrial Estate, Carterton OX18 3EZ",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07762 386802",
+    "queued_at": "2026-10-03T01:07:38.589463"
+  },
+  {
+    "prospect_id": 276,
+    "business_name": "Oxfordshire Handyman",
+    "trade": "Builder",
+    "location": "Netheravon Cl, Carterton OX18 3SF",
+    "website": "http://oxfordshirehandyman.uk/",
+    "website_status": "has_website",
+    "phone": "07401 358649",
+    "queued_at": "2026-10-03T01:07:38.764205"
+  },
+  {
+    "prospect_id": 277,
+    "business_name": "A K Timms",
+    "trade": "Builder",
+    "location": "80-82 Station Rd, Brize Norton, Carterton OX18 3QB",
+    "website": "http://www.aktimms.co.uk/",
+    "website_status": "has_website",
+    "phone": "01993 842172",
+    "queued_at": "2026-10-03T01:07:39.228204"
+  },
+  {
+    "prospect_id": 278,
+    "business_name": "Miller Homes Elmhurst Chase",
+    "trade": "Builder",
+    "location": "Harlequin Place, Carterton OX18 1DW",
+    "website": "https://www.millerhomes.co.uk/new-homes/south-east/elmhurst-chase-carterton.aspx",
+    "website_status": "has_website",
+    "phone": "0330 818 9659",
+    "queued_at": "2026-10-03T01:07:40.848216"
+  },
+  {
+    "prospect_id": 281,
+    "business_name": "Court Construction And Design",
+    "trade": "Builder",
+    "location": "43 Sorrel Way, Carterton OX18 1AG",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07501 455798",
+    "queued_at": "2026-10-03T01:07:40.859984"
+  },
+  {
+    "prospect_id": 282,
+    "business_name": "WG Carter Limited",
+    "trade": "Builder",
+    "location": "81A Eaton Rd, Appleton, Abingdon OX13 5JJ",
+    "website": "http://www.wgcarter.co.uk/",
+    "website_status": "has_website",
+    "phone": "01865 864626",
+    "queued_at": "2026-10-03T01:07:43.837368"
+  },
+  {
+    "prospect_id": 283,
+    "business_name": "D & P Roofing & Building Services",
+    "trade": "Builder",
+    "location": "137 Elmhurst Way, Carterton OX18 1NA",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "01993 225799",
+    "queued_at": "2026-10-03T01:07:43.852645"
+  },
+  {
+    "prospect_id": 284,
+    "business_name": "Clews Construction & Maintenance",
+    "trade": "Builder",
+    "location": "21 Pinecroft, Carterton OX18 3HL",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "01993 841099",
+    "queued_at": "2026-10-03T01:07:43.864388"
+  },
+  {
+    "prospect_id": 285,
+    "business_name": "Silver Carpentry",
+    "trade": "Builder",
+    "location": "35 Black Bourton Rd, Carterton OX18 3HJ",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07872 640317",
+    "queued_at": "2026-10-03T01:07:43.878374"
+  },
+  {
+    "prospect_id": 305,
+    "business_name": "C G S Electrical",
+    "trade": "Builder",
+    "location": "Unit G, Three Michaels Yard, Carterton Industrial Estate, Carterton OX18 3EZ",
+    "website": "https://cgselectrical.co.uk/",
+    "website_status": "has_website",
+    "phone": "07917 562424",
+    "queued_at": "2026-10-03T01:07:43.938835"
+  },
+  {
+    "prospect_id": 286,
+    "business_name": "CB&F Groundwork's Ltd",
+    "trade": "Builder",
+    "location": "Elmstead, Arkell Ave, Carterton OX18 3BS",
+    "website": "http://www.cbfgroundwork.com/",
+    "website_status": "has_website",
+    "phone": "07429 552485",
+    "queued_at": "2026-10-03T01:07:44.131122"
+  },
+  {
+    "prospect_id": 287,
+    "business_name": "Lynch Brother Homes",
+    "trade": "Builder",
+    "location": "Unit 2, Bradley Farm, Cumnor, Oxford OX2 9QU",
+    "website": "https://lynchbrotherhomes.co.uk/?utm_source=google&utm_medium=organic&utm_campaign=gbp",
+    "website_status": "has_website",
+    "phone": "01865 420063",
+    "queued_at": "2026-10-03T01:07:47.670843"
+  },
+  {
+    "prospect_id": 288,
+    "business_name": "Goose Joinery",
+    "trade": "Builder",
+    "location": "Unit 9, VENTURA PARK, Broadshires Way, Carterton OX18 1AD",
+    "website": "https://goosejoinery.co.uk/",
+    "website_status": "has_website",
+    "phone": "01993 841755",
+    "queued_at": "2026-10-03T01:07:47.850912"
+  },
+  {
+    "prospect_id": 289,
+    "business_name": "Lewis Decorators",
+    "trade": "Builder",
+    "location": "43A Alvescot Rd, Carterton OX18 3JN",
+    "website": "https://www.lewis-decorators.com/",
+    "website_status": "has_website",
+    "phone": "01993 290036",
+    "queued_at": "2026-10-03T01:07:47.991308"
+  },
+  {
+    "prospect_id": 290,
+    "business_name": "Halford Roofing & Property Maintenance Ltd",
+    "trade": "Builder",
+    "location": "14 Woodrush Gardens, Carterton OX18 1JE",
+    "website": "https://www.halfordroofing.com/",
+    "website_status": "has_website",
+    "phone": "07495 300617",
+    "queued_at": "2026-10-03T01:07:48.260041"
+  },
+  {
+    "prospect_id": 291,
+    "business_name": "Craig Chatfield Qualified Painter & Decorator",
+    "trade": "Builder",
+    "location": "3 Scholars Acre, Carterton OX18 1BL",
+    "website": "https://www.craigchatfield.com/",
+    "website_status": "has_website",
+    "phone": "07805 416081",
+    "queued_at": "2026-10-03T01:07:48.379127"
+  },
+  {
+    "prospect_id": 292,
+    "business_name": "JM Plastering",
+    "trade": "Builder",
+    "location": "Carterton OX18 1HF",
+    "website": "http://jmplasteringservices.co.uk/",
+    "website_status": "has_website",
+    "phone": "07903 473314",
+    "queued_at": "2026-10-03T01:07:48.568050"
+  },
+  {
+    "prospect_id": 293,
+    "business_name": "Rees Bathrooms",
+    "trade": "Builder",
+    "location": "61 Burford Rd, Carterton OX18 3AQ",
+    "website": "http://www.reesbathrooms.co.uk/",
+    "website_status": "has_website",
+    "phone": "07584 163665",
+    "queued_at": "2026-10-03T01:07:48.641382"
+  },
+  {
+    "prospect_id": 294,
+    "business_name": "Rock-Venture Designs",
+    "trade": "Builder",
+    "location": "Brook House, Burford Rd, Brize Norton, Carterton OX18 3NN",
+    "website": "http://www.rockventuredesigns.com/",
+    "website_status": "has_website",
+    "phone": "07769 622176",
+    "queued_at": "2026-10-03T01:07:51.718721"
+  },
+  {
+    "prospect_id": 295,
+    "business_name": "Mark",
+    "trade": "Builder",
+    "location": "90 Bracken Cl, Carterton OX18 1TQ",
+    "website": null,
+    "website_status": "no_website",
+    "phone": null,
+    "queued_at": "2026-10-03T01:07:51.730445"
+  },
+  {
+    "prospect_id": 296,
+    "business_name": "C Clark Landscape & Groundworks",
+    "trade": "Builder",
+    "location": "41 The Oaks, Carterton OX18 1GN",
+    "website": "http://www.c-clark.co.uk/",
+    "website_status": "has_website",
+    "phone": "07967 599424",
+    "queued_at": "2026-10-03T01:07:51.817726"
+  },
+  {
+    "prospect_id": 297,
+    "business_name": "Southam Electrical Bros Ltd",
+    "trade": "Builder",
+    "location": "37 Ashfield Rd, Carterton OX18 3RD",
+    "website": "http://www.southamelectrical.co.uk/",
+    "website_status": "has_website",
+    "phone": "07920 043082",
+    "queued_at": "2026-10-03T01:07:51.890655"
+  },
+  {
+    "prospect_id": 298,
+    "business_name": "Oxfordshire Carpentry",
+    "trade": "Builder",
+    "location": "99 Mayfield Cl, Carterton OX18 3QS",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07500 964186",
+    "queued_at": "2026-10-03T01:07:51.902159"
+  },
+  {
+    "prospect_id": 299,
+    "business_name": "PMO Painter & Decorator",
+    "trade": "Builder",
+    "location": "46 Ashfield Rd, Carterton OX18 3RA",
+    "website": "http://www.pmo-decorators.com/",
+    "website_status": "has_website",
+    "phone": "07774 673685",
+    "queued_at": "2026-10-03T01:07:51.977120"
+  },
+  {
+    "prospect_id": 300,
+    "business_name": "Acute Homes",
+    "trade": "Builder",
+    "location": "36 Norman Ave, Abingdon OX14 2HJ",
+    "website": "https://www.acutehomes.co.uk/",
+    "website_status": "has_website",
+    "phone": "01865 600804",
+    "queued_at": "2026-10-03T01:07:52.363373"
+  },
+  {
+    "prospect_id": 301,
+    "business_name": "Graham Eadle Painter & Decorator",
+    "trade": "Builder",
+    "location": "46 Alvescot Rd, Carterton OX18 3JJ",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07946 635630",
+    "queued_at": "2026-10-03T01:07:52.375425"
+  },
+  {
+    "prospect_id": 302,
+    "business_name": "Kevin Fitzgerald Electrical Contractors",
+    "trade": "Builder",
+    "location": "101 Queens Rd, Carterton OX18 3XH",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07850 585306",
+    "queued_at": "2026-10-03T01:07:52.386813"
+  },
+  {
+    "prospect_id": 303,
+    "business_name": "G.S. Carpentry & Jonery",
+    "trade": "Builder",
+    "location": "4 Harvest Bank, Carterton OX18 1LZ",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07977 439335",
+    "queued_at": "2026-10-03T01:07:52.397991"
+  },
+  {
+    "prospect_id": 306,
+    "business_name": "Empire Gates",
+    "trade": "Builder",
+    "location": "Enterprise House, Belle Terrace, Carterton OX18 3ER",
+    "website": "http://www.empiregates.uk/",
+    "website_status": "has_website",
+    "phone": "01993 220407",
+    "queued_at": "2026-10-03T01:07:52.497728"
+  },
+  {
+    "prospect_id": 307,
+    "business_name": "JGA Plastering & Rendering Ltd",
+    "trade": "Rendering Specialist",
+    "location": "Russell Cl, Peasenhall, Saxmundham IP17 2EW",
+    "website": "https://www.facebook.com/jgaplastering",
+    "website_status": "has_website",
+    "phone": "07947 330966",
+    "queued_at": "2026-10-03T01:07:52.771664"
+  },
+  {
+    "prospect_id": 308,
+    "business_name": "R J Dean Plasterers Ltd",
+    "trade": "Rendering Specialist",
+    "location": "7, Beta Terrace, Ipswich IP3 9FE",
+    "website": "http://www.rjdeanplasterers.com/",
+    "website_status": "has_website",
+    "phone": "01473 290000",
+    "queued_at": "2026-10-03T01:07:53.003657"
+  },
+  {
+    "prospect_id": 309,
+    "business_name": "Page Brothers Rendering Ltd",
+    "trade": "Rendering Specialist",
+    "location": "92 Friern Gardens, Wickford SS12 0HD",
+    "website": "http://www.pagebrothersrendering.co.uk/",
+    "website_status": "has_website",
+    "phone": "07960 064165",
+    "queued_at": "2026-10-03T01:07:53.115626"
+  },
+  {
+    "prospect_id": 310,
+    "business_name": "External Rendering",
+    "trade": "Rendering Specialist",
+    "location": "114, 313 Billet Rd, London E17 5PX",
+    "website": "http://www.externalrendering.net/",
+    "website_status": "has_website",
+    "phone": "020 8531 6361",
+    "queued_at": "2026-10-03T01:07:53.708867"
+  },
+  {
+    "prospect_id": 311,
+    "business_name": "Cheerful Plastering",
+    "trade": "Rendering Specialist",
+    "location": "Mill Rd, Peasenhall, Saxmundham IP17 2LW",
+    "website": "https://www.cheerfulplastering.co.uk/",
+    "website_status": "has_website",
+    "phone": "07972 772221",
+    "queued_at": "2026-10-03T01:07:54.076780"
+  },
+  {
+    "prospect_id": 312,
+    "business_name": "A & D Watt Plumbing & Heating",
+    "trade": "Bathroom Fitter",
+    "location": "3 Quarry Park, Furnace, Inveraray PA32 8XW",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "01499 500285",
+    "queued_at": "2026-10-03T01:07:54.088258"
+  },
+  {
+    "prospect_id": 313,
+    "business_name": "Macleod Superior Joinery & Renovation Specialists",
+    "trade": "Bathroom Fitter",
+    "location": "A85, Taynuilt PA35 1JE",
+    "website": "https://macleodsuperiorrenovations.co.uk/",
+    "website_status": "has_website",
+    "phone": "07435 461176",
+    "queued_at": "2026-10-03T01:08:02.201299"
+  },
+  {
+    "prospect_id": 314,
+    "business_name": "K Carmichael Plumbing & Heating Engineers",
+    "trade": "Bathroom Fitter",
+    "location": "10 Upper Riochan, Inveraray PA32 8UR",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07795 224994",
+    "queued_at": "2026-10-03T01:08:02.213782"
+  },
+  {
+    "prospect_id": 315,
+    "business_name": "MacKintosh",
+    "trade": "Bathroom Fitter",
+    "location": "1 Kirkton, Taynuilt PA35 1JD",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "01866 822316",
+    "queued_at": "2026-10-03T01:08:02.225323"
+  },
+  {
+    "prospect_id": 326,
+    "business_name": "Bennet J",
+    "trade": "Bathroom Fitter",
+    "location": "4 Forestry House Leonach, Strathlachlan, Cairndow PA27 8DB",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "01369 860780",
+    "queued_at": "2026-10-03T01:08:02.237549"
+  },
+  {
+    "prospect_id": 316,
+    "business_name": "Barbreck Joinery & Construction",
+    "trade": "Bathroom Fitter",
+    "location": "Hillpark, Barbreck, Lochgilphead PA31 8QW",
+    "website": "http://www.barbreckjoinery.co.uk/",
+    "website_status": "has_website",
+    "phone": "01852 500668",
+    "queued_at": "2026-10-03T01:08:08.894763"
+  },
+  {
+    "prospect_id": 317,
+    "business_name": "Noremac Argyll",
+    "trade": "Bathroom Fitter",
+    "location": "Smithy Ln, Lochgilphead PA31 8TA",
+    "website": "http://www.noremacargyll.com/",
+    "website_status": "has_website",
+    "phone": "01546 602984",
+    "queued_at": "2026-10-03T01:08:08.975725"
+  },
+  {
+    "prospect_id": 318,
+    "business_name": "Valdis Bathrooms",
+    "trade": "Bathroom Fitter",
+    "location": "1 Torris Rd, Balloch, Inverness IV2 7HW",
+    "website": "http://valdisbathrooms.co.uk/",
+    "website_status": "has_website",
+    "phone": "07546 228718",
+    "queued_at": "2026-10-03T01:08:11.741388"
+  },
+  {
+    "prospect_id": 319,
+    "business_name": "Shower & Bathroom Transformations in the Highlands (SBT Highland Ltd)",
+    "trade": "Bathroom Fitter",
+    "location": "Grant Rd, Balloch, Inverness IV2 7JN",
+    "website": "https://www.facebook.com/SBTHighlandltd/",
+    "website_status": "has_website",
+    "phone": "07395 320060",
+    "queued_at": "2026-10-03T01:08:12.254493"
+  },
+  {
+    "prospect_id": 320,
+    "business_name": "Bathtime Scotland",
+    "trade": "Bathroom Fitter",
+    "location": "2 Howard Ct, Nerston, East Kilbride, Glasgow G74 4QZ",
+    "website": "http://www.bathtimescotland.co.uk/",
+    "website_status": "has_website",
+    "phone": "01355 267090",
+    "queued_at": "2026-10-03T01:08:12.377994"
+  },
+  {
+    "prospect_id": 327,
+    "business_name": "A W E Electrical",
+    "trade": "Electrician",
+    "location": "43 Wainfelin Rd, Pontypool NP4 6DE",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "01495 759567",
+    "queued_at": "2026-10-03T01:08:12.390021"
+  },
+  {
+    "prospect_id": 321,
+    "business_name": "D Nicolson & Son",
+    "trade": "Bathroom Fitter",
+    "location": "Auchenreoch, Tarbet, Arrochar G83 7DA",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "01301 702400",
+    "queued_at": "2026-10-03T01:08:12.401367"
+  },
+  {
+    "prospect_id": 322,
+    "business_name": "Simply Bathrooms & Heating",
+    "trade": "Bathroom Fitter",
+    "location": "Camalt Muir/Kiltarlity/24, Inverness IV4 7JH",
+    "website": "http://getsimply.co.uk/",
+    "website_status": "has_website",
+    "phone": "01463 741300",
+    "queued_at": "2026-10-03T01:08:12.495076"
+  },
+  {
+    "prospect_id": 323,
+    "business_name": "Backwoodsman Stoves",
+    "trade": "Bathroom Fitter",
+    "location": "Barcaldine, Oban PA37 1SG",
+    "website": "http://www.backwoodsman-stoves.co.uk/",
+    "website_status": "has_website",
+    "phone": "01631 720539",
+    "queued_at": "2026-10-03T01:08:12.633335"
+  },
+  {
+    "prospect_id": 324,
+    "business_name": "Magic Bathrooms",
+    "trade": "Bathroom Fitter",
+    "location": "51 Glengarry Rd, Inverness IV3 8NJ",
+    "website": "http://www.magicbathrooms.co.uk/",
+    "website_status": "has_website",
+    "phone": "07946 478888",
+    "queued_at": "2026-10-03T01:08:16.285498"
+  },
+  {
+    "prospect_id": 325,
+    "business_name": "Just Bathrooms",
+    "trade": "Bathroom Fitter",
+    "location": "6 Allarburn Dr, Beauly IV4 7HN",
+    "website": "https://www.justbathroom.co.uk/",
+    "website_status": "has_website",
+    "phone": "07818 477368",
+    "queued_at": "2026-10-03T01:08:16.451738"
+  },
+  {
+    "prospect_id": 349,
+    "business_name": "Fresh Exteriors",
+    "trade": "Pressure Washing / Driveway Cleaning",
+    "location": "29 Newbury Way, Liverpool L12 9JZ",
+    "website": "https://www.freshexteriors.co.uk/",
+    "website_status": "has_website",
+    "phone": "07359 095462",
+    "queued_at": "2026-10-03T01:08:22.624382"
+  },
+  {
+    "prospect_id": 328,
+    "business_name": "Dragon electrical",
+    "trade": "Electrician",
+    "location": "5 Snatchwood Rd, Abersychan, Pontypool NP4 7BT",
+    "website": "https://www.facebook.com/profile.php?id=61577181788360",
+    "website_status": "has_website",
+    "phone": "07792 107590",
+    "queued_at": "2026-10-03T01:08:22.798199"
+  },
+  {
+    "prospect_id": 329,
+    "business_name": "Shepphard Electrical",
+    "trade": "Electrician",
+    "location": "The Moon, Garth Close, Pontypool NP4 8EH",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07762 649841",
+    "queued_at": "2026-10-03T01:08:22.810292"
+  },
+  {
+    "prospect_id": 330,
+    "business_name": "Edwards Electrical (EEC) Ltd",
+    "trade": "Electrician",
+    "location": "Springvale Industrial Estate, Cwmbran NP44 5BR",
+    "website": "https://edwardselectricalltd.com/",
+    "website_status": "has_website",
+    "phone": "07714 678344",
+    "queued_at": "2026-10-03T01:08:22.977777"
+  },
+  {
+    "prospect_id": 331,
+    "business_name": "Electronic Repair Services Ltd",
+    "trade": "Electrician",
+    "location": "6 Estate Rd, Pontnewynydd, Pontypool NP4 6AD",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "01495 760582",
+    "queued_at": "2026-10-03T01:08:22.990425"
+  },
+  {
+    "prospect_id": 332,
+    "business_name": "Wired Smart",
+    "trade": "Electrician",
+    "location": "33 Commercial St, Pontypool NP4 6JQ",
+    "website": "https://wiredsmart.co.uk/",
+    "website_status": "has_website",
+    "phone": null,
+    "queued_at": "2026-10-03T01:08:23.120523"
+  },
+  {
+    "prospect_id": 333,
+    "business_name": "Phillips Electrical & Plumbing Contractors",
+    "trade": "Electrician",
+    "location": "25 Broad St, Blaenavon, Pontypool NP4 9NE",
+    "website": null,
+    "website_status": "no_website",
+    "phone": null,
+    "queued_at": "2026-10-03T01:08:23.133239"
+  },
+  {
+    "prospect_id": 360,
+    "business_name": "L Phillips Window Cleaners",
+    "trade": "Window Cleaner",
+    "location": "43 Oak Mead, Godalming GU7 3RJ",
+    "website": "https://www.lphillips.co.uk/",
+    "website_status": "has_website",
+    "phone": "01483 369261",
+    "queued_at": "2026-10-03T01:08:23.375274"
+  },
+  {
+    "prospect_id": 334,
+    "business_name": "David Hyde",
+    "trade": "Electrician",
+    "location": "Quarry Cottages, Penygarn Rd, Penygarn, Pontypool NP4 8JT",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07789 860764",
+    "queued_at": "2026-10-03T01:08:23.387104"
+  },
+  {
+    "prospect_id": 335,
+    "business_name": "Home Heating Team",
+    "trade": "Electrician",
+    "location": "Grove Estate, Pontnewynydd, Pontypool NP4 6SQ",
+    "website": "https://homeheatingteam.co.uk/",
+    "website_status": "has_website",
+    "phone": "07365 078690",
+    "queued_at": "2026-10-03T01:08:23.714276"
+  },
+  {
+    "prospect_id": 336,
+    "business_name": "Bryan Watkins & Son Ltd (Handyman's)",
+    "trade": "Electrician",
+    "location": "Handymans, 16 Osborne Rd, Pontypool NP4 6LU",
+    "website": "https://www.myhandymans.com/",
+    "website_status": "has_website",
+    "phone": "01495 762796",
+    "queued_at": "2026-10-03T01:08:26.559441"
+  },
+  {
+    "prospect_id": 337,
+    "business_name": "J.K.M Power Washing & maintenance Services LTD",
+    "trade": "Pressure Washing / Driveway Cleaning",
+    "location": "8 Hall St, Southport PR9 0SF",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07951 229604",
+    "queued_at": "2026-10-03T01:08:26.571144"
+  },
+  {
+    "prospect_id": 338,
+    "business_name": "LJR Jet washing services",
+    "trade": "Pressure Washing / Driveway Cleaning",
+    "location": "11 Galsworthy Ave, Liverpool, Bootle L30 9SG",
+    "website": "http://www.ljrjetwashingservices.co.uk/",
+    "website_status": "has_website",
+    "phone": "07725 123162",
+    "queued_at": "2026-10-03T01:08:26.773414"
+  },
+  {
+    "prospect_id": 366,
+    "business_name": "Browns window cleaning",
+    "trade": "Window Cleaner",
+    "location": "The lodge, Westwood Ln, Normandy, Guildford GU3 2JE",
+    "website": "https://www.browns-window-cleaning.co.uk/",
+    "website_status": "has_website",
+    "phone": "01483 812092",
+    "queued_at": "2026-10-03T01:08:27.625923"
+  },
+  {
+    "prospect_id": 339,
+    "business_name": "Pinnacle NW - Pressure Washing Southport",
+    "trade": "Pressure Washing / Driveway Cleaning",
+    "location": "11 Guinea Hall Mews, Banks, Southport PR9 8RF",
+    "website": "https://www.pinnaclenorthwest.co.uk/",
+    "website_status": "has_website",
+    "phone": "01704 639119",
+    "queued_at": "2026-10-03T01:08:27.962859"
+  },
+  {
+    "prospect_id": 340,
+    "business_name": "All Clean Pressure Washing",
+    "trade": "Pressure Washing / Driveway Cleaning",
+    "location": "Flat 8, Moor House, The Northern Rd, Crosby, Liverpool L23 2UF",
+    "website": "http://www.allcleanpw.co.uk/",
+    "website_status": "has_website",
+    "phone": "07584 345218",
+    "queued_at": "2026-10-03T01:08:30.098791"
+  },
+  {
+    "prospect_id": 341,
+    "business_name": "Mersey Jet Wash",
+    "trade": "Pressure Washing / Driveway Cleaning",
+    "location": "25 Simon's Croft, Liverpool, Bootle L30 2RS",
+    "website": "https://merseyjetwash.co.uk/",
+    "website_status": "has_website",
+    "phone": "07838 200908",
+    "queued_at": "2026-10-03T01:08:30.185321"
+  },
+  {
+    "prospect_id": 342,
+    "business_name": "TVW Pressure Washing Specialists",
+    "trade": "Pressure Washing / Driveway Cleaning",
+    "location": "11 Stuart Rd, Liverpool L4 5QS",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07748 878422",
+    "queued_at": "2026-10-03T01:08:30.201016"
+  },
+  {
+    "prospect_id": 343,
+    "business_name": "CHRIS SPRUCE CLEANING SERVICES LTD",
+    "trade": "Pressure Washing / Driveway Cleaning",
+    "location": "SD Office, 491 Wight Moss Way, Southport PR8 4ZZ",
+    "website": "https://www.cleaning-service.uk.com/",
+    "website_status": "has_website",
+    "phone": "0800 093 3267",
+    "queued_at": "2026-10-03T01:08:30.296090"
+  },
+  {
+    "prospect_id": 377,
+    "business_name": "Hillcroft Joiners Walsall",
+    "trade": "Carpenter",
+    "location": "Walsall WS1 1QL",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "0845 459 6106",
+    "queued_at": "2026-10-03T01:08:30.307808"
+  },
+  {
+    "prospect_id": 344,
+    "business_name": "Exterior Cleaning Services NW",
+    "trade": "Pressure Washing / Driveway Cleaning",
+    "location": "256-260 Derby Rd, Bootle L20 8LJ",
+    "website": "http://www.ecsnw.co.uk/",
+    "website_status": "has_website",
+    "phone": "0151 662 0705",
+    "queued_at": "2026-10-03T01:08:36.259963"
+  },
+  {
+    "prospect_id": 345,
+    "business_name": "Total Exterior Group - External Services in Southport",
+    "trade": "Pressure Washing / Driveway Cleaning",
+    "location": "Southport Business Park, Wight Moss Way, Southport PR8 4HQ",
+    "website": "https://www.teg-ltd.co.uk/",
+    "website_status": "has_website",
+    "phone": "01704 607706",
+    "queued_at": "2026-10-03T01:08:36.629009"
+  },
+  {
+    "prospect_id": 346,
+    "business_name": "Pure Clean",
+    "trade": "Pressure Washing / Driveway Cleaning",
+    "location": "unit 7, Business Park, Wakefield Rd, Liverpool, Wakefield, Bootle L30 6TZ",
+    "website": "http://www.pure-cleanltd.com/",
+    "website_status": "has_website",
+    "phone": "01704 863424",
+    "queued_at": "2026-10-03T01:08:36.701462"
+  },
+  {
+    "prospect_id": 347,
+    "business_name": "Boss Exterior Cleaning",
+    "trade": "Pressure Washing / Driveway Cleaning",
+    "location": "3 Grange Rd, Bootle L30 6TS",
+    "website": "http://bossexteriorcleaning.co.uk/",
+    "website_status": "has_website",
+    "phone": "07488 366297",
+    "queued_at": "2026-10-03T01:08:37.674258"
+  },
+  {
+    "prospect_id": 348,
+    "business_name": "Driveway cleaning co",
+    "trade": "Pressure Washing / Driveway Cleaning",
+    "location": "130 Stamford Rd, Southport PR8 4EX",
+    "website": "http://www.driveway-cleaning.co/",
+    "website_status": "has_website",
+    "phone": "01704 620414",
+    "queued_at": "2026-10-03T01:08:37.737687"
+  },
+  {
+    "prospect_id": 350,
+    "business_name": "Brasenose Steamers wagon coaches 4x4 cars taxis , engines",
+    "trade": "Pressure Washing / Driveway Cleaning",
+    "location": "104 Brasenose Rd, Liverpool, Bootle L20 8HJ",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07419 374526",
+    "queued_at": "2026-10-03T01:08:37.751213"
+  },
+  {
+    "prospect_id": 351,
+    "business_name": "Facelift Drives | Pressure Washing Services",
+    "trade": "Pressure Washing / Driveway Cleaning",
+    "location": "589 Pensby Rd, Thingwall, Birkenhead, Wirral CH61 7UD",
+    "website": "http://www.faceliftdrives.co.uk/",
+    "website_status": "has_website",
+    "phone": "07838 393549",
+    "queued_at": "2026-10-03T01:08:37.986340"
+  },
+  {
+    "prospect_id": 352,
+    "business_name": "Jet Set Cleaning North West",
+    "trade": "Pressure Washing / Driveway Cleaning",
+    "location": "Acuba Rd, Liverpool L15 7LP",
+    "website": "http://www.jetsetcleaningnorthwest.com/",
+    "website_status": "has_website",
+    "phone": "07835 011038",
+    "queued_at": "2026-10-03T01:08:38.172977"
+  },
+  {
+    "prospect_id": 353,
+    "business_name": "TDL Cleaning Solutions",
+    "trade": "Pressure Washing / Driveway Cleaning",
+    "location": "20 Somerset Rd, Bootle, Liverpool L20 9BT",
+    "website": "http://www.tdlcleaningsolutionsltd.com/",
+    "website_status": "has_website",
+    "phone": "0151 440 3661",
+    "queued_at": "2026-10-03T01:08:38.484234"
+  },
+  {
+    "prospect_id": 354,
+    "business_name": "Rapid exterior cleaning",
+    "trade": "Pressure Washing / Driveway Cleaning",
+    "location": "52 Hanford Ave, Liverpool L9 3BW",
+    "website": null,
+    "website_status": "no_website",
+    "phone": "07398 526159",
+    "queued_at": "2026-10-03T01:08:38.495571"
+  },
+  {
+    "prospect_id": 378,
+    "business_name": "Male Building Services",
+    "trade": "Carpenter",
+    "location": "24 Coronation Rd, Pelsall, Walsall WS4 1BG",
+    "website": "http://malebuilders.co.uk/",
+    "website_status": "has_website",
+    "phone": "07976 743226",
+    "queued_at": "2026-10-03T01:08:42.247413"
+  },
+  {
+    "prospect_id": 355,
+    "business_name": "EHS Property Services",
+    "trade": "Pressure Washing / Driveway Cleaning",
+    "location": "Westminster Rd, Liverpool L4 3TQ",
+    "website": "https://ehspropertyservices.co.uk/",
+    "website_status": "has_website",
+    "phone": "07591 882005",
+    "queued_at": "2026-10-03T01:08:43.117476"
+  }
+]
