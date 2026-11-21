@@ -10,7 +10,8 @@
 // env.ASSETS.fetch() (the "ASSETS" binding, also named explicitly in
 // wrangler.jsonc) for anything that isn't one of these backend paths.
 
-const RAILWAY_ORIGIN = "https://web-production-748b1.up.railway.app";
+// Flask backend origin (Oracle server since Nov 2026; was the Railway URL). Name kept to keep the diff small.
+const RAILWAY_ORIGIN = "https://groundworkbuild.com";
 
 // Prefixes with a trailing slash only match paths under them (there's no
 // bare /api or /verify route). /account and /admin have no trailing slash
